@@ -39,6 +39,20 @@ npm run build        # release build with installer
 cargo test           # all Rust tests; `cargo test -p dd-core` also runs on Linux and WSL
 ```
 
+## Packaging
+
+```powershell
+npm run tauri -- build --no-bundle      # release exe
+scripts\pack-msix.ps1                   # unsigned MSIX: the form the Microsoft Store takes and signs itself
+scripts\pack-msix.ps1 -DevCert          # MSIX signed with a generated development certificate, for local installs
+```
+
+To install the development package, trust the certificate once in an administrator PowerShell
+(`winapp cert install dist\devcert.pfx`), then run `Add-AppxPackage dist\DigitalDrivers.msix`.
+The manifest and tile images are in `packaging/msix/`.
+
+## Automated end-to-end check
+
 `scripts/run-shell-check.ps1` starts the debug build, waits, saves a screenshot of the app window and prints
 the log. It is the automated end-to-end check that a hosted page can call the native commands.
 

@@ -19,8 +19,11 @@ async function connect() {
 
   const url = await invoke('platform_url')
   try {
-    // Opaque response is fine: this only tells us whether the platform is reachable.
-    await fetch(`${url}/api/health`, { mode: 'no-cors', cache: 'no-store' })
+    // Only a JSON answer from our own health endpoint counts. An error page of a proxy or a parked
+    // domain must not be opened inside the shell.
+    const res = await fetch(`${url}/api/health`, { cache: 'no-store' })
+    const health = await res.json()
+    if (typeof health.status !== 'string') throw new Error('not the Digital Drivers health endpoint')
   }
   catch {
     statusEl.textContent = 'Digital Drivers cannot be reached. Check your internet connection.'

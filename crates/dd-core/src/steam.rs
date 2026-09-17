@@ -2,8 +2,9 @@
 
 use std::path::{Path, PathBuf};
 
-/// Folder of Assetto Corsa relative to a Steam library root.
-const AC_RELATIVE_DIR: &str = "steamapps/common/assettocorsa";
+/// Folder of Assetto Corsa relative to a Steam library root, as path components so the result uses the
+/// platform's separator throughout.
+const AC_RELATIVE_DIR: [&str; 3] = ["steamapps", "common", "assettocorsa"];
 /// File that must exist for a folder to count as an Assetto Corsa installation.
 const AC_EXECUTABLE: &str = "AssettoCorsa.exe";
 
@@ -29,7 +30,7 @@ pub fn library_paths(vdf: &str) -> Vec<PathBuf> {
 pub fn find_assetto_corsa(libraries: &[PathBuf]) -> Option<PathBuf> {
     libraries
         .iter()
-        .map(|library| library.join(AC_RELATIVE_DIR))
+        .map(|library| AC_RELATIVE_DIR.iter().fold(library.clone(), |dir, part| dir.join(part)))
         .find(|dir| is_assetto_corsa_dir(dir))
 }
 

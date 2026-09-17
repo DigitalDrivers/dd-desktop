@@ -40,9 +40,11 @@ fn system_check(webview: tauri::Webview, app: tauri::AppHandle) -> SystemCheck {
     log(&format!("system_check requested by {}", webview.url().map(|u| u.to_string()).unwrap_or_default()));
 
     let ac = find_assetto_corsa();
+    let writable = ac.as_deref().map(can_write_into);
+    log(&format!("system_check -> assetto corsa: {ac:?}, writable: {writable:?}"));
     SystemCheck {
         app_version: app.package_info().version.to_string(),
-        assetto_corsa_writable: ac.as_deref().map(can_write_into),
+        assetto_corsa_writable: writable,
         assetto_corsa_path: ac.map(|p| p.display().to_string()),
     }
 }
