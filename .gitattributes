@@ -1,0 +1,4 @@
+# The repo is edited from WSL and built on Windows: keep LF everywhere.
+* text=auto eol=lf
+*.png binary
+*.ico binary

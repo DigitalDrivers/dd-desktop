@@ -1,0 +1,9 @@
+[package]
+name = "dd-core"
+version = "0.1.0"
+description = "Platform-independent logic of the Digital Drivers desktop app (no UI, no Tauri)."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
