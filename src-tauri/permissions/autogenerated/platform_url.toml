@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-platform-url"
+description = "Enables the platform_url command without any pre-configured scope."
+commands.allow = ["platform_url"]
+
+[[permission]]
+identifier = "deny-platform-url"
+description = "Denies the platform_url command without any pre-configured scope."
+commands.deny = ["platform_url"]

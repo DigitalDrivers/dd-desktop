@@ -1,0 +1,26 @@
+[package]
+name = "dd-desktop"
+version = "0.1.0"
+description = "Digital Drivers desktop app"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+# The `_lib` suffix is necessary to make the lib name unique so it does not conflict with the bin name
+# on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "dd_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+dd-core = { path = "../crates/dd-core" }
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+# Reads Steam's install path from the registry.
+winreg = "0.55"

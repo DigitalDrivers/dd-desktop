@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "platform",
+  "description": "The hosted Digital Drivers interface: only the listed native commands, nothing else",
+  "windows": ["main"],
+  "local": false,
+  "remote": {
+    "urls": ["https://digitaldrivers.club", "https://*.digitaldrivers.club"]
+  },
+  "permissions": ["allow-system-check"]
+}

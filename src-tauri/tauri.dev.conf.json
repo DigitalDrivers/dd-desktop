@@ -1,0 +1,11 @@
+{
+  "app": {
+    "security": {
+      "capabilities": [
+        "local",
+        "platform",
+        "dev-localhost"
+      ]
+    }
+  }
+}

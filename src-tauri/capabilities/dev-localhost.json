@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "dev-localhost",
+  "description": "Development only (enabled through tauri.dev.conf.json): a platform running on this machine",
+  "windows": ["main"],
+  "local": false,
+  "remote": {
+    "urls": ["http://localhost:3000"]
+  },
+  "permissions": ["allow-system-check"]
+}
