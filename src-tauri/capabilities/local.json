@@ -3,5 +3,5 @@
   "identifier": "local",
   "description": "The bundled start page of the shell",
   "windows": ["main"],
-  "permissions": ["core:default", "allow-platform-url", "allow-system-check"]
+  "permissions": ["core:default", "allow-platform-url", "allow-system-check", "allow-show-toast"]
 }

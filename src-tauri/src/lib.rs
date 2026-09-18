@@ -49,6 +49,73 @@ fn system_check(webview: tauri::Webview, app: tauri::AppHandle) -> SystemCheck {
     }
 }
 
+/// Shows a native notification (a Windows toast), also while the window is minimised. The hosted
+/// interface calls it for new notifications of the signed-in driver. Plain text only, cut to a sane length.
+#[tauri::command]
+fn show_toast(webview: tauri::Webview, app: tauri::AppHandle, title: String, body: String) -> Result<(), String> {
+    let title: String = title.chars().take(80).collect();
+    let body: String = body.chars().take(300).collect();
+    let app_id = toast_app_id(&app.config().identifier);
+    log(&format!(
+        "show_toast requested by {}: {title} | {body} (app id {app_id})",
+        webview.url().map(|u| u.to_string()).unwrap_or_default()
+    ));
+    show_native_toast(&app_id, &title, &body).map_err(|error| {
+        log(&format!("show_toast failed: {error}"));
+        error
+    })
+}
+
+/// The id Windows files our notifications under. It has to be one Windows knows, or the toast is
+/// dropped without an error.
+fn toast_app_id(identifier: &str) -> String {
+    // Installed from the Store or as MSIX, the package decides the id.
+    if let Some(id) = package_app_id() {
+        return id;
+    }
+    // A build started straight from the target folder is not registered with Windows at all;
+    // PowerShell's id makes the toast show anyway. An installed build is registered by its identifier.
+    let from_target_dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(is_cargo_target_dir)).unwrap_or(false);
+    if from_target_dir { POWERSHELL_APP_ID.to_string() } else { identifier.to_string() }
+}
+
+const POWERSHELL_APP_ID: &str = r"{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe";
+
+fn is_cargo_target_dir(dir: &Path) -> bool {
+    dir.ends_with(Path::new("target").join("debug")) || dir.ends_with(Path::new("target").join("release"))
+}
+
+/// The application user model id of the package this process runs in, if it runs in one.
+#[cfg(windows)]
+fn package_app_id() -> Option<String> {
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetCurrentApplicationUserModelId(length: *mut u32, id: *mut u16) -> i32;
+    }
+    let mut buffer = [0u16; 256];
+    let mut length = buffer.len() as u32;
+    // SAFETY: `buffer` outlives the call and `length` holds its size in characters, as the API asks.
+    let status = unsafe { GetCurrentApplicationUserModelId(&mut length, buffer.as_mut_ptr()) };
+    // 0 is success, the length then counts the terminating zero. Without a package the call
+    // answers APPMODEL_ERROR_NO_APPLICATION (15703).
+    (status == 0 && length > 1).then(|| String::from_utf16_lossy(&buffer[..length as usize - 1]))
+}
+
+#[cfg(not(windows))]
+fn package_app_id() -> Option<String> {
+    None
+}
+
+#[cfg(windows)]
+fn show_native_toast(app_id: &str, title: &str, body: &str) -> Result<(), String> {
+    tauri_winrt_notification::Toast::new(app_id).title(title).text1(body).show().map_err(|error| error.to_string())
+}
+
+#[cfg(not(windows))]
+fn show_native_toast(_app_id: &str, _title: &str, _body: &str) -> Result<(), String> {
+    Err("Notifications are only implemented on Windows".to_string())
+}
+
 /// Writes and removes a small probe file to learn whether the folder is writable.
 fn can_write_into(dir: &Path) -> bool {
     let probe = dir.join("dd-desktop-write-probe.tmp");
@@ -81,7 +148,20 @@ fn steam_root() -> Option<PathBuf> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![platform_url, system_check])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recognises_a_build_started_from_the_cargo_target_folder() {
+        assert!(is_cargo_target_dir(&Path::new("projects").join("dd-desktop").join("target").join("debug")));
+        assert!(is_cargo_target_dir(&Path::new("dd-desktop").join("target").join("release")));
+        assert!(!is_cargo_target_dir(&Path::new("Program Files").join("Digital Drivers")));
+        assert!(!is_cargo_target_dir(&Path::new("WindowsApps").join("DigitalDrivers.Desktop_0.2.0.0_x64__5sms3s9pdbqt0")));
+    }
 }
