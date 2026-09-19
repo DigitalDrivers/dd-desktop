@@ -3,8 +3,11 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
+use dd_core::join::{self, JoinError, JoinTicket};
 use serde::Serialize;
+use tauri::Manager;
 
 /// Address of the hosted interface. `DD_PLATFORM_URL` overrides it for development.
 const DEFAULT_PLATFORM_URL: &str = "https://digitaldrivers.club";
@@ -33,6 +36,8 @@ struct SystemCheck {
     assetto_corsa_path: Option<String>,
     /// Whether the app may write into that folder (needed to install content). None without a folder.
     assetto_corsa_writable: Option<bool>,
+    /// SteamID64 of the account signed in to Steam on this PC. None while Steam is not running.
+    steam_id: Option<String>,
 }
 
 #[tauri::command]
@@ -41,12 +46,79 @@ fn system_check(webview: tauri::Webview, app: tauri::AppHandle) -> SystemCheck {
 
     let ac = find_assetto_corsa();
     let writable = ac.as_deref().map(can_write_into);
-    log(&format!("system_check -> assetto corsa: {ac:?}, writable: {writable:?}"));
+    let steam_id = join::steam_id64(active_steam_user());
+    log(&format!("system_check -> assetto corsa: {ac:?}, writable: {writable:?}, steam account: {steam_id:?}"));
     SystemCheck {
         app_version: app.package_info().version.to_string(),
         assetto_corsa_writable: writable,
         assetto_corsa_path: ac.map(|p| p.display().to_string()),
+        steam_id,
     }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct JoinStarted {
+    /// The livery the race server has for the driver
+    skin: String,
+}
+
+/// Starts the game on the race server of the ticket, the way a launcher does: asks the server for the
+/// driver's slot, writes the game's `race.ini` for an online session there and starts `acs.exe`.
+/// An error is a short code (see `JoinError::code`); the hosted interface has the words for it.
+#[tauri::command]
+async fn join_race(webview: tauri::Webview, app: tauri::AppHandle, ticket: JoinTicket) -> Result<JoinStarted, String> {
+    log(&format!(
+        "join_race requested by {}: {} on {}:{} ({})",
+        webview.url().map(|u| u.to_string()).unwrap_or_default(),
+        ticket.car_model,
+        ticket.host,
+        ticket.game_port,
+        ticket.steam_id
+    ));
+    match start_race(&app, &ticket) {
+        Ok(started) => {
+            log(&format!("join_race -> game started, skin {}", started.skin));
+            Ok(started)
+        }
+        Err(error) => {
+            log(&format!("join_race failed: {error:?}"));
+            Err(error.code())
+        }
+    }
+}
+
+fn start_race(app: &tauri::AppHandle, ticket: &JoinTicket) -> Result<JoinStarted, JoinError> {
+    ticket.validate()?;
+    let ac = find_assetto_corsa().ok_or(JoinError::AssettoCorsaNotFound)?;
+    // The race server checks the game's Steam ticket against the slot: it has to be the same account.
+    let local_account = join::steam_id64(active_steam_user()).ok_or(JoinError::SteamNotRunning)?;
+    if local_account != ticket.steam_id {
+        return Err(JoinError::WrongSteamAccount);
+    }
+    for (kind, name) in [("cars", &ticket.car_model), ("tracks", &ticket.track)] {
+        if !ac.join("content").join(kind).join(name).is_dir() {
+            return Err(JoinError::ContentMissing(format!("{kind}/{name}")));
+        }
+    }
+
+    let entry_list = join::fetch_entry_list(&ticket.host, ticket.http_port, &ticket.steam_id, Duration::from_secs(5))?;
+    let slot = join::slot_of(&entry_list, &ticket.car_model)?;
+
+    let failed = |what: &str, error: std::io::Error| JoinError::Failed(format!("{what}: {error}"));
+    // Without this file Steam starts the game's own launcher instead of the session.
+    let app_id = ac.join("steam_appid.txt");
+    if !app_id.is_file() {
+        fs::write(&app_id, join::STEAM_APP_ID).map_err(|e| failed("steam_appid.txt", e))?;
+    }
+    let cfg = app.path().document_dir().map_err(|e| JoinError::Failed(format!("documents folder: {e}")))?.join("Assetto Corsa").join("cfg");
+    fs::create_dir_all(&cfg).map_err(|e| failed("cfg folder", e))?;
+    let race_ini = cfg.join("race.ini");
+    let previous = fs::read(&race_ini).map(|bytes| String::from_utf8_lossy(&bytes).into_owned()).unwrap_or_default();
+    fs::write(&race_ini, join::render_race_ini(ticket, &slot, &previous)).map_err(|e| failed("race.ini", e))?;
+
+    std::process::Command::new(ac.join("acs.exe")).current_dir(&ac).spawn().map_err(|e| failed("acs.exe", e))?;
+    Ok(JoinStarted { skin: slot.skin })
 }
 
 /// Shows a native notification (a Windows toast), also while the window is minimised. The hosted
@@ -145,10 +217,27 @@ fn steam_root() -> Option<PathBuf> {
     None
 }
 
+/// Account id of the user signed in to the running Steam; 0 while Steam is not running.
+#[cfg(windows)]
+fn active_steam_user() -> u32 {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+
+    RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey(r"Software\Valve\Steam\ActiveProcess")
+        .and_then(|key| key.get_value::<u32, _>("ActiveUser"))
+        .unwrap_or(0)
+}
+
+#[cfg(not(windows))]
+fn active_steam_user() -> u32 {
+    0
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, join_race])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
