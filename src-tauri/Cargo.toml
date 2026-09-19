@@ -1,6 +1,6 @@
 [package]
 name = "dd-desktop"
-version = "0.3.0"
+version = "0.4.0"
 description = "Digital Drivers desktop app"
 edition.workspace = true
 license.workspace = true

@@ -5,6 +5,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use std::sync::Mutex;
+use std::time::SystemTime;
+
+use dd_core::bot_race::{self, BotRaceResult, BotRaceTicket};
 use dd_core::join::{self, JoinError, JoinTicket};
 use dd_core::scrutineering::{self, FileHash};
 use serde::Serialize;
@@ -39,6 +43,8 @@ struct SystemCheck {
     assetto_corsa_writable: Option<bool>,
     /// SteamID64 of the account signed in to Steam on this PC. None while Steam is not running.
     steam_id: Option<String>,
+    /// This app can start races against bots and report how they went (since 0.4.0).
+    bot_races: bool,
 }
 
 #[tauri::command]
@@ -54,7 +60,96 @@ fn system_check(webview: tauri::Webview, app: tauri::AppHandle) -> SystemCheck {
         assetto_corsa_writable: writable,
         assetto_corsa_path: ac.map(|p| p.display().to_string()),
         steam_id,
+        bot_races: true,
     }
+}
+
+/// The race against bots the app has started, until its result has been fetched.
+struct BotRaceRun {
+    game: std::process::Child,
+    started: SystemTime,
+    result_file: PathBuf,
+}
+
+#[derive(Default)]
+struct BotRaceState(Mutex<Option<BotRaceRun>>);
+
+fn game_cfg_dir(app: &tauri::AppHandle) -> Result<PathBuf, JoinError> {
+    Ok(app.path().document_dir().map_err(|e| JoinError::Failed(format!("documents folder: {e}")))?.join("Assetto Corsa"))
+}
+
+/// Starts a single-player race against the game's own AI: the driver's car against bots in the same car, on
+/// the track and over the laps of the ticket. Like `join_race` it writes the game's `race.ini` and starts
+/// `acs.exe`; how the race went is fetched with `bot_race_result` once the game has closed.
+#[tauri::command]
+async fn start_bot_race(webview: tauri::Webview, app: tauri::AppHandle, state: tauri::State<'_, BotRaceState>, ticket: BotRaceTicket) -> Result<(), String> {
+    log(&format!(
+        "start_bot_race requested by {}: {} on {} against {} bots at {} %, {} laps",
+        webview.url().map(|u| u.to_string()).unwrap_or_default(), ticket.car_model, ticket.track, ticket.opponents, ticket.ai_level, ticket.laps
+    ));
+    let run = launch_bot_race(&app, &ticket).map_err(|error| {
+        log(&format!("start_bot_race failed: {error:?}"));
+        error.code()
+    })?;
+    *state.0.lock().unwrap() = Some(run);
+    Ok(())
+}
+
+fn launch_bot_race(app: &tauri::AppHandle, ticket: &BotRaceTicket) -> Result<BotRaceRun, JoinError> {
+    ticket.validate()?;
+    let ac = find_assetto_corsa().ok_or(JoinError::AssettoCorsaNotFound)?;
+    // Steam has to run for the game to start at all.
+    join::steam_id64(active_steam_user()).ok_or(JoinError::SteamNotRunning)?;
+    for (kind, name) in [("cars", &ticket.car_model), ("tracks", &ticket.track)] {
+        if !ac.join("content").join(kind).join(name).is_dir() {
+            return Err(JoinError::ContentMissing(format!("{kind}/{name}")));
+        }
+    }
+    // The liveries the car has on this PC, by name: the driver gets the first, the bots the others in turn.
+    let mut skins: Vec<String> = fs::read_dir(ac.join("content").join("cars").join(&ticket.car_model).join("skins"))
+        .map(|dir| dir.flatten().filter(|e| e.path().is_dir()).filter_map(|e| e.file_name().into_string().ok()).collect())
+        .unwrap_or_default();
+    skins.sort();
+
+    let failed = |what: &str, error: std::io::Error| JoinError::Failed(format!("{what}: {error}"));
+    let app_id = ac.join("steam_appid.txt");
+    if !app_id.is_file() {
+        fs::write(&app_id, join::STEAM_APP_ID).map_err(|e| failed("steam_appid.txt", e))?;
+    }
+    let documents = game_cfg_dir(app)?;
+    fs::create_dir_all(documents.join("cfg")).map_err(|e| failed("cfg folder", e))?;
+    let race_ini = documents.join("cfg").join("race.ini");
+    let previous = fs::read(&race_ini).map(|bytes| String::from_utf8_lossy(&bytes).into_owned()).unwrap_or_default();
+    fs::write(&race_ini, bot_race::render_bot_race_ini(ticket, &skins, &previous)).map_err(|e| failed("race.ini", e))?;
+
+    let started = SystemTime::now();
+    let game = std::process::Command::new(ac.join("acs.exe")).current_dir(&ac).spawn().map_err(|e| failed("acs.exe", e))?;
+    Ok(BotRaceRun { game, started, result_file: documents.join("out").join("race_out.json") })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BotRaceStatus {
+    /// "none": no race was started; "running": the game is still open; "finished": the game has closed
+    state: &'static str,
+    /// With "finished": how the race went; None when the game left no race result (closed before the start)
+    result: Option<BotRaceResult>,
+}
+
+/// How the race against bots started with `start_bot_race` stands. The result is handed out once.
+#[tauri::command]
+fn bot_race_result(state: tauri::State<'_, BotRaceState>) -> BotRaceStatus {
+    let mut guard = state.0.lock().unwrap();
+    let Some(run) = guard.as_mut() else { return BotRaceStatus { state: "none", result: None } };
+    if matches!(run.game.try_wait(), Ok(None)) {
+        return BotRaceStatus { state: "running", result: None };
+    }
+    // The game writes its result when it closes; only a file written after the start is this race's.
+    let fresh = fs::metadata(&run.result_file).and_then(|m| m.modified()).map(|at| at >= run.started).unwrap_or(false);
+    let result = if fresh { fs::read_to_string(&run.result_file).ok().and_then(|json| bot_race::parse_race_out(&json)) } else { None };
+    log(&format!("bot_race_result -> game closed, result: {result:?}"));
+    *guard = None;
+    BotRaceStatus { state: "finished", result }
 }
 
 #[derive(Serialize)]
@@ -271,7 +366,8 @@ fn active_steam_user() -> u32 {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, join_race, scrutineer])
+        .manage(BotRaceState::default())
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, join_race, scrutineer, start_bot_race, bot_race_result])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

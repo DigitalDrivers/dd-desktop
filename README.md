@@ -23,6 +23,9 @@ driver can check what the app does on their PC.
   surfaces and models of the track: only files below the game's `content` and `system` folders) and reports
   their SHA-256, and it reads the build number of your Custom Shaders Patch
   (`extension\config\data_manifest.ini`). The files themselves never leave your PC.
+- For a race against bots it writes the game's `race.ini` for a single-player race, reads the names of your
+  car's liveries so the bots get different ones, and reads the game's own result file
+  (`Documents\Assetto Corsa\out\race_out.json`) once the game has closed.
 - It writes a log to `%TEMP%\dd-desktop.log`.
 
 Nothing else is read, and nothing is uploaded by the shell itself.
@@ -32,9 +35,9 @@ Nothing else is read, and nothing is uploaded by the shell itself.
 | Part | What |
 | --- | --- |
 | `src/` | Bundled start page: checks that the platform is reachable, then opens it. Offline it shows a system check. |
-| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `join_race` and `scrutineer`. |
+| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `join_race`, `scrutineer`, `start_bot_race` and `bot_race_result`. |
 | `src-tauri/capabilities/` | Which page may call which command. The hosted interface only gets the commands listed in `platform.json`; `dev-localhost.json` is enabled for development builds only. |
-| `crates/dd-core/` | Platform-independent logic (locating Assetto Corsa, the join ticket and the `race.ini` of an online session, hashing game files for scrutineering), unit-tested on any machine. |
+| `crates/dd-core/` | Platform-independent logic (locating Assetto Corsa, the join ticket and the `race.ini` of an online session, hashing game files for scrutineering, the race against bots), unit-tested on any machine. |
 
 Commands must be declared in `src-tauri/build.rs` and allowed per origin in a capability file. A hosted page
 cannot call anything that is not listed for its origin.
@@ -56,6 +59,12 @@ driver with that car, and answers with a short code the interface has the words 
 build of the Custom Shaders Patch and the app's version. It judges nothing: the platform compares the report
 with what the race server will check. A path has to start with `content/` or `system/` and consist of plain
 names, so the command cannot be used to look at anything but the game's content.
+
+`start_bot_race` and `bot_race_result` drive a race against the game's own AI, offline: the first writes the
+`race.ini` of a single-player race (the driver starts last behind bots in the same car) and starts the game,
+the second says whether the game is still running and, once it has closed, how the race went, read from the
+game's result file. The platform treats such a race as fun (XP and a best list), because only the driver's PC
+sees it.
 
 ## Development
 

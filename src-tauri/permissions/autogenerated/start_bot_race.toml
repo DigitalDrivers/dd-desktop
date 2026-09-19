@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-start-bot-race"
+description = "Enables the start_bot_race command without any pre-configured scope."
+commands.allow = ["start_bot_race"]
+
+[[permission]]
+identifier = "deny-start-bot-race"
+description = "Denies the start_bot_race command without any pre-configured scope."
+commands.deny = ["start_bot_race"]

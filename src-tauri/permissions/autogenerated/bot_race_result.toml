@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-bot-race-result"
+description = "Enables the bot_race_result command without any pre-configured scope."
+commands.allow = ["bot_race_result"]
+
+[[permission]]
+identifier = "deny-bot-race-result"
+description = "Denies the bot_race_result command without any pre-configured scope."
+commands.deny = ["bot_race_result"]
