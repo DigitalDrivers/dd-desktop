@@ -19,6 +19,10 @@ driver can check what the app does on their PC.
   `acs.exe`. Every launcher rewrites `race.ini` for every session; your unit of speed and nationality are kept.
   If the game folder has no `steam_appid.txt` yet, the app creates it (content `244210`, the game's Steam id):
   without it Steam starts the game's own launcher instead of the session. Content Manager creates the same file.
+- For technical scrutineering it reads the game files the platform asks about (the data of your car, the
+  surfaces and models of the track: only files below the game's `content` and `system` folders) and reports
+  their SHA-256, and it reads the build number of your Custom Shaders Patch
+  (`extension\config\data_manifest.ini`). The files themselves never leave your PC.
 - It writes a log to `%TEMP%\dd-desktop.log`.
 
 Nothing else is read, and nothing is uploaded by the shell itself.
@@ -28,9 +32,9 @@ Nothing else is read, and nothing is uploaded by the shell itself.
 | Part | What |
 | --- | --- |
 | `src/` | Bundled start page: checks that the platform is reachable, then opens it. Offline it shows a system check. |
-| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast` and `join_race`. |
+| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `join_race` and `scrutineer`. |
 | `src-tauri/capabilities/` | Which page may call which command. The hosted interface only gets the commands listed in `platform.json`; `dev-localhost.json` is enabled for development builds only. |
-| `crates/dd-core/` | Platform-independent logic (locating Assetto Corsa, the join ticket and the `race.ini` of an online session), unit-tested on any machine. |
+| `crates/dd-core/` | Platform-independent logic (locating Assetto Corsa, the join ticket and the `race.ini` of an online session, hashing game files for scrutineering), unit-tested on any machine. |
 
 Commands must be declared in `src-tauri/build.rs` and allowed per origin in a capability file. A hosted page
 cannot call anything that is not listed for its origin.
@@ -47,6 +51,11 @@ may only be folder names, free text becomes one line, so a ticket can neither le
 keys to `race.ini`. The command refuses when Steam is not running, when Steam runs with another account than
 the ticket names, when the car or the track is not installed, or when the race server has no free slot for the
 driver with that car, and answers with a short code the interface has the words for.
+
+`scrutineer` takes a list of paths and answers with the SHA-256 of each file (or that it is not there), the
+build of the Custom Shaders Patch and the app's version. It judges nothing: the platform compares the report
+with what the race server will check. A path has to start with `content/` or `system/` and consist of plain
+names, so the command cannot be used to look at anything but the game's content.
 
 ## Development
 
@@ -84,6 +93,11 @@ WebView, Node 22+). The log then shows the request with the app id that was used
 login, development only), opens an event and clicks "Join the race". It is started by
 `dd-platform/scripts/real-game-check.sh --app`, which brings up the platform and a race server first and then
 watches the real game connect.
+
+`scripts/run-scrutineering-check.ps1` runs scrutineering from an event page and prints the verdict. Development
+builds take the game folder from `DD_ASSETTO_CORSA_DIR` when it is set, so
+`dd-platform/scripts/scrutineering-check.sh` can check a copy with a changed `data.acd` without touching the
+installed game; release builds ignore the variable.
 
 ## License
 

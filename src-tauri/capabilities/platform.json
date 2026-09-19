@@ -7,5 +7,5 @@
   "remote": {
     "urls": ["https://digitaldrivers.club", "https://*.digitaldrivers.club"]
   },
-  "permissions": ["allow-system-check", "allow-show-toast", "allow-join-race"]
+  "permissions": ["allow-system-check", "allow-show-toast", "allow-join-race", "allow-scrutineer"]
 }

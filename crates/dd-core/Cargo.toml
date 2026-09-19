@@ -10,3 +10,5 @@ repository.workspace = true
 # Already part of the shell: reads the join ticket and the race server's entry list.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# SHA-256 of game files for technical scrutineering; Rust's standard library has no cryptographic hash.
+sha2 = "0.10"

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-scrutineer"
+description = "Enables the scrutineer command without any pre-configured scope."
+commands.allow = ["scrutineer"]
+
+[[permission]]
+identifier = "deny-scrutineer"
+description = "Denies the scrutineer command without any pre-configured scope."
+commands.deny = ["scrutineer"]

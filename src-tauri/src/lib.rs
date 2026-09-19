@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use dd_core::join::{self, JoinError, JoinTicket};
+use dd_core::scrutineering::{self, FileHash};
 use serde::Serialize;
 use tauri::Manager;
 
@@ -121,6 +122,34 @@ fn start_race(app: &tauri::AppHandle, ticket: &JoinTicket) -> Result<JoinStarted
     Ok(JoinStarted { skin: slot.skin })
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ScrutineeringReport {
+    files: Vec<FileHash>,
+    /// Build of the installed Custom Shaders Patch; None when it is not installed or switched off.
+    csp_build: Option<u32>,
+    app_version: String,
+}
+
+/// Technical scrutineering: reports the SHA-256 of the game files the hosted interface asks about (only
+/// below the game's `content` and `system` folders) and the build of the Custom Shaders Patch. The platform
+/// compares that with what the race server will check; the app itself judges nothing.
+#[tauri::command]
+async fn scrutineer(webview: tauri::Webview, app: tauri::AppHandle, files: Vec<String>) -> Result<ScrutineeringReport, String> {
+    log(&format!("scrutineer requested by {}: {} files", webview.url().map(|u| u.to_string()).unwrap_or_default(), files.len()));
+    if files.len() > 200 {
+        return Err("too-many-files".to_string());
+    }
+    let ac = find_assetto_corsa().ok_or_else(|| JoinError::AssettoCorsaNotFound.code())?;
+    let hashes = scrutineering::hash_files(&ac, &files).map_err(|path| {
+        log(&format!("scrutineer refused the path {path}"));
+        "invalid-path".to_string()
+    })?;
+    let csp_build = scrutineering::csp_build(&ac);
+    log(&format!("scrutineer -> {} of {} files found, CSP build {csp_build:?}", hashes.iter().filter(|f| f.sha256.is_some()).count(), hashes.len()));
+    Ok(ScrutineeringReport { files: hashes, csp_build, app_version: app.package_info().version.to_string() })
+}
+
 /// Shows a native notification (a Windows toast), also while the window is minimised. The hosted
 /// interface calls it for new notifications of the signed-in driver. Plain text only, cut to a sane length.
 #[tauri::command]
@@ -197,6 +226,11 @@ fn can_write_into(dir: &Path) -> bool {
 }
 
 fn find_assetto_corsa() -> Option<PathBuf> {
+    // Development builds only: a game folder made up for a check (scripts/run-scrutineering-check.ps1).
+    #[cfg(debug_assertions)]
+    if let Some(dir) = std::env::var_os("DD_ASSETTO_CORSA_DIR").map(PathBuf::from) {
+        return dd_core::steam::is_assetto_corsa_dir(&dir).then_some(dir);
+    }
     let steam = steam_root()?;
     let vdf = fs::read_to_string(steam.join("steamapps").join("libraryfolders.vdf")).ok()?;
     dd_core::steam::find_assetto_corsa(&dd_core::steam::library_paths(&vdf))
@@ -237,7 +271,7 @@ fn active_steam_user() -> u32 {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, join_race])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, join_race, scrutineer])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

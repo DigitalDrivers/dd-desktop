@@ -70,7 +70,7 @@ pub struct JoinTicket {
 }
 
 /// Folder names of the game's content, and nothing that could leave the content folder or break the ini file.
-fn is_content_name(value: &str) -> bool {
+pub(crate) fn is_content_name(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 100
         && value != "."

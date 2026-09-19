@@ -7,5 +7,5 @@
   "remote": {
     "urls": ["http://localhost:3000"]
   },
-  "permissions": ["allow-system-check", "allow-show-toast", "allow-join-race"]
+  "permissions": ["allow-system-check", "allow-show-toast", "allow-join-race", "allow-scrutineer"]
 }

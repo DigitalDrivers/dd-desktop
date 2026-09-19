@@ -4,4 +4,5 @@
 //! on any machine (including Linux/WSL), while the Tauri shell itself is built on Windows.
 
 pub mod join;
+pub mod scrutineering;
 pub mod steam;
