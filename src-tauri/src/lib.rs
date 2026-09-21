@@ -212,6 +212,9 @@ fn start_race(app: &tauri::AppHandle, ticket: &JoinTicket) -> Result<JoinStarted
 
     let entry_list = join::fetch_entry_list(&ticket.host, ticket.http_port, &ticket.steam_id, Duration::from_secs(5))?;
     let slot = join::slot_of(&entry_list, &ticket.car_model)?;
+    // The server names its track with the gate of the Custom Shaders Patch build it asks for; the game is let
+    // in only with that name.
+    let track = join::server_track(&join::fetch_info(&ticket.host, ticket.http_port, Duration::from_secs(5))?, &ticket.track, &ticket.track_layout)?;
 
     let failed = |what: &str, error: std::io::Error| JoinError::Failed(format!("{what}: {error}"));
     // Without this file Steam starts the game's own launcher instead of the session.
@@ -223,7 +226,7 @@ fn start_race(app: &tauri::AppHandle, ticket: &JoinTicket) -> Result<JoinStarted
     fs::create_dir_all(&cfg).map_err(|e| failed("cfg folder", e))?;
     let race_ini = cfg.join("race.ini");
     let previous = fs::read(&race_ini).map(|bytes| String::from_utf8_lossy(&bytes).into_owned()).unwrap_or_default();
-    fs::write(&race_ini, join::render_race_ini(ticket, &slot, &previous)).map_err(|e| failed("race.ini", e))?;
+    fs::write(&race_ini, join::render_race_ini(ticket, &slot, &track, &previous)).map_err(|e| failed("race.ini", e))?;
 
     std::process::Command::new(ac.join("acs.exe")).current_dir(&ac).spawn().map_err(|e| failed("acs.exe", e))?;
     Ok(JoinStarted { skin: slot.skin })

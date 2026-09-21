@@ -58,7 +58,9 @@ name and SteamID) and starts the game on that server. Every value is checked bef
 may only be folder names, free text becomes one line, so a ticket can neither leave the content folder nor add
 keys to `race.ini`. The command refuses when Steam is not running, when Steam runs with another account than
 the ticket names, when the car or the track is not installed, or when the race server has no free slot for the
-driver with that car, and answers with a short code the interface has the words for.
+driver with that car, and answers with a short code the interface has the words for. The track goes into
+`race.ini` the way the server's `/INFO` names it: a server that asks for a minimum Custom Shaders Patch build
+calls it `csp/<build>/../<track>` and lets the game in only with that name.
 
 `scrutineer` takes a list of paths and answers with the SHA-256 of each file (or that it is not there), the
 build of the Custom Shaders Patch and the app's version. It judges nothing: the platform compares the report

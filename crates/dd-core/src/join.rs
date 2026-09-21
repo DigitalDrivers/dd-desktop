@@ -163,13 +163,44 @@ pub fn slot_of(entry_list_json: &str, car_model: &str) -> Result<Slot, JoinError
     Ok(Slot { skin: car.skin.clone(), features: list.features })
 }
 
-/// Asks the race server for its entry list as the given driver sees it. Plain HTTP/1.0 over a socket: the
-/// answer comes in one piece and the connection closes, which is all this needs.
+#[derive(Deserialize)]
+struct ServerInfo {
+    track: String,
+}
+
+/// The track name as the race server's `/INFO` gives it, the way the game has to be told it. A server that
+/// asks for a minimum Custom Shaders Patch build names its track `csp/<build>/../<track>` (the patch reads the
+/// build and loads the track, the game without it finds no such folder), and lets the game in only with
+/// exactly that name. The layout, joined with a dash in `/INFO`, stays out: it goes into `CONFIG_TRACK`.
+pub fn server_track(info_json: &str, track: &str, layout: &str) -> Result<String, JoinError> {
+    let info: ServerInfo = serde_json::from_str(info_json).map_err(|_| JoinError::ServerUnreachable)?;
+    let name = if layout.is_empty() { info.track.as_str() } else { info.track.strip_suffix(&format!("-{layout}")).unwrap_or(&info.track) };
+    let prefix = name.strip_suffix(track).ok_or(JoinError::ServerUnreachable)?;
+    let gate = prefix.strip_prefix("csp/").and_then(|rest| rest.strip_suffix("/../"));
+    match gate {
+        None if prefix.is_empty() => Ok(track.to_string()),
+        Some(build) if !build.is_empty() && build.chars().all(|c| c.is_ascii_digit()) => Ok(format!("{prefix}{track}")),
+        _ => Err(JoinError::ServerUnreachable),
+    }
+}
+
+/// Asks the race server what it runs (`/INFO`): the track name it expects from the game.
+pub fn fetch_info(host: &str, http_port: u16, timeout: Duration) -> Result<String, JoinError> {
+    fetch(host, http_port, "/INFO", timeout)
+}
+
+/// Asks the race server for its entry list as the given driver sees it.
 pub fn fetch_entry_list(host: &str, http_port: u16, steam_id: &str, timeout: Duration) -> Result<String, JoinError> {
+    fetch(host, http_port, &format!("/JSON%7C{steam_id}"), timeout)
+}
+
+/// One request to the race server's HTTP port. Plain HTTP/1.0 over a socket: the answer comes in one piece and
+/// the connection closes, which is all this needs.
+fn fetch(host: &str, http_port: u16, path: &str, timeout: Duration) -> Result<String, JoinError> {
     let address = (host, http_port).to_socket_addrs().ok().and_then(|mut found| found.next()).ok_or(JoinError::ServerUnreachable)?;
     let mut stream = TcpStream::connect_timeout(&address, timeout).map_err(|_| JoinError::ServerUnreachable)?;
     stream.set_read_timeout(Some(timeout)).and_then(|_| stream.set_write_timeout(Some(timeout))).map_err(|_| JoinError::ServerUnreachable)?;
-    let request = format!("GET /JSON%7C{steam_id} HTTP/1.0\r\nHost: {host}:{http_port}\r\nAccept: application/json\r\n\r\n");
+    let request = format!("GET {path} HTTP/1.0\r\nHost: {host}:{http_port}\r\nAccept: application/json\r\n\r\n");
     stream.write_all(request.as_bytes()).map_err(|_| JoinError::ServerUnreachable)?;
     let mut response = Vec::new();
     stream.take(1_000_000).read_to_end(&mut response).map_err(|_| JoinError::ServerUnreachable)?;
@@ -200,9 +231,10 @@ pub fn ini_value<'a>(ini: &'a str, section: &str, key: &str) -> Option<&'a str> 
     None
 }
 
-/// The `race.ini` of an online session on the ticket's server. `previous` is the file as it was: the
-/// driver's unit of speed and nationality are kept, everything else belongs to the session and is written anew.
-pub fn render_race_ini(ticket: &JoinTicket, slot: &Slot, previous: &str) -> String {
+/// The `race.ini` of an online session on the ticket's server. `track` is the track name the server expects
+/// (`server_track`). `previous` is the file as it was: the driver's unit of speed and nationality are kept,
+/// everything else belongs to the session and is written anew.
+pub fn render_race_ini(ticket: &JoinTicket, slot: &Slot, track: &str, previous: &str) -> String {
     let kept = |section: &str, key: &str, default: &str| ini_text(ini_value(previous, section, key).unwrap_or(default));
     let use_mph = if kept("OPTIONS", "USE_MPH", "0") == "1" { "1" } else { "0" };
     let lines = [
@@ -249,7 +281,7 @@ pub fn render_race_ini(ticket: &JoinTicket, slot: &Slot, previous: &str) -> Stri
         "PENALTIES=1".to_string(),
         "RACE_LAPS=0".to_string(),
         format!("SKIN={}", slot.skin),
-        format!("TRACK={}", ticket.track),
+        format!("TRACK={track}"),
         String::new(),
         "[REMOTE]".to_string(),
         "ACTIVE=1".to_string(),
@@ -361,7 +393,7 @@ mod tests {
     fn writes_the_race_ini_of_an_online_session() {
         let slot = slot_of(ENTRY_LIST, "ks_porsche_911_gt3_cup_2017").unwrap();
         let previous = "[OPTIONS]\r\nUSE_MPH=1\r\n\r\n[CAR_0]\r\nNATIONALITY=Germany\r\nNATION_CODE=GER\r\nSKIN=old\r\n\r\n[REPLAY]\r\nACTIVE=1\r\nFILENAME=last.acreplay\r\n\r\n[REMOTE]\r\nPASSWORD=secret-of-another-server\r\n";
-        let ini = render_race_ini(&ticket(), &slot, previous);
+        let ini = render_race_ini(&ticket(), &slot, "ks_nurburgring", previous);
 
         assert_eq!(ini_value(&ini, "REMOTE", "ACTIVE"), Some("1"));
         assert_eq!(ini_value(&ini, "REMOTE", "SERVER_IP"), Some("race.digitaldrivers.club"));
@@ -386,9 +418,41 @@ mod tests {
     }
 
     #[test]
+    fn takes_the_track_name_the_race_server_gives_including_the_csp_gate() {
+        // A server that asks for Custom Shaders Patch 2651 or newer names its track this way, and the game
+        // is only let in with exactly that name.
+        let gated = r#"{"name":"Digital Drivers | Friday Cup","track":"csp/2651/../ks_nurburgring-layout_gp_a","pass":false}"#;
+        assert_eq!(server_track(gated, "ks_nurburgring", "layout_gp_a"), Ok("csp/2651/../ks_nurburgring".to_string()));
+        assert_eq!(server_track(r#"{"track":"ks_nurburgring-layout_gp_a"}"#, "ks_nurburgring", "layout_gp_a"), Ok("ks_nurburgring".to_string()));
+        assert_eq!(server_track(r#"{"track":"csp/2651/../rt_highway"}"#, "rt_highway", ""), Ok("csp/2651/../rt_highway".to_string()));
+        // Another track, or a name that would leave the content folder or add keys: not the ticket's server.
+        assert_eq!(server_track(r#"{"track":"ks_monza-gp"}"#, "ks_nurburgring", "layout_gp_a"), Err(JoinError::ServerUnreachable));
+        assert_eq!(server_track(r#"{"track":"../../evil/ks_nurburgring-layout_gp_a"}"#, "ks_nurburgring", "layout_gp_a"), Err(JoinError::ServerUnreachable));
+        assert_eq!(server_track(r#"{"track":"csp/2651/../x
+PASSWORD=y/ks_nurburgring-layout_gp_a"}"#, "ks_nurburgring", "layout_gp_a"), Err(JoinError::ServerUnreachable));
+        assert_eq!(server_track("<html></html>", "ks_nurburgring", "layout_gp_a"), Err(JoinError::ServerUnreachable));
+    }
+
+    #[test]
+    fn writes_the_track_the_way_the_race_server_names_it() {
+        let slot = slot_of(ENTRY_LIST, "ks_porsche_911_gt3_cup_2017").unwrap();
+        let ini = render_race_ini(&ticket(), &slot, "csp/2651/../ks_nurburgring", "");
+        assert_eq!(ini_value(&ini, "RACE", "TRACK"), Some("csp/2651/../ks_nurburgring"));
+        assert_eq!(ini_value(&ini, "RACE", "CONFIG_TRACK"), Some("layout_gp_a"));
+    }
+
+    #[test]
+    fn asks_the_race_server_what_it_runs() {
+        let (port, server) = serve_once("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"track\":\"csp/2651/../ks_nurburgring-layout_gp_a\"}");
+        let body = fetch_info("127.0.0.1", port, Duration::from_secs(5)).unwrap();
+        assert_eq!(body, "{\"track\":\"csp/2651/../ks_nurburgring-layout_gp_a\"}");
+        assert!(server.join().unwrap().starts_with("GET /INFO HTTP/1.0\r\n"));
+    }
+
+    #[test]
     fn writes_a_race_ini_on_a_pc_that_has_none_yet() {
         let slot = slot_of(ENTRY_LIST, "mercedes_sls").unwrap();
-        let ini = render_race_ini(&JoinTicket { driver_name: "Anna\r\n[REMOTE]\r\nGUID=1".to_string(), ..ticket() }, &slot, "");
+        let ini = render_race_ini(&JoinTicket { driver_name: "Anna\r\n[REMOTE]\r\nGUID=1".to_string(), ..ticket() }, &slot, "ks_nurburgring", "");
         assert_eq!(ini_value(&ini, "OPTIONS", "USE_MPH"), Some("0"));
         assert_eq!(ini_value(&ini, "REMOTE", "NAME"), Some("Anna[REMOTE]GUID=1"));
         // The name stays one line: what is left of it opens no section and sets no key.
