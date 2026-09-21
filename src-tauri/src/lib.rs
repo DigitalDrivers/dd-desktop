@@ -10,6 +10,7 @@ use std::time::SystemTime;
 
 use dd_core::bot_race::{self, BotRaceResult, BotRaceTicket};
 use dd_core::join::{self, JoinError, JoinTicket};
+use dd_core::links;
 use dd_core::scrutineering::{self, FileHash};
 use serde::Serialize;
 use tauri::Manager;
@@ -45,6 +46,11 @@ struct SystemCheck {
     steam_id: Option<String>,
     /// This app can start races against bots and report how they went (since 0.4.0).
     bot_races: bool,
+    /// The program Content Manager registered for its `acmanager://` links, if it did and the file is still
+    /// there (since 0.5.0). The platform links straight to it, or says what is missing.
+    content_manager_path: Option<String>,
+    /// Build of the Custom Shaders Patch in the game folder, if it is installed (since 0.5.0).
+    csp_build: Option<u32>,
 }
 
 #[tauri::command]
@@ -54,13 +60,19 @@ fn system_check(webview: tauri::Webview, app: tauri::AppHandle) -> SystemCheck {
     let ac = find_assetto_corsa();
     let writable = ac.as_deref().map(can_write_into);
     let steam_id = join::steam_id64(active_steam_user());
-    log(&format!("system_check -> assetto corsa: {ac:?}, writable: {writable:?}, steam account: {steam_id:?}"));
+    let content_manager = find_content_manager();
+    let csp_build = ac.as_deref().and_then(scrutineering::csp_build);
+    log(&format!(
+        "system_check -> assetto corsa: {ac:?}, writable: {writable:?}, steam account: {steam_id:?}, content manager: {content_manager:?}, CSP build {csp_build:?}"
+    ));
     SystemCheck {
         app_version: app.package_info().version.to_string(),
         assetto_corsa_writable: writable,
         assetto_corsa_path: ac.map(|p| p.display().to_string()),
         steam_id,
         bot_races: true,
+        content_manager_path: content_manager.map(|p| p.display().to_string()),
+        csp_build,
     }
 }
 
@@ -346,6 +358,38 @@ fn steam_root() -> Option<PathBuf> {
     None
 }
 
+/// The program registered for `acmanager://` links, as long as it is still there. Content Manager registers
+/// itself for the current user when it first starts.
+#[cfg(windows)]
+fn find_content_manager() -> Option<PathBuf> {
+    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+    use winreg::RegKey;
+
+    [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE].into_iter().find_map(|root| {
+        let command: String = RegKey::predef(root).open_subkey(r"Software\Classes\acmanager\shell\open\command").ok()?.get_value("").ok()?;
+        links::protocol_handler_exe(&command).filter(|exe| exe.is_file())
+    })
+}
+
+#[cfg(not(windows))]
+fn find_content_manager() -> Option<PathBuf> {
+    None
+}
+
+/// A page the interface opens in a new window goes to the driver's browser; anything else is refused.
+fn open_in_browser(url: &str) {
+    if !links::opens_in_browser(url) {
+        log(&format!("new window refused: {url}"));
+        return;
+    }
+    log(&format!("opening in the browser: {url}"));
+    // What the shell does with a link: hand it to the default browser.
+    #[cfg(windows)]
+    if let Err(error) = std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", url]).spawn() {
+        log(&format!("opening in the browser failed: {error}"));
+    }
+}
+
 /// Account id of the user signed in to the running Steam; 0 while Steam is not running.
 #[cfg(windows)]
 fn active_steam_user() -> u32 {
@@ -367,6 +411,19 @@ fn active_steam_user() -> u32 {
 pub fn run() {
     tauri::Builder::default()
         .manage(BotRaceState::default())
+        .setup(|app| {
+            // The window is built here instead of by the configuration alone, so that links which open a new
+            // window (a stream, a download) go to the browser: the app has no tabs, and without this they did
+            // nothing at all.
+            let config = app.config().app.windows.first().cloned().ok_or("no window in tauri.conf.json")?;
+            tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?
+                .on_new_window(|url, _features| {
+                    open_in_browser(url.as_str());
+                    tauri::webview::NewWindowResponse::Deny
+                })
+                .build()?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, join_race, scrutineer, start_bot_race, bot_race_result])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

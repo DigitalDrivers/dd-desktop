@@ -26,6 +26,11 @@ driver can check what the app does on their PC.
 - For a race against bots it writes the game's `race.ini` for a single-player race, reads the names of your
   car's liveries so the bots get different ones, and reads the game's own result file
   (`Documents\Assetto Corsa\out\race_out.json`) once the game has closed.
+- The system check reads which program is registered for Content Manager's `acmanager://` links
+  (`Software\Classes\acmanager\shell\open\command`) and whether that file exists, and the build number of your
+  Custom Shaders Patch, so the platform can say what is missing before you try to join.
+- A link the platform opens in a new window (a stream, a download) goes to your default browser; the app has no
+  tabs. Only web addresses (`http`, `https`) are passed on, anything else is refused.
 - It writes a log to `%TEMP%\dd-desktop.log`.
 
 Nothing else is read, and nothing is uploaded by the shell itself.
