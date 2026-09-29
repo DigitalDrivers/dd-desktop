@@ -1,7 +1,7 @@
 # dd-desktop
 
 Digital Drivers desktop app for Windows. Joins races with one click, runs technical scrutineering on cars
-and tracks, installs content. Open-source shell built with Tauri.
+and tracks, installs content and car setups. Open-source shell built with Tauri.
 
 The app is a thin shell: it loads the hosted Digital Drivers interface and adds a small set of native
 commands. It contains no business logic; decisions are made on the server. The source is public so every
@@ -29,6 +29,14 @@ driver can check what the app does on their PC.
 - The system check reads which program is registered for Content Manager's `acmanager://` links
   (`Software\Classes\acmanager\shell\open\command`) and whether that file exists, and the build number of your
   Custom Shaders Patch, so the platform can say what is missing before you try to join.
+- The system check looks for Assetto Corsa EVO in your Steam libraries and for the folder the game keeps your
+  files in (`Saved Games\ACE`; where that is when you moved `Saved Games`, Windows notes in the registry under
+  `Explorer\User Shell Folders`).
+- When you install a car setup of the platform for Assetto Corsa EVO, the app writes that one file into the
+  game's setup folder (`Saved Games\ACE\Car Setups\<car>\<track>\<name>.carsetup`), where the game's setup
+  screen lists it. To show which setups you have already, it reads the files of the names the platform asks
+  about in that folder and reports their SHA-256. A setup you changed and saved under the same name is not
+  overwritten, unless you ask for the original. Nothing else in the folder is read, changed or removed.
 - A link the platform opens in a new window (a stream, a download) goes to your default browser; the app has no
   tabs. Only web addresses (`http`, `https`) are passed on, anything else is refused.
 - It writes a log to `%TEMP%\dd-desktop.log`.
@@ -40,9 +48,9 @@ Nothing else is read, and nothing is uploaded by the shell itself.
 | Part | What |
 | --- | --- |
 | `src/` | Bundled start page: checks that the platform is reachable, then opens it. Offline it shows a system check. |
-| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `join_race`, `scrutineer`, `start_bot_race` and `bot_race_result`. |
+| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `join_race`, `scrutineer`, `start_bot_race`, `bot_race_result`, `setup_status` and `install_setup`. |
 | `src-tauri/capabilities/` | Which page may call which command. The hosted interface only gets the commands listed in `platform.json`; `dev-localhost.json` is enabled for development builds only. |
-| `crates/dd-core/` | Platform-independent logic (locating Assetto Corsa, the join ticket and the `race.ini` of an online session, hashing game files for scrutineering, the race against bots), unit-tested on any machine. |
+| `crates/dd-core/` | Platform-independent logic (locating Assetto Corsa and Assetto Corsa EVO, the join ticket and the `race.ini` of an online session, hashing game files for scrutineering, the race against bots, car setups), unit-tested on any machine. |
 
 Commands must be declared in `src-tauri/build.rs` and allowed per origin in a capability file. A hosted page
 cannot call anything that is not listed for its origin.
@@ -70,6 +78,14 @@ names, so the command cannot be used to look at anything but the game's content.
 the second says whether the game is still running and, once it has closed, how the race went, read from the
 game's result file. The platform treats such a race as fun (XP and a best list), because only the driver's PC
 sees it.
+
+`setup_status` and `install_setup` are for the car setups of Assetto Corsa EVO. The first takes the places of
+setups (the car's folder, the track's folder, the name of the file) and answers with the SHA-256 of each file,
+or that it is not there; the platform knows whether that is the setup it hands out or one the driver changed.
+The second takes one place and the content of the file and writes it there. A place consists of plain names
+and the file ends in `.carsetup`, so nothing can be written outside the game's setup folder; the content is
+at most 64 KB. Loading a setup stays with the driver, in the game's setup screen: the app cannot know which
+setup the game drives with.
 
 ## Development
 
@@ -107,6 +123,10 @@ WebView, Node 22+). The log then shows the request with the app id that was used
 login, development only), opens an event and clicks "Join the race". It is started by
 `dd-platform/scripts/real-game-check.sh --app`, which brings up the platform and a race server first and then
 watches the real game connect.
+
+`scripts/run-setups-check.ps1` opens the setups as a supporter, installs one and prints what the page says
+before and after. Development builds take the game's folder from `DD_AC_EVO_USER_DIR` when it is set, so
+`dd-platform/scripts/setups-check.sh` checks against a folder made up for it; release builds ignore the variable.
 
 `scripts/run-scrutineering-check.ps1` runs scrutineering from an event page and prints the verdict. Development
 builds take the game folder from `DD_ASSETTO_CORSA_DIR` when it is set, so

@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use dd_core::steam::{find_assetto_corsa, is_assetto_corsa_dir, library_paths};
+use dd_core::steam::{find_ac_evo, find_assetto_corsa, is_assetto_corsa_dir, library_paths};
 
 const FIXTURE: &str = include_str!("fixtures/libraryfolders.vdf");
 
@@ -61,5 +61,22 @@ fn returns_none_when_no_library_contains_the_game() {
     let libraries = vec![fake_library(&root, "lib-a", false)];
     assert_eq!(find_assetto_corsa(&libraries), None);
     assert!(!is_assetto_corsa_dir(&libraries[0].join("steamapps/common/assettocorsa")));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn finds_assetto_corsa_evo_next_to_assetto_corsa() {
+    let root = temp_dir("evo");
+    let libraries = vec![
+        fake_library(&root, "lib-a", true),
+        fake_library(&root, "lib-b", false),
+    ];
+    assert_eq!(find_ac_evo(&libraries), None);
+    let evo = libraries[1].join("steamapps/common/Assetto Corsa EVO");
+    fs::create_dir_all(&evo).unwrap();
+    // The folder alone is what Steam leaves behind after the game was removed.
+    assert_eq!(find_ac_evo(&libraries), None);
+    fs::write(evo.join("AssettoCorsaEVO.exe"), b"").unwrap();
+    assert_eq!(find_ac_evo(&libraries), Some(evo));
     fs::remove_dir_all(root).unwrap();
 }

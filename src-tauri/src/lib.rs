@@ -12,6 +12,7 @@ use dd_core::bot_race::{self, BotRaceResult, BotRaceTicket};
 use dd_core::join::{self, JoinError, JoinTicket};
 use dd_core::links;
 use dd_core::scrutineering::{self, FileHash};
+use dd_core::setups::{self, SetupError, SetupFile};
 use serde::Serialize;
 use tauri::Manager;
 
@@ -51,6 +52,11 @@ struct SystemCheck {
     content_manager_path: Option<String>,
     /// Build of the Custom Shaders Patch in the game folder, if it is installed (since 0.5.0).
     csp_build: Option<u32>,
+    /// Folder of the Assetto Corsa EVO installation, if one was found (since 0.6.0).
+    ac_evo_path: Option<String>,
+    /// The folder Assetto Corsa EVO keeps the driver's car setups in, once the game has been started on this
+    /// PC (since 0.6.0). The app can put the platform's setups there.
+    ac_evo_setups_path: Option<String>,
 }
 
 #[tauri::command]
@@ -62,8 +68,10 @@ fn system_check(webview: tauri::Webview, app: tauri::AppHandle) -> SystemCheck {
     let steam_id = join::steam_id64(active_steam_user());
     let content_manager = find_content_manager();
     let csp_build = ac.as_deref().and_then(scrutineering::csp_build);
+    let ac_evo = find_ac_evo();
+    let ac_evo_setups = find_ac_evo_setups(&app);
     log(&format!(
-        "system_check -> assetto corsa: {ac:?}, writable: {writable:?}, steam account: {steam_id:?}, content manager: {content_manager:?}, CSP build {csp_build:?}"
+        "system_check -> assetto corsa: {ac:?}, writable: {writable:?}, steam account: {steam_id:?}, content manager: {content_manager:?}, CSP build {csp_build:?}, assetto corsa evo: {ac_evo:?}, its setups: {ac_evo_setups:?}"
     ));
     SystemCheck {
         app_version: app.package_info().version.to_string(),
@@ -73,6 +81,8 @@ fn system_check(webview: tauri::Webview, app: tauri::AppHandle) -> SystemCheck {
         bot_races: true,
         content_manager_path: content_manager.map(|p| p.display().to_string()),
         csp_build,
+        ac_evo_path: ac_evo.map(|p| p.display().to_string()),
+        ac_evo_setups_path: ac_evo_setups.map(|p| p.display().to_string()),
     }
 }
 
@@ -257,6 +267,49 @@ async fn scrutineer(webview: tauri::Webview, app: tauri::AppHandle, files: Vec<S
     Ok(ScrutineeringReport { files: hashes, csp_build, app_version: app.package_info().version.to_string() })
 }
 
+/// Says which of the setups the hosted interface asks about are in the game's setup folder: the SHA-256 of
+/// each file in the order asked, or that it is not there. The platform knows whether that is the setup it
+/// hands out, or one the driver changed.
+#[tauri::command]
+async fn setup_status(webview: tauri::Webview, app: tauri::AppHandle, files: Vec<SetupFile>) -> Result<Vec<Option<String>>, String> {
+    log(&format!("setup_status requested by {}: {} files", webview.url().map(|u| u.to_string()).unwrap_or_default(), files.len()));
+    if files.len() > 500 {
+        return Err("too-many-files".to_string());
+    }
+    let found = find_ac_evo_setups(&app).ok_or(SetupError::AcEvoNotFound).and_then(|dir| setups::hash_setups(&dir, &files));
+    match found {
+        Ok(hashes) => {
+            log(&format!("setup_status -> {} of {} files found", hashes.iter().flatten().count(), hashes.len()));
+            Ok(hashes)
+        }
+        Err(error) => {
+            log(&format!("setup_status failed: {error:?}"));
+            Err(error.code())
+        }
+    }
+}
+
+/// Puts a car setup of the platform into the game's setup folder, where the game's setup screen lists it.
+/// A file of that name the driver has changed stays as it is, unless `replace` asks for the original.
+#[tauri::command]
+async fn install_setup(webview: tauri::Webview, app: tauri::AppHandle, setup: SetupFile, data: Vec<u8>, replace: bool) -> Result<(), String> {
+    log(&format!(
+        "install_setup requested by {}: {} / {} / {} ({} bytes, replace: {replace})",
+        webview.url().map(|u| u.to_string()).unwrap_or_default(), setup.car_folder, setup.track_folder, setup.name, data.len()
+    ));
+    let installed = find_ac_evo_setups(&app).ok_or(SetupError::AcEvoNotFound).and_then(|dir| setups::install(&dir, &setup, &data, replace));
+    match installed {
+        Ok(()) => {
+            log("install_setup -> installed");
+            Ok(())
+        }
+        Err(error) => {
+            log(&format!("install_setup failed: {error:?}"));
+            Err(error.code())
+        }
+    }
+}
+
 /// Shows a native notification (a Windows toast), also while the window is minimised. The hosted
 /// interface calls it for new notifications of the signed-in driver. Plain text only, cut to a sane length.
 #[tauri::command]
@@ -343,6 +396,45 @@ fn find_assetto_corsa() -> Option<PathBuf> {
     dd_core::steam::find_assetto_corsa(&dd_core::steam::library_paths(&vdf))
 }
 
+fn find_ac_evo() -> Option<PathBuf> {
+    let steam = steam_root()?;
+    let vdf = fs::read_to_string(steam.join("steamapps").join("libraryfolders.vdf")).ok()?;
+    dd_core::steam::find_ac_evo(&dd_core::steam::library_paths(&vdf))
+}
+
+/// The folder Assetto Corsa EVO keeps the car setups in. The game makes its folder in the user's
+/// `Saved Games` when it first starts; without that folder there is no game to put setups into.
+fn find_ac_evo_setups(app: &tauri::AppHandle) -> Option<PathBuf> {
+    // Development builds only: a folder made up for a check (scripts/run-setups-check.ps1).
+    #[cfg(debug_assertions)]
+    if let Some(dir) = std::env::var_os("DD_AC_EVO_USER_DIR").map(PathBuf::from) {
+        return dir.is_dir().then(|| dir.join(setups::SETUPS_DIR));
+    }
+    let home = app.path().home_dir().ok()?;
+    let game = setups::saved_games_dir(moved_saved_games().as_deref(), &home).join(setups::USER_DIR);
+    game.is_dir().then(|| game.join(setups::SETUPS_DIR))
+}
+
+/// Where the user moved the `Saved Games` folder to; None for a folder that is where Windows made it.
+#[cfg(windows)]
+fn moved_saved_games() -> Option<String> {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+
+    // The folder's id among Windows' known folders.
+    const SAVED_GAMES: &str = "{4C5C32FF-BB9D-43B0-B5B4-2D72E54EAAA4}";
+    RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders")
+        .ok()?
+        .get_value(SAVED_GAMES)
+        .ok()
+}
+
+#[cfg(not(windows))]
+fn moved_saved_games() -> Option<String> {
+    None
+}
+
 #[cfg(windows)]
 fn steam_root() -> Option<PathBuf> {
     use winreg::enums::HKEY_CURRENT_USER;
@@ -424,7 +516,7 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, join_race, scrutineer, start_bot_race, bot_race_result])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, join_race, scrutineer, start_bot_race, bot_race_result, setup_status, install_setup])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

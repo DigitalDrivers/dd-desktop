@@ -26,7 +26,7 @@ pub fn is_checkable_path(path: &str) -> bool {
     (2..=8).contains(&parts.len()) && matches!(parts[0], "content" | "system") && parts.iter().all(|part| is_content_name(part))
 }
 
-fn sha256_of(path: &Path) -> io::Result<String> {
+pub(crate) fn sha256_of(path: &Path) -> io::Result<String> {
     let mut file = File::open(path)?;
     let mut hasher = Sha256::new();
     let mut buffer = [0u8; 64 * 1024];

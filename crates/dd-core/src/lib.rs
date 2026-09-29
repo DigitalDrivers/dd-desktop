@@ -7,4 +7,5 @@ pub mod bot_race;
 pub mod join;
 pub mod links;
 pub mod scrutineering;
+pub mod setups;
 pub mod steam;

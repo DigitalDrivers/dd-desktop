@@ -1,4 +1,4 @@
-//! Locating Assetto Corsa inside the user's Steam libraries.
+//! Locating Assetto Corsa and Assetto Corsa EVO inside the user's Steam libraries.
 
 use std::path::{Path, PathBuf};
 
@@ -37,4 +37,12 @@ pub fn find_assetto_corsa(libraries: &[PathBuf]) -> Option<PathBuf> {
 /// True when `dir` looks like an Assetto Corsa installation.
 pub fn is_assetto_corsa_dir(dir: &Path) -> bool {
     dir.join(AC_EXECUTABLE).is_file()
+}
+
+/// Returns the Assetto Corsa EVO folder of the first library that contains the game.
+pub fn find_ac_evo(libraries: &[PathBuf]) -> Option<PathBuf> {
+    libraries
+        .iter()
+        .map(|library| library.join("steamapps").join("common").join("Assetto Corsa EVO"))
+        .find(|dir| dir.join("AssettoCorsaEVO.exe").is_file())
 }
