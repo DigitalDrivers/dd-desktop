@@ -13,9 +13,25 @@ async function showSystemCheck() {
   document.querySelector('#check').hidden = false
 }
 
+// A newer release is installed before the interface loads; the installer restarts the app. Without one, or
+// without a connection, the interface loads as it is.
+async function updateIfAvailable() {
+  try {
+    const update = await invoke('update_check')
+    if (!update) return false
+    statusEl.textContent = `Updating to version ${update.version}…`
+    await invoke('update_install')
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 async function connect() {
   retryEl.hidden = true
   statusEl.textContent = 'Connecting to Digital Drivers…'
+  if (await updateIfAvailable()) return
 
   const url = await invoke('platform_url')
   try {

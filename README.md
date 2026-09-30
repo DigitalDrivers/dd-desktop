@@ -39,6 +39,10 @@ driver can check what the app does on their PC.
   overwritten, unless you ask for the original. Nothing else in the folder is read, changed or removed.
 - A link the platform opens in a new window (a stream, a download) goes to your default browser; the app has no
   tabs. Only web addresses (`http`, `https`) are passed on, anything else is refused.
+- Installed with the `setup.exe`, the app asks GitHub at every start for the newest release (one request to
+  `github.com`, the update manifest of this repository's releases). A newer installer is downloaded, checked
+  against the signing key built into the app and run; it replaces the app and starts it again. The Store build
+  does not do this: the Store keeps it up to date.
 - It writes a log to `%TEMP%\dd-desktop.log`.
 
 Nothing else is read, and nothing is uploaded by the shell itself.
@@ -48,7 +52,7 @@ Nothing else is read, and nothing is uploaded by the shell itself.
 | Part | What |
 | --- | --- |
 | `src/` | Bundled start page: checks that the platform is reachable, then opens it. Offline it shows a system check. |
-| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `join_race`, `scrutineer`, `start_bot_race`, `bot_race_result`, `setup_status` and `install_setup`. |
+| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `join_race`, `scrutineer`, `start_bot_race`, `bot_race_result`, `setup_status`, `install_setup`, `update_check` and `update_install`. |
 | `src-tauri/capabilities/` | Which page may call which command. The hosted interface only gets the commands listed in `platform.json`; `dev-localhost.json` is enabled for development builds only. |
 | `crates/dd-core/` | Platform-independent logic (locating Assetto Corsa and Assetto Corsa EVO, the join ticket and the `race.ini` of an online session, hashing game files for scrutineering, the race against bots, car setups), unit-tested on any machine. |
 
@@ -87,6 +91,13 @@ and the file ends in `.carsetup`, so nothing can be written outside the game's s
 at most 64 KB. Loading a setup stays with the driver, in the game's setup screen: the app cannot know which
 setup the game drives with.
 
+`update_check` and `update_install` keep the `setup.exe` install up to date and are for the bundled start page
+only. The first asks the update manifest of this repository's GitHub releases (`latest.json`) for a newer
+version, the second downloads that installer, checks its signature against the public key in
+`tauri.conf.json` (tauri-plugin-updater, the signature cannot be skipped) and runs it; the installer closes
+the app and starts the new version. An install the Store made, or a build started from the `target` folder,
+answers that it does not update itself.
+
 ## Development
 
 Prerequisites on Windows: Rust (MSVC toolchain), Visual Studio Build Tools with C++, Node.js.
@@ -94,9 +105,27 @@ Prerequisites on Windows: Rust (MSVC toolchain), Visual Studio Build Tools with 
 ```powershell
 npm install
 npm run dev          # shell against a platform on http://localhost:3000 (set DD_PLATFORM_URL to change)
-npm run build        # release build with installer
+npm run build        # release build with installer (needs TAURI_SIGNING_PRIVATE_KEY, see Releases)
 cargo test           # all Rust tests; `cargo test -p dd-core` also runs on Linux and WSL
 ```
+
+## Releases
+
+A release is a tag `v<version>` with the version of `tauri.conf.json` (also in `Cargo.toml`, `package.json`
+and the MSIX manifest). `.github/workflows/release.yml` builds the installer, signs the update with the
+repository secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` and publishes `DigitalDrivers_<version>_x64-setup.exe`, its
+`.sig` and `latest.json` (`scripts/release-manifest.mjs`) as a GitHub release; every installed app finds
+that manifest under `releases/latest/download/latest.json`. The private key was made with
+`npm run tauri signer generate -- -w ~/.tauri/dd-desktop.key -p <password>`; its public half is in
+`tauri.conf.json`. A local release build needs the key too: `$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content -Raw
+~/.tauri/dd-desktop.key` and `$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = <password>` (the key needs a
+password: Windows cannot hold an empty environment variable, and without the variable the CLI prompts).
+Lose the key and every installed app is stranded on its version, so keep it backed up outside this repository.
+
+`scripts/update-check.sh` checks the self-update on this PC without GitHub: it serves a manifest that names
+the freshly built installer as a newer version, starts the debug build against it
+(`scripts/run-update-check.ps1`, `DD_UPDATE_URL`, development builds only) and watches the app download,
+verify and install the release, which then starts and reports itself up to date.
 
 ## Packaging
 

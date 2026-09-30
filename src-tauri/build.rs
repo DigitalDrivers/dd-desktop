@@ -4,7 +4,7 @@ fn main() {
     // commands its capability file lists.
     tauri_build::try_build(
         tauri_build::Attributes::new()
-            .app_manifest(tauri_build::AppManifest::new().commands(&["platform_url", "system_check", "show_toast", "join_race", "scrutineer", "start_bot_race", "bot_race_result", "setup_status", "install_setup"])),
+            .app_manifest(tauri_build::AppManifest::new().commands(&["platform_url", "system_check", "show_toast", "join_race", "scrutineer", "start_bot_race", "bot_race_result", "setup_status", "install_setup", "update_check", "update_install"])),
     )
     .expect("failed to run tauri-build");
 }

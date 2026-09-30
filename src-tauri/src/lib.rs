@@ -15,6 +15,7 @@ use dd_core::scrutineering::{self, FileHash};
 use dd_core::setups::{self, SetupError, SetupFile};
 use serde::Serialize;
 use tauri::Manager;
+use tauri_plugin_updater::{Update, UpdaterExt};
 
 /// Address of the hosted interface. `DD_PLATFORM_URL` overrides it for development.
 const DEFAULT_PLATFORM_URL: &str = "https://digitaldrivers.club";
@@ -26,6 +27,69 @@ fn log(message: &str) {
     if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(path) {
         let _ = writeln!(file, "{message}");
     }
+}
+
+/// The release `update_check` found, until `update_install` takes it.
+#[derive(Default)]
+struct PendingUpdate(Mutex<Option<Update>>);
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateAvailable {
+    version: String,
+}
+
+/// The updater of this install, or None for an install that does not update itself: the packaged app is kept
+/// up to date by the Store, and a build started from the target folder is the developer's own. Development
+/// builds take the address of the update manifest from `DD_UPDATE_URL` (scripts/run-update-check.ps1).
+fn updater_of(app: &tauri::AppHandle) -> Option<tauri_plugin_updater::Updater> {
+    #[cfg(debug_assertions)]
+    if let Ok(url) = std::env::var("DD_UPDATE_URL") {
+        return app.updater_builder().endpoints(vec![url.parse().ok()?]).ok()?.build().ok();
+    }
+    if package_app_id().is_some() || started_from_target_dir() {
+        return None;
+    }
+    app.updater().ok()
+}
+
+/// Looks for a newer release of the app on GitHub. The bundled start page calls it before it loads the
+/// hosted interface, and installs what it finds with `update_install`.
+#[tauri::command]
+async fn update_check(app: tauri::AppHandle, state: tauri::State<'_, PendingUpdate>) -> Result<Option<UpdateAvailable>, String> {
+    let Some(updater) = updater_of(&app) else {
+        log("update_check -> this install does not update itself");
+        return Ok(None);
+    };
+    match updater.check().await {
+        Ok(Some(update)) => {
+            log(&format!("update_check -> {} is out, this is {}", update.version, update.current_version));
+            let found = UpdateAvailable { version: update.version.clone() };
+            *state.0.lock().unwrap() = Some(update);
+            Ok(Some(found))
+        }
+        Ok(None) => {
+            log("update_check -> up to date");
+            Ok(None)
+        }
+        Err(error) => {
+            log(&format!("update_check failed: {error}"));
+            Err("failed".to_string())
+        }
+    }
+}
+
+/// Downloads the release `update_check` found, checks its signature and runs its installer. On Windows the
+/// installer closes the app right away and starts the new version itself, so nothing after that is logged.
+#[tauri::command]
+async fn update_install(app: tauri::AppHandle, state: tauri::State<'_, PendingUpdate>) -> Result<(), String> {
+    let update = state.0.lock().unwrap().take().ok_or_else(|| "no-update".to_string())?;
+    log(&format!("update_install requested: {}", update.version));
+    update.download_and_install(|_, _| {}, || log("update_install -> downloaded, checking the signature and handing over to the installer")).await.map_err(|error| {
+        log(&format!("update_install failed: {error}"));
+        "failed".to_string()
+    })?;
+    app.restart()
 }
 
 #[tauri::command]
@@ -336,8 +400,11 @@ fn toast_app_id(identifier: &str) -> String {
     }
     // A build started straight from the target folder is not registered with Windows at all;
     // PowerShell's id makes the toast show anyway. An installed build is registered by its identifier.
-    let from_target_dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(is_cargo_target_dir)).unwrap_or(false);
-    if from_target_dir { POWERSHELL_APP_ID.to_string() } else { identifier.to_string() }
+    if started_from_target_dir() { POWERSHELL_APP_ID.to_string() } else { identifier.to_string() }
+}
+
+fn started_from_target_dir() -> bool {
+    std::env::current_exe().ok().and_then(|exe| exe.parent().map(is_cargo_target_dir)).unwrap_or(false)
 }
 
 const POWERSHELL_APP_ID: &str = r"{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe";
@@ -502,7 +569,9 @@ fn active_steam_user() -> u32 {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(BotRaceState::default())
+        .manage(PendingUpdate::default())
         .setup(|app| {
             // The window is built here instead of by the configuration alone, so that links which open a new
             // window (a stream, a download) go to the browser: the app has no tabs, and without this they did
@@ -516,7 +585,7 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, join_race, scrutineer, start_bot_race, bot_race_result, setup_status, install_setup])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, join_race, scrutineer, start_bot_race, bot_race_result, setup_status, install_setup, update_check, update_install])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
