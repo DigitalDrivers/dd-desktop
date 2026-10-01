@@ -91,8 +91,9 @@ and the file ends in `.carsetup`, so nothing can be written outside the game's s
 at most 64 KB. Loading a setup stays with the driver, in the game's setup screen: the app cannot know which
 setup the game drives with.
 
-`update_check` and `update_install` keep the `setup.exe` install up to date and are for the bundled start page
-only. The first asks the update manifest of this repository's GitHub releases (`latest.json`) for a newer
+`update_check` and `update_install` keep the `setup.exe` install up to date. The bundled start page calls them
+before the interface loads; since 0.8.0 the hosted interface may call them too, for a notice while the app
+stays open and a "check for updates" button. The first asks the update manifest of this repository's GitHub releases (`latest.json`) for a newer
 version, the second downloads that installer, checks its signature against the public key in
 `tauri.conf.json` (tauri-plugin-updater, the signature cannot be skipped) and runs it; the installer closes
 the app and starts the new version. An install the Store made, or a build started from the `target` folder,
