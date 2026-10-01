@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-launch-ac-evo"
+description = "Enables the launch_ac_evo command without any pre-configured scope."
+commands.allow = ["launch_ac_evo"]
+
+[[permission]]
+identifier = "deny-launch-ac-evo"
+description = "Denies the launch_ac_evo command without any pre-configured scope."
+commands.deny = ["launch_ac_evo"]
