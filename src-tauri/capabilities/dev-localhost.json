@@ -7,5 +7,5 @@
   "remote": {
     "urls": ["http://localhost:3000"]
   },
-  "permissions": ["allow-system-check", "allow-show-toast", "allow-join-race", "allow-scrutineer", "allow-start-bot-race", "allow-bot-race-result", "allow-setup-status", "allow-install-setup"]
+  "permissions": ["allow-system-check", "allow-show-toast", "allow-join-race", "allow-scrutineer", "allow-start-bot-race", "allow-bot-race-result", "allow-setup-status", "allow-install-setup", "allow-launch-ac-evo"]
 }

@@ -391,6 +391,29 @@ fn show_toast(webview: tauri::Webview, app: tauri::AppHandle, title: String, bod
     })
 }
 
+/// Starts Assetto Corsa EVO through Steam. The game has no join link: the hosted interface puts the
+/// server's `join:<host>:<port>` string on the clipboard first, and the driver presses the clipboard
+/// button in the game's server list. The Steam URL goes through the shell like a clicked link.
+#[tauri::command]
+fn launch_ac_evo(webview: tauri::Webview) -> Result<(), String> {
+    log(&format!("launch_ac_evo requested by {}", webview.url().map(|u| u.to_string()).unwrap_or_default()));
+    find_ac_evo().ok_or_else(|| "ac-evo-not-found".to_string())?;
+    open_url("steam://run/3058630").map_err(|error| {
+        log(&format!("launch_ac_evo failed: {error}"));
+        format!("failed: {error}")
+    })
+}
+
+#[cfg(windows)]
+fn open_url(url: &str) -> std::io::Result<()> {
+    std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", url]).spawn().map(|_| ())
+}
+
+#[cfg(not(windows))]
+fn open_url(_url: &str) -> std::io::Result<()> {
+    Err(std::io::Error::other("only on Windows"))
+}
+
 /// The id Windows files our notifications under. It has to be one Windows knows, or the toast is
 /// dropped without an error.
 fn toast_app_id(identifier: &str) -> String {
@@ -585,7 +608,7 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, join_race, scrutineer, start_bot_race, bot_race_result, setup_status, install_setup, update_check, update_install])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, join_race, scrutineer, start_bot_race, bot_race_result, setup_status, install_setup, update_check, update_install, launch_ac_evo])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
