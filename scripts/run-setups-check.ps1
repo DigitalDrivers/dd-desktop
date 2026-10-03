@@ -41,8 +41,6 @@ try {
   "platform loaded in the shell: $(Wait-ForPage $PlatformUrl)"
   # No double quotes inside the expressions: PowerShell drops them on the way to node.
   node $eval $DebugPort "fetch('/auth/test-login', { method: 'POST', headers: { 'content-type': 'application/json', 'x-test-login-token': '$LoginToken' }, body: JSON.stringify({ steamId: '$SteamId', name: '$Name', role: 'driver' }) }).then(r => 'signed in: ' + r.status)"
-  # The pages of AC EVO are for drivers who chose it.
-  node $eval $DebugPort "fetch('/api/me/game', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ game: 'acevo' }) }).then(r => 'chose AC EVO: ' + r.status)"
   node $eval $DebugPort "(location.assign('/evo/setups'), 'opening the setups')"
   "setups loaded: $(Wait-ForPage "$PlatformUrl/evo/setups")"
 

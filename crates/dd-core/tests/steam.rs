@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use dd_core::steam::{find_ac_evo, find_assetto_corsa, is_assetto_corsa_dir, library_paths};
+use dd_core::steam::{find_ac_evo, library_paths, steam_id64};
 
 const FIXTURE: &str = include_str!("fixtures/libraryfolders.vdf");
 
@@ -11,17 +11,6 @@ fn temp_dir(name: &str) -> PathBuf {
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir
-}
-
-/// Creates a fake Steam library; with `with_ac` it contains an Assetto Corsa executable.
-fn fake_library(root: &PathBuf, name: &str, with_ac: bool) -> PathBuf {
-    let library = root.join(name);
-    let ac = library.join("steamapps/common/assettocorsa");
-    fs::create_dir_all(&ac).unwrap();
-    if with_ac {
-        fs::write(ac.join("AssettoCorsa.exe"), b"").unwrap();
-    }
-    library
 }
 
 #[test]
@@ -42,35 +31,12 @@ fn ignores_other_keys_and_malformed_lines() {
 }
 
 #[test]
-fn finds_the_game_in_the_second_library() {
-    let root = temp_dir("second");
-    let libraries = vec![
-        fake_library(&root, "lib-a", false),
-        fake_library(&root, "lib-b", true),
-    ];
-    assert_eq!(
-        find_assetto_corsa(&libraries),
-        Some(libraries[1].join("steamapps/common/assettocorsa"))
-    );
-    fs::remove_dir_all(root).unwrap();
-}
-
-#[test]
-fn returns_none_when_no_library_contains_the_game() {
-    let root = temp_dir("none");
-    let libraries = vec![fake_library(&root, "lib-a", false)];
-    assert_eq!(find_assetto_corsa(&libraries), None);
-    assert!(!is_assetto_corsa_dir(&libraries[0].join("steamapps/common/assettocorsa")));
-    fs::remove_dir_all(root).unwrap();
-}
-
-#[test]
-fn finds_assetto_corsa_evo_next_to_assetto_corsa() {
+fn finds_assetto_corsa_evo_in_the_second_library() {
     let root = temp_dir("evo");
-    let libraries = vec![
-        fake_library(&root, "lib-a", true),
-        fake_library(&root, "lib-b", false),
-    ];
+    let libraries = vec![root.join("lib-a"), root.join("lib-b")];
+    for library in &libraries {
+        fs::create_dir_all(library.join("steamapps/common")).unwrap();
+    }
     assert_eq!(find_ac_evo(&libraries), None);
     let evo = libraries[1].join("steamapps/common/Assetto Corsa EVO");
     fs::create_dir_all(&evo).unwrap();
@@ -79,4 +45,10 @@ fn finds_assetto_corsa_evo_next_to_assetto_corsa() {
     fs::write(evo.join("AssettoCorsaEVO.exe"), b"").unwrap();
     assert_eq!(find_ac_evo(&libraries), Some(evo));
     fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn works_out_the_steam_id_of_the_active_account() {
+    assert_eq!(steam_id64(4_782_979), Some("76561197965048707".to_string()));
+    assert_eq!(steam_id64(0), None);
 }

@@ -7,8 +7,6 @@
 
 use std::collections::HashSet;
 
-use crate::join::is_content_name;
-
 /// The package's file table: the last 64 MB of the file, XOR'd with this key.
 pub const TABLE_SIZE: usize = 0x400_0000;
 const KEY: [u8; 8] = [0xc1, 0x35, 0x11, 0x7d, 0xa9, 0x21, 0x97, 0x9f];
@@ -17,7 +15,7 @@ const PATH_BYTES: usize = 0xE0;
 
 /// A car id as the game takes it: a lower-case content folder name.
 pub fn is_car_id(id: &str) -> bool {
-    is_content_name(id) && id.len() >= 3 && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+    (3..=100).contains(&id.len()) && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
 /// The paths in a package's file table, lower case (`content\cars\<id>\...`). `table` is the table as it is

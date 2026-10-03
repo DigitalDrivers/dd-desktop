@@ -8,11 +8,8 @@ use std::time::Duration;
 use std::sync::Mutex;
 use std::time::SystemTime;
 
-use dd_core::bot_race::{self, BotRaceResult, BotRaceTicket};
 use dd_core::garage;
-use dd_core::join::{self, JoinError, JoinTicket};
 use dd_core::links;
-use dd_core::scrutineering::{self, FileHash};
 use dd_core::setups::{self, SetupError, SetupFile};
 use serde::Serialize;
 use tauri::Manager;
@@ -314,19 +311,8 @@ fn platform_url() -> String {
 #[serde(rename_all = "camelCase")]
 struct SystemCheck {
     app_version: String,
-    /// Folder of the Assetto Corsa installation, if one was found.
-    assetto_corsa_path: Option<String>,
-    /// Whether the app may write into that folder (needed to install content). None without a folder.
-    assetto_corsa_writable: Option<bool>,
     /// SteamID64 of the account signed in to Steam on this PC. None while Steam is not running.
     steam_id: Option<String>,
-    /// This app can start races against bots and report how they went (since 0.4.0).
-    bot_races: bool,
-    /// The program Content Manager registered for its `acmanager://` links, if it did and the file is still
-    /// there (since 0.5.0). The platform links straight to it, or says what is missing.
-    content_manager_path: Option<String>,
-    /// Build of the Custom Shaders Patch in the game folder, if it is installed (since 0.5.0).
-    csp_build: Option<u32>,
     /// Folder of the Assetto Corsa EVO installation, if one was found (since 0.6.0).
     ac_evo_path: Option<String>,
     /// The folder Assetto Corsa EVO keeps the driver's car setups in, once the game has been started on this
@@ -337,209 +323,16 @@ struct SystemCheck {
 #[tauri::command]
 fn system_check(webview: tauri::Webview, app: tauri::AppHandle) -> SystemCheck {
     log(&format!("system_check requested by {}", webview.url().map(|u| u.to_string()).unwrap_or_default()));
-
-    let ac = find_assetto_corsa();
-    let writable = ac.as_deref().map(can_write_into);
-    let steam_id = join::steam_id64(active_steam_user());
-    let content_manager = find_content_manager();
-    let csp_build = ac.as_deref().and_then(scrutineering::csp_build);
+    let steam_id = dd_core::steam::steam_id64(active_steam_user());
     let ac_evo = find_ac_evo();
     let ac_evo_setups = find_ac_evo_setups(&app);
-    log(&format!(
-        "system_check -> assetto corsa: {ac:?}, writable: {writable:?}, steam account: {steam_id:?}, content manager: {content_manager:?}, CSP build {csp_build:?}, assetto corsa evo: {ac_evo:?}, its setups: {ac_evo_setups:?}"
-    ));
+    log(&format!("system_check -> steam account: {steam_id:?}, assetto corsa evo: {ac_evo:?}, its setups: {ac_evo_setups:?}"));
     SystemCheck {
         app_version: app.package_info().version.to_string(),
-        assetto_corsa_writable: writable,
-        assetto_corsa_path: ac.map(|p| p.display().to_string()),
         steam_id,
-        bot_races: true,
-        content_manager_path: content_manager.map(|p| p.display().to_string()),
-        csp_build,
         ac_evo_path: ac_evo.map(|p| p.display().to_string()),
         ac_evo_setups_path: ac_evo_setups.map(|p| p.display().to_string()),
     }
-}
-
-/// The race against bots the app has started, until its result has been fetched.
-struct BotRaceRun {
-    game: std::process::Child,
-    started: SystemTime,
-    result_file: PathBuf,
-}
-
-#[derive(Default)]
-struct BotRaceState(Mutex<Option<BotRaceRun>>);
-
-fn game_cfg_dir(app: &tauri::AppHandle) -> Result<PathBuf, JoinError> {
-    Ok(app.path().document_dir().map_err(|e| JoinError::Failed(format!("documents folder: {e}")))?.join("Assetto Corsa"))
-}
-
-/// Starts a single-player race against the game's own AI: the driver's car against bots in the same car, on
-/// the track and over the laps of the ticket. Like `join_race` it writes the game's `race.ini` and starts
-/// `acs.exe`; how the race went is fetched with `bot_race_result` once the game has closed.
-#[tauri::command]
-async fn start_bot_race(webview: tauri::Webview, app: tauri::AppHandle, state: tauri::State<'_, BotRaceState>, ticket: BotRaceTicket) -> Result<(), String> {
-    log(&format!(
-        "start_bot_race requested by {}: {} on {} against {} bots at {} %, {} laps",
-        webview.url().map(|u| u.to_string()).unwrap_or_default(), ticket.car_model, ticket.track, ticket.opponents, ticket.ai_level, ticket.laps
-    ));
-    let run = launch_bot_race(&app, &ticket).map_err(|error| {
-        log(&format!("start_bot_race failed: {error:?}"));
-        error.code()
-    })?;
-    *state.0.lock().unwrap() = Some(run);
-    Ok(())
-}
-
-fn launch_bot_race(app: &tauri::AppHandle, ticket: &BotRaceTicket) -> Result<BotRaceRun, JoinError> {
-    ticket.validate()?;
-    let ac = find_assetto_corsa().ok_or(JoinError::AssettoCorsaNotFound)?;
-    // Steam has to run for the game to start at all.
-    join::steam_id64(active_steam_user()).ok_or(JoinError::SteamNotRunning)?;
-    for (kind, name) in [("cars", &ticket.car_model), ("tracks", &ticket.track)] {
-        if !ac.join("content").join(kind).join(name).is_dir() {
-            return Err(JoinError::ContentMissing(format!("{kind}/{name}")));
-        }
-    }
-    // The liveries the car has on this PC, by name: the driver gets the first, the bots the others in turn.
-    let mut skins: Vec<String> = fs::read_dir(ac.join("content").join("cars").join(&ticket.car_model).join("skins"))
-        .map(|dir| dir.flatten().filter(|e| e.path().is_dir()).filter_map(|e| e.file_name().into_string().ok()).collect())
-        .unwrap_or_default();
-    skins.sort();
-
-    let failed = |what: &str, error: std::io::Error| JoinError::Failed(format!("{what}: {error}"));
-    let app_id = ac.join("steam_appid.txt");
-    if !app_id.is_file() {
-        fs::write(&app_id, join::STEAM_APP_ID).map_err(|e| failed("steam_appid.txt", e))?;
-    }
-    let documents = game_cfg_dir(app)?;
-    fs::create_dir_all(documents.join("cfg")).map_err(|e| failed("cfg folder", e))?;
-    let race_ini = documents.join("cfg").join("race.ini");
-    let previous = fs::read(&race_ini).map(|bytes| String::from_utf8_lossy(&bytes).into_owned()).unwrap_or_default();
-    fs::write(&race_ini, bot_race::render_bot_race_ini(ticket, &skins, &previous)).map_err(|e| failed("race.ini", e))?;
-
-    let started = SystemTime::now();
-    let game = std::process::Command::new(ac.join("acs.exe")).current_dir(&ac).spawn().map_err(|e| failed("acs.exe", e))?;
-    Ok(BotRaceRun { game, started, result_file: documents.join("out").join("race_out.json") })
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BotRaceStatus {
-    /// "none": no race was started; "running": the game is still open; "finished": the game has closed
-    state: &'static str,
-    /// With "finished": how the race went; None when the game left no race result (closed before the start)
-    result: Option<BotRaceResult>,
-}
-
-/// How the race against bots started with `start_bot_race` stands. The result is handed out once.
-#[tauri::command]
-fn bot_race_result(state: tauri::State<'_, BotRaceState>) -> BotRaceStatus {
-    let mut guard = state.0.lock().unwrap();
-    let Some(run) = guard.as_mut() else { return BotRaceStatus { state: "none", result: None } };
-    if matches!(run.game.try_wait(), Ok(None)) {
-        return BotRaceStatus { state: "running", result: None };
-    }
-    // The game writes its result when it closes; only a file written after the start is this race's.
-    let fresh = fs::metadata(&run.result_file).and_then(|m| m.modified()).map(|at| at >= run.started).unwrap_or(false);
-    let result = if fresh { fs::read_to_string(&run.result_file).ok().and_then(|json| bot_race::parse_race_out(&json)) } else { None };
-    log(&format!("bot_race_result -> game closed, result: {result:?}"));
-    *guard = None;
-    BotRaceStatus { state: "finished", result }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct JoinStarted {
-    /// The livery the race server has for the driver
-    skin: String,
-}
-
-/// Starts the game on the race server of the ticket, the way a launcher does: asks the server for the
-/// driver's slot, writes the game's `race.ini` for an online session there and starts `acs.exe`.
-/// An error is a short code (see `JoinError::code`); the hosted interface has the words for it.
-#[tauri::command]
-async fn join_race(webview: tauri::Webview, app: tauri::AppHandle, ticket: JoinTicket) -> Result<JoinStarted, String> {
-    log(&format!(
-        "join_race requested by {}: {} on {}:{} ({})",
-        webview.url().map(|u| u.to_string()).unwrap_or_default(),
-        ticket.car_model,
-        ticket.host,
-        ticket.game_port,
-        ticket.steam_id
-    ));
-    match start_race(&app, &ticket) {
-        Ok(started) => {
-            log(&format!("join_race -> game started, skin {}", started.skin));
-            Ok(started)
-        }
-        Err(error) => {
-            log(&format!("join_race failed: {error:?}"));
-            Err(error.code())
-        }
-    }
-}
-
-fn start_race(app: &tauri::AppHandle, ticket: &JoinTicket) -> Result<JoinStarted, JoinError> {
-    ticket.validate()?;
-    let ac = find_assetto_corsa().ok_or(JoinError::AssettoCorsaNotFound)?;
-    // The race server checks the game's Steam ticket against the slot: it has to be the same account.
-    let local_account = join::steam_id64(active_steam_user()).ok_or(JoinError::SteamNotRunning)?;
-    if local_account != ticket.steam_id {
-        return Err(JoinError::WrongSteamAccount);
-    }
-    for (kind, name) in [("cars", &ticket.car_model), ("tracks", &ticket.track)] {
-        if !ac.join("content").join(kind).join(name).is_dir() {
-            return Err(JoinError::ContentMissing(format!("{kind}/{name}")));
-        }
-    }
-
-    let entry_list = join::fetch_entry_list(&ticket.host, ticket.http_port, &ticket.steam_id, Duration::from_secs(5))?;
-    let slot = join::slot_of(&entry_list, &ticket.car_model)?;
-
-    let failed = |what: &str, error: std::io::Error| JoinError::Failed(format!("{what}: {error}"));
-    // Without this file Steam starts the game's own launcher instead of the session.
-    let app_id = ac.join("steam_appid.txt");
-    if !app_id.is_file() {
-        fs::write(&app_id, join::STEAM_APP_ID).map_err(|e| failed("steam_appid.txt", e))?;
-    }
-    let cfg = app.path().document_dir().map_err(|e| JoinError::Failed(format!("documents folder: {e}")))?.join("Assetto Corsa").join("cfg");
-    fs::create_dir_all(&cfg).map_err(|e| failed("cfg folder", e))?;
-    let race_ini = cfg.join("race.ini");
-    let previous = fs::read(&race_ini).map(|bytes| String::from_utf8_lossy(&bytes).into_owned()).unwrap_or_default();
-    fs::write(&race_ini, join::render_race_ini(ticket, &slot, &previous)).map_err(|e| failed("race.ini", e))?;
-
-    std::process::Command::new(ac.join("acs.exe")).current_dir(&ac).spawn().map_err(|e| failed("acs.exe", e))?;
-    Ok(JoinStarted { skin: slot.skin })
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ScrutineeringReport {
-    files: Vec<FileHash>,
-    /// Build of the installed Custom Shaders Patch; None when it is not installed or switched off.
-    csp_build: Option<u32>,
-    app_version: String,
-}
-
-/// Technical scrutineering: reports the SHA-256 of the game files the hosted interface asks about (only
-/// below the game's `content` and `system` folders) and the build of the Custom Shaders Patch. The platform
-/// compares that with what the race server will check; the app itself judges nothing.
-#[tauri::command]
-async fn scrutineer(webview: tauri::Webview, app: tauri::AppHandle, files: Vec<String>) -> Result<ScrutineeringReport, String> {
-    log(&format!("scrutineer requested by {}: {} files", webview.url().map(|u| u.to_string()).unwrap_or_default(), files.len()));
-    if files.len() > 200 {
-        return Err("too-many-files".to_string());
-    }
-    let ac = find_assetto_corsa().ok_or_else(|| JoinError::AssettoCorsaNotFound.code())?;
-    let hashes = scrutineering::hash_files(&ac, &files).map_err(|path| {
-        log(&format!("scrutineer refused the path {path}"));
-        "invalid-path".to_string()
-    })?;
-    let csp_build = scrutineering::csp_build(&ac);
-    log(&format!("scrutineer -> {} of {} files found, CSP build {csp_build:?}", hashes.iter().filter(|f| f.sha256.is_some()).count(), hashes.len()));
-    Ok(ScrutineeringReport { files: hashes, csp_build, app_version: app.package_info().version.to_string() })
 }
 
 /// Says which of the setups the hosted interface asks about are in the game's setup folder: the SHA-256 of
@@ -678,25 +471,6 @@ fn show_native_toast(_app_id: &str, _title: &str, _body: &str) -> Result<(), Str
     Err("Notifications are only implemented on Windows".to_string())
 }
 
-/// Writes and removes a small probe file to learn whether the folder is writable.
-fn can_write_into(dir: &Path) -> bool {
-    let probe = dir.join("dd-desktop-write-probe.tmp");
-    let written = fs::write(&probe, b"Digital Drivers write probe").is_ok();
-    let _ = fs::remove_file(&probe);
-    written
-}
-
-fn find_assetto_corsa() -> Option<PathBuf> {
-    // Development builds only: a game folder made up for a check (scripts/run-scrutineering-check.ps1).
-    #[cfg(debug_assertions)]
-    if let Some(dir) = std::env::var_os("DD_ASSETTO_CORSA_DIR").map(PathBuf::from) {
-        return dd_core::steam::is_assetto_corsa_dir(&dir).then_some(dir);
-    }
-    let steam = steam_root()?;
-    let vdf = fs::read_to_string(steam.join("steamapps").join("libraryfolders.vdf")).ok()?;
-    dd_core::steam::find_assetto_corsa(&dd_core::steam::library_paths(&vdf))
-}
-
 fn find_ac_evo() -> Option<PathBuf> {
     let steam = steam_root()?;
     let vdf = fs::read_to_string(steam.join("steamapps").join("libraryfolders.vdf")).ok()?;
@@ -751,24 +525,6 @@ fn steam_root() -> Option<PathBuf> {
     None
 }
 
-/// The program registered for `acmanager://` links, as long as it is still there. Content Manager registers
-/// itself for the current user when it first starts.
-#[cfg(windows)]
-fn find_content_manager() -> Option<PathBuf> {
-    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
-    use winreg::RegKey;
-
-    [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE].into_iter().find_map(|root| {
-        let command: String = RegKey::predef(root).open_subkey(r"Software\Classes\acmanager\shell\open\command").ok()?.get_value("").ok()?;
-        links::protocol_handler_exe(&command).filter(|exe| exe.is_file())
-    })
-}
-
-#[cfg(not(windows))]
-fn find_content_manager() -> Option<PathBuf> {
-    None
-}
-
 /// A page the interface opens in a new window goes to the driver's browser; anything else is refused.
 fn open_in_browser(url: &str) {
     if !links::opens_in_browser(url) {
@@ -804,8 +560,7 @@ fn active_steam_user() -> u32 {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(BotRaceState::default())
-        .manage(PendingUpdate::default())
+                .manage(PendingUpdate::default())
         .manage(PackageHashes::default())
         .setup(|app| {
             // The window is built here instead of by the configuration alone, so that links which open a new
@@ -820,7 +575,7 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, join_race, scrutineer, start_bot_race, bot_race_result, setup_status, install_setup, update_check, update_install, launch_ac_evo, car_status, install_car])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, update_check, update_install, launch_ac_evo, car_status, install_car])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

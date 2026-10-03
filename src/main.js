@@ -7,9 +7,8 @@ const retryEl = document.querySelector('#retry')
 async function showSystemCheck() {
   const check = await invoke('system_check')
   document.querySelector('#check-version').textContent = check.appVersion
-  document.querySelector('#check-ac').textContent = check.assettoCorsaPath ?? 'not found'
-  document.querySelector('#check-write').textContent =
-    check.assettoCorsaWritable === null ? '–' : check.assettoCorsaWritable ? 'possible' : 'not possible (folder is write-protected)'
+  document.querySelector('#check-evo').textContent = check.acEvoPath ?? 'not found'
+  document.querySelector('#check-folder').textContent = check.acEvoSetupsPath ?? 'not there yet (start the game once)'
   document.querySelector('#check').hidden = false
 }
 

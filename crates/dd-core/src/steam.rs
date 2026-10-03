@@ -1,12 +1,15 @@
-//! Locating Assetto Corsa and Assetto Corsa EVO inside the user's Steam libraries.
+//! Locating Assetto Corsa EVO inside the user's Steam libraries, and the account Steam runs with.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-/// Folder of Assetto Corsa relative to a Steam library root, as path components so the result uses the
-/// platform's separator throughout.
-const AC_RELATIVE_DIR: [&str; 3] = ["steamapps", "common", "assettocorsa"];
-/// File that must exist for a folder to count as an Assetto Corsa installation.
-const AC_EXECUTABLE: &str = "AssettoCorsa.exe";
+/// SteamID64 of the first individual account; an account's id is added to it.
+const STEAM_ID64_BASE: u64 = 76_561_197_960_265_728;
+
+/// SteamID64 of the account Steam reports as active (`ActiveProcess\ActiveUser` in the registry);
+/// 0 there means Steam is not running or nobody is signed in.
+pub fn steam_id64(active_user: u32) -> Option<String> {
+    (active_user != 0).then(|| (STEAM_ID64_BASE + u64::from(active_user)).to_string())
+}
 
 /// Extracts the library root paths from the text of Steam's `libraryfolders.vdf`.
 ///
@@ -24,19 +27,6 @@ pub fn library_paths(vdf: &str) -> Vec<PathBuf> {
             }
         })
         .collect()
-}
-
-/// Returns the Assetto Corsa folder of the first library that contains the game.
-pub fn find_assetto_corsa(libraries: &[PathBuf]) -> Option<PathBuf> {
-    libraries
-        .iter()
-        .map(|library| AC_RELATIVE_DIR.iter().fold(library.clone(), |dir, part| dir.join(part)))
-        .find(|dir| is_assetto_corsa_dir(dir))
-}
-
-/// True when `dir` looks like an Assetto Corsa installation.
-pub fn is_assetto_corsa_dir(dir: &Path) -> bool {
-    dir.join(AC_EXECUTABLE).is_file()
 }
 
 /// Returns the Assetto Corsa EVO folder of the first library that contains the game.

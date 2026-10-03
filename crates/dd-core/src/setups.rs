@@ -9,8 +9,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 
-use crate::scrutineering::sha256_of;
+fn sha256_of(path: &Path) -> std::io::Result<String> {
+    Ok(Sha256::digest(fs::read(path)?).iter().map(|b| format!("{b:02x}")).collect())
+}
+
 
 /// The game's folder below the user's `Saved Games`.
 pub const USER_DIR: &str = "ACE";

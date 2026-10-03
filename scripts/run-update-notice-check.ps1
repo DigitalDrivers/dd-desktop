@@ -5,6 +5,11 @@
 # installed. Started for you by dd-platform/scripts/update-notice-check.sh. Needs Node 22+.
 param(
   [Parameter(Mandatory)][string]$ManifestUrl,
+  # With these the page is signed in first and the app uses that folder for the game's (dd-platform's
+  # scripts/content-update-check.sh: the button then also updates cars and setups).
+  [string]$SteamId = '',
+  [string]$LoginToken = '',
+  [string]$UserDir = '',
   [string]$PlatformUrl = 'http://localhost:3000',
   [int]$DebugPort = 9229
 )
@@ -17,6 +22,7 @@ Remove-Item $log -ErrorAction SilentlyContinue
 
 $env:DD_PLATFORM_URL = $PlatformUrl
 $env:DD_UPDATE_URL = $ManifestUrl
+$env:DD_AC_EVO_USER_DIR = $UserDir
 $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$DebugPort"
 $p = Start-Process -FilePath $exe -PassThru
 $eval = Join-Path $PSScriptRoot 'cdp-eval.mjs'
@@ -34,6 +40,11 @@ function Wait-ForPage([string]$prefix) {
 
 try {
   "platform loaded in the shell: $(Wait-ForPage $PlatformUrl)"
+  if ($LoginToken) {
+    node $eval $DebugPort "fetch('/auth/test-login', { method: 'POST', headers: { 'content-type': 'application/json', 'x-test-login-token': '$LoginToken' }, body: JSON.stringify({ steamId: '$SteamId', name: 'Update Check', role: 'driver' }) }).then(r => 'signed in: ' + r.status)"
+    node $eval $DebugPort "(location.assign('/evo'), 'opening the paddock')"
+    "paddock loaded: $(Wait-ForPage "$PlatformUrl/evo")"
+  }
   # The script becomes one line: no comments in it. It waits for the button, clicks it and reads the answer.
   $run = @"
 (async () => {
@@ -43,7 +54,7 @@ try {
   if (!find('check-update')) return { problem: 'no button on the page' };
   const noticeBefore = !!find('desktop-update');
   find('check-update').click();
-  for (let i = 0; i < 40 && !find('update-result'); i++) await wait(500);
+  for (let i = 0; i < 240 && !find('update-result'); i++) await wait(500);
   return { noticeBefore, result: find('update-result')?.innerText.trim() ?? null, notice: find('desktop-update')?.innerText.trim() ?? null };
 })()
 "@
