@@ -203,12 +203,16 @@ async fn download_car(app: &tauri::AppHandle, id: &str, path: &str, sha256: &str
         .read_timeout(Duration::from_secs(60))
         .build()
         .map_err(|e| format!("failed: {e}"))?;
-    let mut response = client.get(&url).send().await.map_err(|e| format!("download-failed: {e}"))?;
+    // Ask for gzip explicitly: a proxy in front of the platform (Cloudflare) unpacks a gzip answer for a client
+    // that does not say it takes gzip, and then sends the package as it is, without the header.
+    let mut response = client.get(&url).header("accept-encoding", "gzip").send().await.map_err(|e| format!("download-failed: {e}"))?;
     log(&format!("install_car: {} {:?}", response.status(), response.headers().get("content-encoding")));
     if !response.status().is_success() {
         return Err(format!("download-failed: {}", response.status()));
     }
-    // The platform sends the package gzipped (content-encoding: gzip); it is unpacked into the file on the way.
+    // The platform sends the package gzipped; whether it still is when it arrives depends on what is in between,
+    // so the first bytes decide: gzip's magic number (a package starts with zeros) is unpacked on the way, anything
+    // else is written as it comes. The SHA-256 of what lands in the file decides either way.
     struct Hashing<W: Write> {
         inner: W,
         hasher: Sha256,
@@ -223,16 +227,35 @@ async fn download_car(app: &tauri::AppHandle, id: &str, path: &str, sha256: &str
             self.inner.flush()
         }
     }
+    enum Sink<W: Write> {
+        Gzip(flate2::write::GzDecoder<Hashing<W>>),
+        Plain(Hashing<W>),
+    }
     let file = fs::File::create(&part).map_err(|e| format!("failed: {e}"))?;
-    let mut out = flate2::write::GzDecoder::new(Hashing { inner: std::io::BufWriter::new(file), hasher: Sha256::new() });
+    let mut target_file = Some(Hashing { inner: std::io::BufWriter::new(file), hasher: Sha256::new() });
+    let mut out: Option<Sink<_>> = None;
     let written: Result<(), String> = async {
         while let Some(chunk) = response.chunk().await.map_err(|e| format!("download-failed: {e}"))? {
-            out.write_all(&chunk).map_err(|e| format!("failed: {e}"))?;
+            if out.is_none() {
+                let hashing = target_file.take().expect("the file is taken once");
+                let gzip = chunk.starts_with(&[0x1f, 0x8b]);
+                log(&format!("install_car: {} on arrival", if gzip { "gzipped" } else { "unpacked" }));
+                out = Some(if gzip { Sink::Gzip(flate2::write::GzDecoder::new(hashing)) } else { Sink::Plain(hashing) });
+            }
+            match out.as_mut().expect("set above") {
+                Sink::Gzip(decoder) => decoder.write_all(&chunk),
+                Sink::Plain(plain) => plain.write_all(&chunk),
+            }
+            .map_err(|e| format!("failed: {e}"))?;
         }
         Ok(())
     }
     .await;
-    let finished = written.and_then(|_| out.finish().map_err(|e| format!("failed: {e}")));
+    let finished = written.and_then(|_| match out {
+        Some(Sink::Gzip(decoder)) => decoder.finish().map_err(|e| format!("failed: {e}")),
+        Some(Sink::Plain(plain)) => Ok(plain),
+        None => Err("download-failed: empty answer".to_string()),
+    });
     let mut sink = match finished {
         Ok(sink) => sink,
         Err(error) => {
