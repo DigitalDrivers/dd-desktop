@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-car-status"
+description = "Enables the car_status command without any pre-configured scope."
+commands.allow = ["car_status"]
+
+[[permission]]
+identifier = "deny-car-status"
+description = "Denies the car_status command without any pre-configured scope."
+commands.deny = ["car_status"]

@@ -1,6 +1,6 @@
 [package]
 name = "dd-desktop"
-version = "0.8.0"
+version = "0.9.0"
 description = "Digital Drivers desktop app"
 edition.workspace = true
 license.workspace = true
@@ -22,6 +22,13 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Keeps the setup.exe install up to date from our GitHub releases: signed update manifests, download, installer.
 tauri-plugin-updater = "2.13.1"
+# Downloads the club's car packages (the garage). Both are in the build already through the updater; the
+# features of reqwest (TLS) come from there too.
+reqwest = { version = "0.13", default-features = false }
+# reqwest is built without a crypto provider (as the updater wants it); the updater installs ring's, and so do we.
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+flate2 = "1"
+sha2 = "0.10"
 
 [target.'cfg(windows)'.dependencies]
 # Reads Steam's install path from the registry.

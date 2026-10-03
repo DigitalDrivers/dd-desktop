@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-install-car"
+description = "Enables the install_car command without any pre-configured scope."
+commands.allow = ["install_car"]
+
+[[permission]]
+identifier = "deny-install-car"
+description = "Denies the install_car command without any pre-configured scope."
+commands.deny = ["install_car"]

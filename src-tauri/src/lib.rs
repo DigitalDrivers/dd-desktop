@@ -9,6 +9,7 @@ use std::sync::Mutex;
 use std::time::SystemTime;
 
 use dd_core::bot_race::{self, BotRaceResult, BotRaceTicket};
+use dd_core::garage;
 use dd_core::join::{self, JoinError, JoinTicket};
 use dd_core::links;
 use dd_core::scrutineering::{self, FileHash};
@@ -90,6 +91,216 @@ async fn update_install(app: tauri::AppHandle, state: tauri::State<'_, PendingUp
         "failed".to_string()
     })?;
     app.restart()
+}
+
+/// SHA-256 of the installed car packages, by path, as long as size and modification time are the same: hashing
+/// 200 MB takes a second, and the garage page asks on every visit.
+#[derive(Default)]
+struct PackageHashes(Mutex<std::collections::HashMap<PathBuf, (u64, SystemTime, String)>>);
+
+/// The game's folder in Saved Games (`ACE`), once the game has been started on this PC.
+fn find_ac_evo_user_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
+    find_ac_evo_setups(app)?.parent().map(Path::to_path_buf)
+}
+
+fn sha256_hex(path: &Path) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut file = fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 1 << 20];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Which of the club's cars are installed: the SHA-256 of `mods\<id>.kspkg` for each id asked, in order, or
+/// that it is not there. The platform knows which version that is.
+#[tauri::command]
+async fn car_status(app: tauri::AppHandle, state: tauri::State<'_, PackageHashes>, ids: Vec<String>) -> Result<Vec<Option<String>>, String> {
+    if ids.len() > 50 || !ids.iter().all(|id| garage::is_car_id(id)) {
+        return Err("invalid-car".to_string());
+    }
+    let Some(mods) = find_ac_evo_user_dir(&app).map(|dir| dir.join("mods")) else { return Err("ac-evo-not-found".to_string()) };
+    let mut out = Vec::new();
+    for id in ids {
+        let path = mods.join(format!("{id}.kspkg"));
+        let Ok(meta) = fs::metadata(&path) else {
+            out.push(None);
+            continue;
+        };
+        let stamp = (meta.len(), meta.modified().unwrap_or(SystemTime::UNIX_EPOCH));
+        let cached = state.0.lock().unwrap().get(&path).filter(|c| (c.0, c.1) == stamp).map(|c| c.2.clone());
+        let hash = match cached {
+            Some(hash) => hash,
+            None => {
+                let file = path.clone();
+                let hash = tauri::async_runtime::spawn_blocking(move || sha256_hex(&file)).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+                state.0.lock().unwrap().insert(path, (stamp.0, stamp.1, hash.clone()));
+                hash
+            }
+        };
+        out.push(Some(hash));
+    }
+    Ok(out)
+}
+
+/// Whether Assetto Corsa EVO is running: a package must not be swapped under the game.
+fn ac_evo_running() -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let out = std::process::Command::new("tasklist").args(["/FI", "IMAGENAME eq AssettoCorsaEVO.exe", "/NH"]).creation_flags(CREATE_NO_WINDOW).output();
+        return out.map(|o| String::from_utf8_lossy(&o.stdout).contains("AssettoCorsaEVO.exe")).unwrap_or(false);
+    }
+    #[allow(unreachable_code)]
+    false
+}
+
+/// Puts one of the club's cars into the game: downloads `path` (an address of the platform's garage, with the
+/// ticket the page got), unpacks it on the way, checks its SHA-256 and only then replaces `mods\<id>.kspkg`.
+/// Refused while the game runs. Saved cars of that car that point at parts the new version no longer has move
+/// to `SavedCars\stale`, and a garage that selected one of them selects a stock car (after a backup).
+#[tauri::command]
+async fn install_car(app: tauri::AppHandle, state: tauri::State<'_, PackageHashes>, id: String, path: String, sha256: String) -> Result<(), String> {
+    log(&format!("install_car requested: {id} ({sha256})"));
+    let result = download_car(&app, &id, &path, &sha256).await;
+    match &result {
+        Ok(retired) => log(&format!("install_car -> {id} installed, {retired} stale saved cars retired")),
+        Err(error) => log(&format!("install_car failed: {error}")),
+    }
+    state.0.lock().unwrap().retain(|p, _| !p.ends_with(format!("{id}.kspkg")));
+    result.map(|_| ()).map_err(|e| e.split(':').next().unwrap_or("failed").to_string())
+}
+
+async fn download_car(app: &tauri::AppHandle, id: &str, path: &str, sha256: &str) -> Result<usize, String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Write;
+    if !garage::is_car_id(id) || !path.starts_with(&format!("/api/garage/{id}/")) || sha256.len() != 64 {
+        return Err("invalid-car".to_string());
+    }
+    let user_dir = find_ac_evo_user_dir(app).ok_or("ac-evo-not-found")?;
+    if ac_evo_running() {
+        return Err("game-running".to_string());
+    }
+    let mods = user_dir.join("mods");
+    fs::create_dir_all(&mods).map_err(|e| format!("failed: mods folder: {e}"))?;
+    let target = mods.join(format!("{id}.kspkg"));
+    let part = mods.join(format!("{id}.kspkg.part"));
+
+    let url = format!("{}{path}", platform_url());
+    log(&format!("install_car: downloading {id}"));
+    // Without a crypto provider building the client panics; the updater installs the same one when it runs.
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    }
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .read_timeout(Duration::from_secs(60))
+        .build()
+        .map_err(|e| format!("failed: {e}"))?;
+    let mut response = client.get(&url).send().await.map_err(|e| format!("download-failed: {e}"))?;
+    log(&format!("install_car: {} {:?}", response.status(), response.headers().get("content-encoding")));
+    if !response.status().is_success() {
+        return Err(format!("download-failed: {}", response.status()));
+    }
+    // The platform sends the package gzipped (content-encoding: gzip); it is unpacked into the file on the way.
+    struct Hashing<W: Write> {
+        inner: W,
+        hasher: Sha256,
+    }
+    impl<W: Write> Write for Hashing<W> {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            let n = self.inner.write(buf)?;
+            self.hasher.update(&buf[..n]);
+            Ok(n)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.inner.flush()
+        }
+    }
+    let file = fs::File::create(&part).map_err(|e| format!("failed: {e}"))?;
+    let mut out = flate2::write::GzDecoder::new(Hashing { inner: std::io::BufWriter::new(file), hasher: Sha256::new() });
+    let written: Result<(), String> = async {
+        while let Some(chunk) = response.chunk().await.map_err(|e| format!("download-failed: {e}"))? {
+            out.write_all(&chunk).map_err(|e| format!("failed: {e}"))?;
+        }
+        Ok(())
+    }
+    .await;
+    let finished = written.and_then(|_| out.finish().map_err(|e| format!("failed: {e}")));
+    let mut sink = match finished {
+        Ok(sink) => sink,
+        Err(error) => {
+            let _ = fs::remove_file(&part);
+            return Err(error);
+        }
+    };
+    sink.inner.flush().map_err(|e| format!("failed: {e}"))?;
+    drop(sink.inner);
+    let got: String = sink.hasher.finalize().iter().map(|b| format!("{b:02x}")).collect();
+    log(&format!("install_car: unpacked {id}, sha256 {got}"));
+    if got != sha256 {
+        let _ = fs::remove_file(&part);
+        return Err(format!("checksum: {got}"));
+    }
+    if ac_evo_running() {
+        let _ = fs::remove_file(&part);
+        return Err("game-running".to_string());
+    }
+    fs::rename(&part, &target).map_err(|e| format!("failed: {e}"))?;
+    Ok(retire_stale_cars(&user_dir, id, &target))
+}
+
+/// Moves the saved cars of `id` that point at files the installed package no longer has to `SavedCars\stale`,
+/// in every profile, and points a garage that selected one of them at a stock car. Returns how many moved.
+fn retire_stale_cars(user_dir: &Path, id: &str, package: &Path) -> usize {
+    use std::io::{Read, Seek, SeekFrom};
+    let table = (|| -> std::io::Result<Vec<u8>> {
+        let mut file = fs::File::open(package)?;
+        let len = file.metadata()?.len();
+        file.seek(SeekFrom::Start(len.saturating_sub(garage::TABLE_SIZE as u64)))?;
+        let mut table = Vec::with_capacity(garage::TABLE_SIZE);
+        file.read_to_end(&mut table)?;
+        Ok(table)
+    })();
+    let Ok(table) = table else { return 0 };
+    let paths = garage::package_paths(&table);
+    let mut retired = 0;
+    for profile in fs::read_dir(user_dir.join("ProfileData")).into_iter().flatten().flatten() {
+        let open = profile.path().join("OpenData");
+        let saved = open.join("SavedCars");
+        let garage_file = open.join("garage.drivergarage");
+        let selected = fs::read(&garage_file).ok().and_then(|g| garage::selected_pguid(&g));
+        for entry in fs::read_dir(&saved).into_iter().flatten().flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !name.starts_with(&format!("{id}_")) {
+                continue;
+            }
+            let Ok(data) = fs::read(entry.path()) else { continue };
+            if !garage::is_stale(&data, id, &paths) {
+                continue;
+            }
+            let _ = fs::create_dir_all(saved.join("stale"));
+            if fs::rename(entry.path(), saved.join("stale").join(&name)).is_err() {
+                continue;
+            }
+            retired += 1;
+            log(&format!("retired stale saved car {name}"));
+            if selected.is_some() && garage::pguid_of(&name) == selected {
+                let _ = fs::copy(&garage_file, open.join("garage.drivergarage.bak"));
+                let _ = fs::write(&garage_file, garage::RESCUED_GARAGE);
+                log("the garage selected it: it selects the Porsche 992 GT3 Cup now (backup garage.drivergarage.bak)");
+            }
+        }
+    }
+    retired
 }
 
 #[tauri::command]
@@ -595,6 +806,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(BotRaceState::default())
         .manage(PendingUpdate::default())
+        .manage(PackageHashes::default())
         .setup(|app| {
             // The window is built here instead of by the configuration alone, so that links which open a new
             // window (a stream, a download) go to the browser: the app has no tabs, and without this they did
@@ -608,7 +820,7 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, join_race, scrutineer, start_bot_race, bot_race_result, setup_status, install_setup, update_check, update_install, launch_ac_evo])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, join_race, scrutineer, start_bot_race, bot_race_result, setup_status, install_setup, update_check, update_install, launch_ac_evo, car_status, install_car])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

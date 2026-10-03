@@ -32,6 +32,13 @@ driver can check what the app does on their PC.
 - The system check looks for Assetto Corsa EVO in your Steam libraries and for the folder the game keeps your
   files in (`Saved Games\ACE`; where that is when you moved `Saved Games`, Windows notes in the registry under
   `Explorer\User Shell Folders`).
+- When you put one of the club's cars into the game (the garage), the app downloads that car's package from
+  the platform, checks its SHA-256 and writes it as `Saved Games\ACE\mods\<id>.kspkg`, never while the game
+  runs; while the app is open it updates the cars you have the same way, once an hour. To report which cars you
+  have, it hashes the packages of the names the platform asks about. After an update it reads the saved cars of
+  that car in `ProfileData\<profile>\OpenData\SavedCars`: one that points at a part the new version no longer
+  has moves to `SavedCars\stale` (the game would crash on start), and if your garage had selected it,
+  `garage.drivergarage` is saved as `.bak` and then selects the Kunos Porsche 911 GT3 Cup.
 - When you install a car setup of the platform for Assetto Corsa EVO, the app writes that one file into the
   game's setup folder (`Saved Games\ACE\Car Setups\<car>\<track>\<name>.carsetup`), where the game's setup
   screen lists it. To show which setups you have already, it reads the files of the names the platform asks
@@ -52,7 +59,7 @@ Nothing else is read, and nothing is uploaded by the shell itself.
 | Part | What |
 | --- | --- |
 | `src/` | Bundled start page: checks that the platform is reachable, then opens it. Offline it shows a system check. |
-| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `join_race`, `scrutineer`, `start_bot_race`, `bot_race_result`, `setup_status`, `install_setup`, `update_check` and `update_install`. |
+| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `join_race`, `scrutineer`, `start_bot_race`, `bot_race_result`, `setup_status`, `install_setup`, `update_check`, `update_install`, `launch_ac_evo`, `car_status` and `install_car`. |
 | `src-tauri/capabilities/` | Which page may call which command. The hosted interface only gets the commands listed in `platform.json`; `dev-localhost.json` is enabled for development builds only. |
 | `crates/dd-core/` | Platform-independent logic (locating Assetto Corsa and Assetto Corsa EVO, the join ticket and the `race.ini` of an online session, hashing game files for scrutineering, the race against bots, car setups), unit-tested on any machine. |
 
