@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-live-snapshot"
+description = "Enables the live_snapshot command without any pre-configured scope."
+commands.allow = ["live_snapshot"]
+
+[[permission]]
+identifier = "deny-live-snapshot"
+description = "Denies the live_snapshot command without any pre-configured scope."
+commands.deny = ["live_snapshot"]

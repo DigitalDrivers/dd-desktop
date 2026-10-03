@@ -30,6 +30,11 @@ driver can check what the app does on their PC.
   screen lists it. To show which setups you have already, it reads the files of the names the platform asks
   about in that folder and reports their SHA-256. A setup you changed and saved under the same name is not
   overwritten, unless you ask for the original. Nothing else in the folder is read, changed or removed.
+- Only if you switch on the live map on the platform (Telemetry and live map): while AC EVO drives an online
+  session, the page asks the app once a second for what the game publishes in its shared memory
+  (`Local\acevo_pmf_graphics` and `Local\acevo_pmf_static`, documented by Kunos; the app only opens them for
+  reading): the track, and the ids and positions of the cars your game sees. The page sends that to the
+  platform, which shows the cars of our servers on the live map. Nothing of it is read while the switch is off.
 - When you join one of our servers, the app starts Assetto Corsa EVO through Steam (`steam://run/3058630`); the
   page has put the server's join string on the clipboard, which the game's server list takes.
 - A link the platform opens in a new window (a stream, a download) goes to your default browser; the app has no
@@ -47,7 +52,7 @@ Nothing else is read, and nothing is uploaded by the shell itself.
 | Part | What |
 | --- | --- |
 | `src/` | Bundled start page: checks that the platform is reachable, then opens it. Offline it shows a system check. |
-| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `update_check`, `update_install`, `launch_ac_evo`, `car_status` and `install_car`. |
+| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `update_check`, `update_install`, `launch_ac_evo`, `car_status`, `install_car` and `live_snapshot`. |
 | `src-tauri/capabilities/` | Which page may call which command. The hosted interface only gets the commands listed in `platform.json`; `dev-localhost.json` is enabled for development builds only. |
 | `crates/dd-core/` | Platform-independent logic (locating Assetto Corsa EVO and the Steam account, car setups, the club's car packages and their saved cars), unit-tested on any machine. |
 

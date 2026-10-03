@@ -8,6 +8,7 @@ use std::time::Duration;
 use std::sync::Mutex;
 use std::time::SystemTime;
 
+use dd_core::evo_memory::{self, LiveSnapshot};
 use dd_core::garage;
 use dd_core::links;
 use dd_core::setups::{self, SetupError, SetupFile};
@@ -300,6 +301,51 @@ fn retire_stale_cars(user_dir: &Path, id: &str, package: &Path) -> usize {
     retired
 }
 
+/// What AC EVO's shared memory says about the running session: the track and every car the game knows with
+/// its position, for the live map. None while the game is not driving live. The game publishes the pages
+/// itself; the app only opens them for reading (creating them would stop the game from publishing).
+#[tauri::command]
+fn live_snapshot() -> Option<LiveSnapshot> {
+    let graphics = read_shared_memory("Local\\acevo_pmf_graphics", evo_memory::GRAPHICS_SIZE)?;
+    let statics = read_shared_memory("Local\\acevo_pmf_static", evo_memory::STATIC_SIZE)?;
+    evo_memory::read(&graphics, &statics)
+}
+
+/// A copy of a named shared memory page of another program, if it exists.
+#[cfg(windows)]
+fn read_shared_memory(name: &str, size: usize) -> Option<Vec<u8>> {
+    use std::ffi::c_void;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn OpenFileMappingA(access: u32, inherit: i32, name: *const u8) -> *mut c_void;
+        fn MapViewOfFile(mapping: *mut c_void, access: u32, offset_high: u32, offset_low: u32, bytes: usize) -> *mut c_void;
+        fn UnmapViewOfFile(address: *const c_void) -> i32;
+        fn CloseHandle(handle: *mut c_void) -> i32;
+    }
+    const FILE_MAP_READ: u32 = 0x0004;
+    let name = std::ffi::CString::new(name).ok()?;
+    // SAFETY: plain Win32 calls; the view is `size` bytes long as the game creates it, copied before it is
+    // unmapped, and every handle is closed on every path.
+    unsafe {
+        let mapping = OpenFileMappingA(FILE_MAP_READ, 0, name.as_ptr().cast());
+        if mapping.is_null() {
+            return None;
+        }
+        let view = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, size);
+        let copy = (!view.is_null()).then(|| std::slice::from_raw_parts(view as *const u8, size).to_vec());
+        if !view.is_null() {
+            UnmapViewOfFile(view);
+        }
+        CloseHandle(mapping);
+        copy
+    }
+}
+
+#[cfg(not(windows))]
+fn read_shared_memory(_name: &str, _size: usize) -> Option<Vec<u8>> {
+    None
+}
+
 #[tauri::command]
 fn platform_url() -> String {
     let url = std::env::var("DD_PLATFORM_URL").unwrap_or_else(|_| DEFAULT_PLATFORM_URL.to_string());
@@ -575,7 +621,7 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, update_check, update_install, launch_ac_evo, car_status, install_car])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, update_check, update_install, launch_ac_evo, car_status, install_car, live_snapshot])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
