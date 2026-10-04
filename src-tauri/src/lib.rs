@@ -365,9 +365,21 @@ fn sample_laps(app: tauri::AppHandle) {
         let Some(graphics) = read_shared_memory("Local\\acevo_pmf_graphics", evo_memory::GRAPHICS_SIZE) else { continue };
         let Some(statics) = read_shared_memory("Local\\acevo_pmf_static", evo_memory::STATIC_SIZE) else { continue };
         let Some(mut lap) = recorder.sample(&graphics, &physics, &statics) else { continue };
-        lap.preset = newest_game_log(&app).and_then(|log| laps::preset_of(&log, &lap.car));
+        // The pages give the car's display name; which car it is, the game's log says. Only the club's cars' laps
+        // are kept: nothing of any other car leaves the PC.
+        let display_name = std::mem::take(&mut lap.car);
+        match newest_game_log(&app).and_then(|log| laps::current_car(&log)) {
+            Some((id, preset)) if laps::is_club_car(&id) => {
+                lap.car = id;
+                lap.preset = Some(preset);
+            }
+            other => {
+                log(&format!("lap of {display_name} not kept: not a club car ({})", other.map_or("none".to_string(), |(id, _)| id)));
+                continue;
+            }
+        }
         log(&format!(
-            "lap: {} ({:?}) at {} {}, {} ms, valid {}, pit {}, brake bias {}, balance {} deg; first sample raw: pressure {:?}, core temp {:?}, ride height {:?}",
+            "lap: {} ({display_name}, {:?}) at {} {}, {} ms, valid {}, pit {}, brake bias {}, balance {} deg; first sample raw: pressure {:?}, core temp {:?}, ride height {:?}",
             lap.car, lap.preset, lap.track, lap.layout, lap.lap_time_ms, lap.valid, lap.pit, lap.brake_bias, lap.balance_deg, lap.first.pressure, lap.first.core_temp, lap.first.ride_height
         ));
         let state = app.state::<Laps>();

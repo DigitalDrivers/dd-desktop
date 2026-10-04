@@ -1,7 +1,8 @@
-//! Lap summaries of the club's own cars (ids starting with `dd_`) from what Assetto Corsa EVO publishes in its
-//! shared memory (`Local\acevo_pmf_physics`, `Local\acevo_pmf_graphics` and `Local\acevo_pmf_static`). The
-//! shell samples the pages about ten times a second and hands the bytes here; a lap is summed up when the game
-//! counts it. Offsets are those of the official header with `#pragma pack(4)` (page sizes 800, 4900 and 208
+//! Lap summaries from what Assetto Corsa EVO publishes in its shared memory (`Local\acevo_pmf_physics`,
+//! `Local\acevo_pmf_graphics` and `Local\acevo_pmf_static`). The shell samples the pages about ten times a second
+//! and hands the bytes here; a lap is summed up when the game counts it. The pages name the car only by its
+//! display name, so the shell keeps a lap only when the game's log says the club's car (id starting with `dd_`)
+//! is selected, see [`current_car`]. Offsets are those of the official header with `#pragma pack(4)` (page sizes 800, 4900 and 208
 //! bytes). The values are sent as the game publishes them: their units are not documented for EVO.
 
 use serde::Serialize;
@@ -18,6 +19,12 @@ const LAST_LAPTIME_MS: usize = 2396;
 const CAR_MODEL: usize = 3086;
 const IS_IN_PIT_LANE: usize = 3120;
 const IS_VALID_LAP: usize = 3121;
+/// `SMEvoTyreState` of each wheel (FL FR RL RR), 256 bytes apart, with the surface temperatures across the tread
+const TYRE_STATE: usize = 220;
+const TYRE_STATE_SIZE: usize = 256;
+const TYRE_TEMPERATURE_LEFT: usize = 24;
+const TYRE_TEMPERATURE_CENTER: usize = 28;
+const TYRE_TEMPERATURE_RIGHT: usize = 32;
 // physics, wheels in the order FL FR RL RR
 const SPEED_KMH: usize = 28;
 const WHEELS_PRESSURE: usize = 88;
@@ -33,9 +40,6 @@ const RPMS: usize = 20;
 /// G: lateral, longitudinal, vertical
 const ACC_G: usize = 44;
 const SUSPENSION_TRAVEL: usize = 184;
-const TYRE_TEMP_I: usize = 368;
-const TYRE_TEMP_M: usize = 384;
-const TYRE_TEMP_O: usize = 400;
 const BRAKE_BIAS: usize = 564;
 const SLIP_RATIO: usize = 640;
 const SLIP_ANGLE: usize = 656;
@@ -48,7 +52,7 @@ const TRACK_CONFIGURATION: usize = 169;
 const IS_ONLINE: usize = 86;
 /// `ACEVO_STATUS`: 2 = live driving
 const LIVE: i32 = 2;
-/// The club's cars; nothing is recorded for any other car.
+/// The club's cars; the laps of any other car are not kept.
 const CLUB_CAR_PREFIX: &str = "dd_";
 /// A lap with fewer samples (ten seconds at 10 Hz) is not summed up.
 const MIN_SAMPLES: u32 = 100;
@@ -133,20 +137,25 @@ pub struct LapSummary {
 /// (`content\cars\<car>\presets\<preset>.mechanicalcarpreset`).
 const SET_CAR: &str = "onSetPlayerCurrentCarCommand: Set new car ";
 
-/// The preset of the last selection of `car` (its folder exactly, not a car whose id merely starts the same) in
-/// the game's log, by its file name without the extension.
-pub fn preset_of(log: &str, car: &str) -> Option<String> {
+/// The car the driver selected last according to the game's log: its id (the folder below `cars`) and its
+/// preset's file name without the extension.
+pub fn current_car(log: &str) -> Option<(String, String)> {
     log.lines()
         .filter_map(|line| {
             let (_, rest) = line.split_once(SET_CAR)?;
             let (_, path) = rest.trim().split_once(' ')?;
             let parts: Vec<&str> = path.trim().split(['\\', '/']).collect();
             match parts.as_slice() {
-                [.., "cars", folder, "presets", file] if *folder == car => Some(file.rsplit_once('.').map_or(*file, |(stem, _)| stem).to_string()),
+                [.., "cars", id, "presets", file] => Some((id.to_string(), file.rsplit_once('.').map_or(*file, |(stem, _)| stem).to_string())),
                 _ => None,
             }
         })
         .last()
+}
+
+/// Whether a car id is one of the club's cars.
+pub fn is_club_car(id: &str) -> bool {
+    id.starts_with(CLUB_CAR_PREFIX)
 }
 
 /// The fields of one sample of the three pages.
@@ -173,9 +182,8 @@ struct Sample {
     rpm: i32,
     acc_g: [f32; 3],
     travel: [f32; 4],
-    temp_inner: [f32; 4],
-    temp_middle: [f32; 4],
-    temp_outer: [f32; 4],
+    /// Inner, middle, outer
+    tread_temp: [[f32; 4]; 3],
     brake_bias: f32,
     slip_ratio: [f32; 4],
     slip_angle: [f32; 4],
@@ -205,12 +213,27 @@ fn i32_at(page: &[u8], at: usize) -> i32 {
     i32::from_le_bytes(page[at..at + 4].try_into().unwrap())
 }
 
+/// Inner, middle and outer surface temperature of each wheel. The physics page's `tyreTempI/M/O` stay 0 in EVO;
+/// the graphics page has them as left, center and right, which the official header documents as the inner
+/// and the outer edge of every wheel. Not yet checked against a driven car (cambered fronts run hotter inside).
+fn tread_temperatures(graphics: &[u8]) -> [[f32; 4]; 3] {
+    let mut temps = [[0.0; 4]; 3];
+    for w in 0..4 {
+        let at = TYRE_STATE + w * TYRE_STATE_SIZE;
+        let (left, center, right) = (f32_at(graphics, at + TYRE_TEMPERATURE_LEFT), f32_at(graphics, at + TYRE_TEMPERATURE_CENTER), f32_at(graphics, at + TYRE_TEMPERATURE_RIGHT));
+        temps[0][w] = left;
+        temps[1][w] = center;
+        temps[2][w] = right;
+    }
+    temps
+}
+
 fn f32s_at<const N: usize>(page: &[u8], at: usize) -> [f32; N] {
     std::array::from_fn(|i| f32_at(page, at + i * 4))
 }
 
 impl Sample {
-    /// None unless the game drives a club car live.
+    /// None unless the game drives live.
     fn read(graphics: &[u8], physics: &[u8], statics: &[u8]) -> Option<Sample> {
         if graphics.len() < GRAPHICS_SIZE || physics.len() < PHYSICS_SIZE || statics.len() < STATIC_SIZE {
             return None;
@@ -218,12 +241,8 @@ impl Sample {
         if i32_at(graphics, STATUS) != LIVE {
             return None;
         }
-        let car = text_at(graphics, CAR_MODEL, 33);
-        if !car.starts_with(CLUB_CAR_PREFIX) {
-            return None;
-        }
         Some(Sample {
-            car,
+            car: text_at(graphics, CAR_MODEL, 33),
             track: text_at(statics, TRACK, 33),
             layout: text_at(statics, TRACK_CONFIGURATION, 33),
             online: statics[IS_ONLINE] != 0,
@@ -245,9 +264,7 @@ impl Sample {
             rpm: i32_at(physics, RPMS),
             acc_g: f32s_at(physics, ACC_G),
             travel: f32s_at(physics, SUSPENSION_TRAVEL),
-            temp_inner: f32s_at(physics, TYRE_TEMP_I),
-            temp_middle: f32s_at(physics, TYRE_TEMP_M),
-            temp_outer: f32s_at(physics, TYRE_TEMP_O),
+            tread_temp: tread_temperatures(graphics),
             brake_bias: f32_at(physics, BRAKE_BIAS),
             slip_ratio: f32s_at(physics, SLIP_RATIO),
             slip_angle: f32s_at(physics, SLIP_ANGLE),
@@ -385,9 +402,9 @@ impl Lap {
             self.core_sum[w] += s.core_temp[w] as f64;
             self.core_max[w] = self.core_max[w].max(s.core_temp[w]);
             self.brake_max[w] = self.brake_max[w].max(s.brake_temp[w]);
-            self.temp_sum[0][w] += s.temp_inner[w] as f64;
-            self.temp_sum[1][w] += s.temp_middle[w] as f64;
-            self.temp_sum[2][w] += s.temp_outer[w] as f64;
+            for edge in 0..3 {
+                self.temp_sum[edge][w] += s.tread_temp[edge][w] as f64;
+            }
             self.travel_sum[w] += s.travel[w] as f64;
             self.travel_max[w] = self.travel_max[w].max(s.travel[w]);
             let slipping = s.slip_ratio[w].abs() > SLIP_LIMIT;
@@ -500,7 +517,8 @@ impl Stint {
     }
 }
 
-/// Turns samples of the pages into finished laps. Samples outside live driving of a club car are ignored; a
+/// Turns samples of the pages into finished laps, of any car (by its display name). Samples outside live driving
+/// are ignored; a
 /// change of car or track, or a lap counter that jumps or goes back (a new session), starts over and forgets a
 /// lap still waiting for its time.
 ///
@@ -569,7 +587,7 @@ mod tests {
         fn new() -> Pages {
             let mut pages = Pages { graphics: vec![0u8; GRAPHICS_SIZE], physics: vec![0u8; PHYSICS_SIZE], statics: vec![0u8; STATIC_SIZE] };
             pages.graphics[STATUS..STATUS + 4].copy_from_slice(&LIVE.to_le_bytes());
-            pages.car("dd_bmw_m3_e46_gt3");
+            pages.car("BMW M3 E46 GT3");
             pages.statics[TRACK..TRACK + 11].copy_from_slice(b"Nurburgring");
             pages.statics[TRACK_CONFIGURATION..TRACK_CONFIGURATION + 2].copy_from_slice(b"GP");
             pages.statics[IS_ONLINE] = 1;
@@ -585,6 +603,16 @@ mod tests {
 
         fn i32(&mut self, at: usize, value: i32) {
             self.graphics[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        }
+
+        /// Left, center and right surface temperature of each wheel, as the graphics page has them.
+        fn tread(&mut self, temps: [[f32; 3]; 4]) {
+            for (w, wheel) in temps.iter().enumerate() {
+                for (i, t) in wheel.iter().enumerate() {
+                    let at = TYRE_STATE + w * TYRE_STATE_SIZE + TYRE_TEMPERATURE_LEFT + i * 4;
+                    self.graphics[at..at + 4].copy_from_slice(&t.to_le_bytes());
+                }
+            }
         }
 
         fn physics_i32(&mut self, at: usize, value: i32) {
@@ -641,9 +669,8 @@ mod tests {
         pages.f32s(TYRE_CORE_TEMPERATURE, &[80.0, 81.0, 70.0, 71.0]);
         pages.f32s(BRAKE_TEMP, &[300.0, 310.0, 200.0, 210.0]);
         pages.f32s(AIR_TEMP, &[22.0, 30.0]);
-        pages.f32s(TYRE_TEMP_I, &[90.0, 91.0, 92.0, 93.0]);
-        pages.f32s(TYRE_TEMP_M, &[85.0, 85.0, 85.0, 85.0]);
-        pages.f32s(TYRE_TEMP_O, &[80.0, 80.0, 80.0, 80.0]);
+        // left, center, right per wheel: the inner edge is the right one on the left wheels, the left one on the right
+        pages.tread([[80.0, 85.0, 90.0], [91.0, 86.0, 81.0], [82.0, 87.0, 92.0], [93.0, 88.0, 83.0]]);
         pages.f32s(SUSPENSION_TRAVEL, &[0.03, 0.03, 0.04, 0.04]);
         pages.physics_i32(GEAR, 4);
         pages.physics_i32(RPMS, 6000);
@@ -663,14 +690,16 @@ mod tests {
         pages.count_lap(512_345);
         let lap = pages.sample(&mut recorder).expect("the lap");
 
-        assert_eq!((lap.car.as_str(), lap.track.as_str(), lap.layout.as_str(), lap.online), ("dd_bmw_m3_e46_gt3", "Nurburgring", "GP", true));
+        assert_eq!((lap.car.as_str(), lap.track.as_str(), lap.layout.as_str(), lap.online), ("BMW M3 E46 GT3", "Nurburgring", "GP", true));
         assert_eq!((lap.lap_time_ms, lap.valid, lap.pit), (512_345, true, false));
         assert_eq!(lap.fuel_used_l, 3.5);
         assert_eq!(lap.top_speed_kmh, 251.5);
         assert_eq!((lap.air_temp_c, lap.road_temp_c), (22.0, 30.0));
         let fl = &lap.tyres[0];
         assert_eq!((fl.pressure_avg, fl.pressure_max, fl.core_temp_avg, fl.core_temp_max, fl.brake_temp_max), (26.02, 28.0, 80.1, 90.0, 600.0));
-        assert_eq!((fl.temp_inner, fl.temp_middle, fl.temp_outer, lap.tyres[3].temp_inner), (90.0, 85.0, 80.0, 93.0));
+        let tread: Vec<_> = lap.tyres.iter().map(|t| (t.temp_inner, t.temp_middle, t.temp_outer)).collect();
+        // inner = the left edge, outer = the right edge on every wheel, as the header documents
+        assert_eq!(tread, [(80.0, 85.0, 90.0), (91.0, 86.0, 81.0), (82.0, 87.0, 92.0), (93.0, 88.0, 83.0)]);
         assert_eq!((fl.travel_max, lap.tyres[1].travel_max), (0.05, 0.03));
         assert!((fl.travel_avg - 0.0302).abs() < 1e-6);
         assert_eq!((lap.rpm_max, lap.gear_at_top_speed), (7800, 6));
@@ -705,23 +734,31 @@ mod tests {
     const SELECT_RENNSPORT_UNL3: &str = "[2026-10-04 20:05:21.996] [gameplay] [info] ACEVO-2629 onSetPlayerCurrentCarCommand: Set new car 4422f4ed-904e-8717-71fa-e328d8e09daa content\\cars\\dd_bmw_m3_e46_rennsport\\presets\\preset_dd_bmw_m3_e46_rennsport_unl3.mechanicalcarpreset";
 
     #[test]
-    fn finds_the_preset_of_a_car_in_the_game_s_log() {
+    fn finds_the_selected_car_and_its_preset_in_the_game_s_log() {
         let log = format!("[2026-10-04 20:05:20.001] [core] [info] something else\n{SELECT_RENNSPORT_UNL3}\n[2026-10-04 20:05:22.000] [gameplay] [info] driving\n");
-        assert_eq!(preset_of(&log, "dd_bmw_m3_e46_rennsport").as_deref(), Some("preset_dd_bmw_m3_e46_rennsport_unl3"));
-        assert_eq!(preset_of(&log.replace('\n', "\r\n"), "dd_bmw_m3_e46_rennsport").as_deref(), Some("preset_dd_bmw_m3_e46_rennsport_unl3"), "CRLF");
+        let expected = Some(("dd_bmw_m3_e46_rennsport".to_string(), "preset_dd_bmw_m3_e46_rennsport_unl3".to_string()));
+        assert_eq!(current_car(&log), expected);
+        assert_eq!(current_car(&log.replace('\n', "\r\n")), expected, "CRLF");
+        assert_eq!(current_car("[2026-10-04 20:05:20.001] [core] [info] started\n"), None);
     }
 
     #[test]
-    fn takes_the_car_s_last_selection_and_no_other_car_s() {
+    fn takes_the_last_selection_of_any_car() {
         let unl1 = SELECT_RENNSPORT_UNL3.replace("unl3", "unl1");
-        let gt3 = SELECT_RENNSPORT_UNL3.replace("rennsport", "gt3");
-        // a car whose id starts with the other's
-        let longer = SELECT_RENNSPORT_UNL3.replace("dd_bmw_m3_e46_rennsport", "dd_bmw_m3_e46_rennsport_wide");
-        let log = [SELECT_RENNSPORT_UNL3, &unl1, &gt3, &longer].join("\n");
-        assert_eq!(preset_of(&log, "dd_bmw_m3_e46_rennsport").as_deref(), Some("preset_dd_bmw_m3_e46_rennsport_unl1"));
-        assert_eq!(preset_of(&log, "dd_bmw_m3_e46_gt3").as_deref(), Some("preset_dd_bmw_m3_e46_gt3_unl3"));
-        assert_eq!(preset_of(&log, "dd_bmw_m3_e46").as_deref(), None);
-        assert_eq!(preset_of("[2026-10-04 20:05:20.001] [core] [info] started\n", "dd_bmw_m3_e46_rennsport"), None);
+        let kunos = SELECT_RENNSPORT_UNL3.replace("dd_bmw_m3_e46_rennsport", "bmw_m2_coupe").replace("_unl3", "_stock");
+        let log = [SELECT_RENNSPORT_UNL3, &unl1].join("\n");
+        assert_eq!(current_car(&log).unwrap().1, "preset_dd_bmw_m3_e46_rennsport_unl1");
+        let log = [SELECT_RENNSPORT_UNL3, &kunos].join("\n");
+        assert_eq!(current_car(&log), Some(("bmw_m2_coupe".to_string(), "preset_bmw_m2_coupe_stock".to_string())));
+        let log = [&kunos, SELECT_RENNSPORT_UNL3].join("\n");
+        assert_eq!(current_car(&log).unwrap().0, "dd_bmw_m3_e46_rennsport");
+    }
+
+    #[test]
+    fn knows_the_club_s_cars_by_their_id() {
+        assert!(is_club_car("dd_bmw_m3_e46_gt3"));
+        assert!(!is_club_car("bmw_m2_coupe"));
+        assert!(!is_club_car("BMW M2 Coupe"));
     }
 
     #[test]
@@ -926,15 +963,13 @@ mod tests {
     }
 
     #[test]
-    fn ignores_cars_that_are_not_the_club_s() {
+    fn records_any_car_by_the_name_the_pages_give() {
         let mut pages = Pages::new();
-        pages.car("bmw_m3_e46_csl");
-        let mut recorder = LapRecorder::new();
-        for lap in 0..3 {
-            assert!(pages.drive(&mut recorder, 150).is_empty());
-            pages.count_lap(500_000 + lap);
-        }
-        assert!(recorder.stint.is_none());
+        pages.car("BMW M2 Coupe");
+        let mut recorder = past_the_out_lap(&mut pages);
+        pages.drive(&mut recorder, 150);
+        pages.count_lap(500_000);
+        assert_eq!(pages.sample(&mut recorder).unwrap().car, "BMW M2 Coupe");
     }
 
     #[test]
@@ -959,7 +994,7 @@ mod tests {
         let mut pages = Pages::new();
         let mut recorder = past_the_out_lap(&mut pages);
         pages.drive(&mut recorder, 150);
-        pages.car("dd_e46clubsport");
+        pages.car("BMW M3 E46 Clubsport");
         pages.drive(&mut recorder, 150);
         pages.count_lap(500_000);
         assert!(pages.sample(&mut recorder).is_none(), "another car: its first lap has no boundary");
