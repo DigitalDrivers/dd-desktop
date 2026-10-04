@@ -38,10 +38,13 @@ driver can check what the app does on their PC.
 - Only if you switch on lap summaries on the platform (Telemetry): once the page first asks for laps, the app
   reads `Local\acevo_pmf_physics`, `Local\acevo_pmf_graphics` and `Local\acevo_pmf_static` ten times a second
   until it is closed, and only while you drive one of the club's cars (ids starting with `dd_`) live. Per lap it
-  keeps a summary: car, track, lap time, valid, pit, fuel used, air and road temperature, top speed, per wheel
-  tyre pressure and core temperature (average, maximum) and brake temperature (maximum), and the ride height
-  (minimum, average). The page fetches the summaries and sends them to the platform; nothing else of the drive
-  is kept.
+  keeps a summary: car, track, lap time, valid, pit, fuel used, air and road temperature, top speed and the gear
+  it was reached in, highest rpm, per wheel tyre pressure and core temperature (average, maximum), inner, middle
+  and outer tyre temperature (average), brake temperature (maximum), suspension travel (maximum, average) and how
+  often the wheel locked under braking or spun under throttle, the ride height (minimum, average), the brake bias
+  and the front's share of the brake torque, how often ABS and traction control worked, the balance in corners
+  (front against rear slip angle) and the highest lateral and braking G. The page fetches the summaries and sends
+  them to the platform; nothing else of the drive is kept.
 - When you join one of our servers, the app starts Assetto Corsa EVO through Steam (`steam://run/3058630`); the
   page has put the server's join string on the clipboard, which the game's server list takes.
 - A link the platform opens in a new window (a stream, a download) goes to your default browser; the app has no

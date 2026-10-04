@@ -26,6 +26,22 @@ const RIDE_HEIGHT: usize = 268;
 const AIR_TEMP: usize = 288;
 const ROAD_TEMP: usize = 292;
 const BRAKE_TEMP: usize = 348;
+const GAS: usize = 4;
+const BRAKE: usize = 8;
+const GEAR: usize = 16;
+const RPMS: usize = 20;
+/// G: lateral, longitudinal, vertical
+const ACC_G: usize = 44;
+const SUSPENSION_TRAVEL: usize = 184;
+const TYRE_TEMP_I: usize = 368;
+const TYRE_TEMP_M: usize = 384;
+const TYRE_TEMP_O: usize = 400;
+const BRAKE_BIAS: usize = 564;
+const SLIP_RATIO: usize = 640;
+const SLIP_ANGLE: usize = 656;
+const TC_IN_ACTION: usize = 672;
+const ABS_IN_ACTION: usize = 676;
+const BRAKE_TORQUE: usize = 716;
 // static
 const TRACK: usize = 136;
 const TRACK_CONFIGURATION: usize = 169;
@@ -38,6 +54,8 @@ const CLUB_CAR_PREFIX: &str = "dd_";
 const MIN_SAMPLES: u32 = 100;
 /// Live samples (two seconds at 10 Hz) a counted lap waits for its lap time.
 const LAPTIME_WAIT: u32 = 20;
+/// A wheel locks under braking, or spins under throttle, beyond this slip ratio (absolute).
+const SLIP_LIMIT: f32 = 0.15;
 
 /// Pressure, core and brake temperature of one wheel over a lap.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -48,6 +66,16 @@ pub struct Tyre {
     pub core_temp_avg: f32,
     pub core_temp_max: f32,
     pub brake_temp_max: f32,
+    /// Averages of the inner, middle and outer surface temperature
+    pub temp_inner: f32,
+    pub temp_middle: f32,
+    pub temp_outer: f32,
+    pub travel_max: f32,
+    pub travel_avg: f32,
+    /// Share of the braking samples with the wheel's |slip ratio| above 0.15
+    pub lock_share: f32,
+    /// Share of the throttle samples with the wheel's |slip ratio| above 0.15
+    pub spin_share: f32,
 }
 
 /// The raw wheel values of a lap's first sample, for the shell's log (not sent).
@@ -79,6 +107,21 @@ pub struct LapSummary {
     /// Front, rear
     pub ride_height_min: [f32; 2],
     pub ride_height_avg: [f32; 2],
+    /// The brake bias setting, averaged over the braking samples
+    pub brake_bias: f32,
+    /// The front axle's share of the brake torque, averaged over the braking samples with any torque
+    pub brake_front: f32,
+    /// Shares of the braking samples with ABS, and of the throttle samples with traction control, working
+    pub abs_share: f32,
+    pub tc_share: f32,
+    /// Front minus rear mean |slip angle| in degrees over the cornering samples: above 0 understeer, below oversteer
+    pub balance_deg: f32,
+    pub rpm_max: i32,
+    /// The gear of the sample with the highest speed
+    pub gear_at_top_speed: i32,
+    /// Highest |lateral G|, and highest |longitudinal G| under braking
+    pub lat_g_max: f32,
+    pub brake_g_max: f32,
     #[serde(skip)]
     pub first: FirstSample,
 }
@@ -101,6 +144,38 @@ struct Sample {
     ride_height: [f32; 2],
     air_temp: f32,
     road_temp: f32,
+    gas: f32,
+    brake: f32,
+    gear: i32,
+    rpm: i32,
+    acc_g: [f32; 3],
+    travel: [f32; 4],
+    temp_inner: [f32; 4],
+    temp_middle: [f32; 4],
+    temp_outer: [f32; 4],
+    brake_bias: f32,
+    slip_ratio: [f32; 4],
+    slip_angle: [f32; 4],
+    tc: bool,
+    abs: bool,
+    brake_torque: [f32; 4],
+}
+
+impl Sample {
+    /// Braking: brake above 0.1 at more than 30 km/h.
+    fn braking(&self) -> bool {
+        self.brake > 0.1 && self.speed > 30.0
+    }
+
+    /// Throttle: gas above 0.5, brake below 0.05, at more than 30 km/h.
+    fn throttle(&self) -> bool {
+        self.gas > 0.5 && self.speed > 30.0 && self.brake < 0.05
+    }
+
+    /// Cornering: |lateral G| above 0.8 at more than 60 km/h.
+    fn cornering(&self) -> bool {
+        self.speed > 60.0 && self.acc_g[0].abs() > 0.8
+    }
 }
 
 fn i32_at(page: &[u8], at: usize) -> i32 {
@@ -141,6 +216,21 @@ impl Sample {
             ride_height: f32s_at(physics, RIDE_HEIGHT),
             air_temp: f32_at(physics, AIR_TEMP),
             road_temp: f32_at(physics, ROAD_TEMP),
+            gas: f32_at(physics, GAS),
+            brake: f32_at(physics, BRAKE),
+            gear: i32_at(physics, GEAR),
+            rpm: i32_at(physics, RPMS),
+            acc_g: f32s_at(physics, ACC_G),
+            travel: f32s_at(physics, SUSPENSION_TRAVEL),
+            temp_inner: f32s_at(physics, TYRE_TEMP_I),
+            temp_middle: f32s_at(physics, TYRE_TEMP_M),
+            temp_outer: f32s_at(physics, TYRE_TEMP_O),
+            brake_bias: f32_at(physics, BRAKE_BIAS),
+            slip_ratio: f32s_at(physics, SLIP_RATIO),
+            slip_angle: f32s_at(physics, SLIP_ANGLE),
+            tc: i32_at(physics, TC_IN_ACTION) != 0,
+            abs: i32_at(physics, ABS_IN_ACTION) != 0,
+            brake_torque: f32s_at(physics, BRAKE_TORQUE),
         })
     }
 }
@@ -164,6 +254,30 @@ struct Lap {
     ride_sum: [f64; 2],
     air_sum: f64,
     road_sum: f64,
+    gear_at_top: i32,
+    rpm_max: i32,
+    lat_g_max: f32,
+    temp_sum: [[f64; 4]; 3],
+    travel_sum: [f64; 4],
+    travel_max: [f32; 4],
+    braking: u32,
+    locked: [u32; 4],
+    abs: u32,
+    bias_sum: f64,
+    brake_g_max: f32,
+    /// Braking samples with any brake torque, and the sum of their front shares
+    torque_samples: u32,
+    front_sum: f64,
+    throttle: u32,
+    spinning: [u32; 4],
+    tc: u32,
+    cornering: u32,
+    balance_sum: f64,
+}
+
+/// `sum / count`: a share or an average over some of the samples; 0 when there are none.
+fn per(sum: f64, count: u32) -> f32 {
+    if count == 0 { 0.0 } else { (sum / count as f64) as f32 }
 }
 
 impl Lap {
@@ -186,6 +300,24 @@ impl Lap {
             ride_sum: [0.0; 2],
             air_sum: 0.0,
             road_sum: 0.0,
+            gear_at_top: 0,
+            rpm_max: i32::MIN,
+            lat_g_max: 0.0,
+            temp_sum: [[0.0; 4]; 3],
+            travel_sum: [0.0; 4],
+            travel_max: [f32::NEG_INFINITY; 4],
+            braking: 0,
+            locked: [0; 4],
+            abs: 0,
+            bias_sum: 0.0,
+            brake_g_max: 0.0,
+            torque_samples: 0,
+            front_sum: 0.0,
+            throttle: 0,
+            spinning: [0; 4],
+            tc: 0,
+            cornering: 0,
+            balance_sum: 0.0,
         };
         lap.add(s);
         lap
@@ -196,13 +328,48 @@ impl Lap {
         self.fuel_last = s.fuel;
         self.valid = s.valid;
         self.pit |= s.pit;
-        self.top_speed = self.top_speed.max(s.speed);
+        if s.speed > self.top_speed {
+            self.top_speed = s.speed;
+            self.gear_at_top = s.gear;
+        }
+        self.rpm_max = self.rpm_max.max(s.rpm);
+        self.lat_g_max = self.lat_g_max.max(s.acc_g[0].abs());
+        let (braking, throttle) = (s.braking(), s.throttle());
+        if braking {
+            self.braking += 1;
+            self.abs += s.abs as u32;
+            self.bias_sum += s.brake_bias as f64;
+            self.brake_g_max = self.brake_g_max.max(s.acc_g[1].abs());
+            let torque: f32 = s.brake_torque.iter().sum();
+            if torque > 0.0 {
+                self.torque_samples += 1;
+                self.front_sum += ((s.brake_torque[0] + s.brake_torque[1]) / torque) as f64;
+            }
+        }
+        if throttle {
+            self.throttle += 1;
+            self.tc += s.tc as u32;
+        }
+        if s.cornering() {
+            self.cornering += 1;
+            let mean = |a: f32, b: f32| (a.abs() + b.abs()) / 2.0;
+            let front_minus_rear = mean(s.slip_angle[0], s.slip_angle[1]) - mean(s.slip_angle[2], s.slip_angle[3]);
+            self.balance_sum += front_minus_rear.to_degrees() as f64;
+        }
         for w in 0..4 {
             self.pressure_sum[w] += s.pressure[w] as f64;
             self.pressure_max[w] = self.pressure_max[w].max(s.pressure[w]);
             self.core_sum[w] += s.core_temp[w] as f64;
             self.core_max[w] = self.core_max[w].max(s.core_temp[w]);
             self.brake_max[w] = self.brake_max[w].max(s.brake_temp[w]);
+            self.temp_sum[0][w] += s.temp_inner[w] as f64;
+            self.temp_sum[1][w] += s.temp_middle[w] as f64;
+            self.temp_sum[2][w] += s.temp_outer[w] as f64;
+            self.travel_sum[w] += s.travel[w] as f64;
+            self.travel_max[w] = self.travel_max[w].max(s.travel[w]);
+            let slipping = s.slip_ratio[w].abs() > SLIP_LIMIT;
+            self.locked[w] += (braking && slipping) as u32;
+            self.spinning[w] += (throttle && slipping) as u32;
         }
         for axle in 0..2 {
             self.ride_min[axle] = self.ride_min[axle].min(s.ride_height[axle]);
@@ -233,9 +400,25 @@ impl Lap {
                 core_temp_avg: avg(self.core_sum[w]),
                 core_temp_max: self.core_max[w],
                 brake_temp_max: self.brake_max[w],
+                temp_inner: avg(self.temp_sum[0][w]),
+                temp_middle: avg(self.temp_sum[1][w]),
+                temp_outer: avg(self.temp_sum[2][w]),
+                travel_max: self.travel_max[w],
+                travel_avg: avg(self.travel_sum[w]),
+                lock_share: per(self.locked[w] as f64, self.braking),
+                spin_share: per(self.spinning[w] as f64, self.throttle),
             }),
             ride_height_min: self.ride_min,
             ride_height_avg: [avg(self.ride_sum[0]), avg(self.ride_sum[1])],
+            brake_bias: per(self.bias_sum, self.braking),
+            brake_front: per(self.front_sum, self.torque_samples),
+            abs_share: per(self.abs as f64, self.braking),
+            tc_share: per(self.tc as f64, self.throttle),
+            balance_deg: per(self.balance_sum, self.cornering),
+            rpm_max: self.rpm_max,
+            gear_at_top_speed: self.gear_at_top,
+            lat_g_max: self.lat_g_max,
+            brake_g_max: self.brake_g_max,
             first: self.first,
         }
     }
@@ -380,6 +563,10 @@ mod tests {
             self.graphics[at..at + 4].copy_from_slice(&value.to_le_bytes());
         }
 
+        fn physics_i32(&mut self, at: usize, value: i32) {
+            self.physics[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        }
+
         fn fuel(&mut self, liters: f32) {
             self.graphics[FUEL..FUEL + 4].copy_from_slice(&liters.to_le_bytes());
         }
@@ -430,6 +617,12 @@ mod tests {
         pages.f32s(TYRE_CORE_TEMPERATURE, &[80.0, 81.0, 70.0, 71.0]);
         pages.f32s(BRAKE_TEMP, &[300.0, 310.0, 200.0, 210.0]);
         pages.f32s(AIR_TEMP, &[22.0, 30.0]);
+        pages.f32s(TYRE_TEMP_I, &[90.0, 91.0, 92.0, 93.0]);
+        pages.f32s(TYRE_TEMP_M, &[85.0, 85.0, 85.0, 85.0]);
+        pages.f32s(TYRE_TEMP_O, &[80.0, 80.0, 80.0, 80.0]);
+        pages.f32s(SUSPENSION_TRAVEL, &[0.03, 0.03, 0.04, 0.04]);
+        pages.physics_i32(GEAR, 4);
+        pages.physics_i32(RPMS, 6000);
         // the lap's first sample is the one at the boundary; 98 more, then one with other values: 100
         let mut recorder = past_the_out_lap(&mut pages);
         assert!(pages.drive(&mut recorder, 98).is_empty());
@@ -439,6 +632,9 @@ mod tests {
         pages.f32s(TYRE_CORE_TEMPERATURE, &[90.0, 91.0, 80.0, 81.0]);
         pages.f32s(BRAKE_TEMP, &[600.0, 610.0, 400.0, 410.0]);
         pages.f32s(RIDE_HEIGHT, &[0.05, 0.06]);
+        pages.f32s(SUSPENSION_TRAVEL, &[0.05, 0.03, 0.04, 0.04]);
+        pages.physics_i32(GEAR, 6);
+        pages.physics_i32(RPMS, 7800);
         assert!(pages.drive(&mut recorder, 1).is_empty());
         pages.count_lap(512_345);
         let lap = pages.sample(&mut recorder).expect("the lap");
@@ -448,7 +644,16 @@ mod tests {
         assert_eq!(lap.fuel_used_l, 3.5);
         assert_eq!(lap.top_speed_kmh, 251.5);
         assert_eq!((lap.air_temp_c, lap.road_temp_c), (22.0, 30.0));
-        assert_eq!(lap.tyres[0], Tyre { pressure_avg: 26.02, pressure_max: 28.0, core_temp_avg: 80.1, core_temp_max: 90.0, brake_temp_max: 600.0 });
+        let fl = &lap.tyres[0];
+        assert_eq!((fl.pressure_avg, fl.pressure_max, fl.core_temp_avg, fl.core_temp_max, fl.brake_temp_max), (26.02, 28.0, 80.1, 90.0, 600.0));
+        assert_eq!((fl.temp_inner, fl.temp_middle, fl.temp_outer, lap.tyres[3].temp_inner), (90.0, 85.0, 80.0, 93.0));
+        assert_eq!((fl.travel_max, lap.tyres[1].travel_max), (0.05, 0.03));
+        assert!((fl.travel_avg - 0.0302).abs() < 1e-6);
+        assert_eq!((lap.rpm_max, lap.gear_at_top_speed), (7800, 6));
+        // no braking, throttle or cornering samples in this lap: every share and average over them is 0
+        assert!(lap.tyres.iter().all(|t| t.lock_share == 0.0 && t.spin_share == 0.0));
+        assert_eq!((lap.brake_bias, lap.brake_front, lap.abs_share, lap.tc_share, lap.balance_deg), (0.0, 0.0, 0.0, 0.0, 0.0));
+        assert_eq!((lap.lat_g_max, lap.brake_g_max), (0.0, 0.0));
         assert_eq!(lap.tyres[3].brake_temp_max, 410.0);
         assert_eq!(lap.ride_height_min, [0.05, 0.06]);
         assert!((lap.ride_height_avg[0] - 0.0698).abs() < 1e-6);
@@ -459,11 +664,109 @@ mod tests {
         assert_eq!(json["fuelUsedL"], 3.5);
         assert_eq!(json["tyres"].as_array().unwrap().len(), 4);
         assert_eq!(json["tyres"][0]["brakeTempMax"], 600.0);
+        let mut tyre_keys: Vec<_> = json["tyres"][0].as_object().unwrap().keys().cloned().collect();
+        tyre_keys.sort();
+        assert_eq!(tyre_keys, ["brakeTempMax", "coreTempAvg", "coreTempMax", "lockShare", "pressureAvg", "pressureMax", "spinShare", "tempInner", "tempMiddle", "tempOuter", "travelAvg", "travelMax"]);
+        assert_eq!(json["gearAtTopSpeed"], 6);
         assert_eq!(json["rideHeightMin"].as_array().unwrap().len(), 2);
         assert!(json.get("first").is_none());
         let mut keys: Vec<_> = json.as_object().unwrap().keys().cloned().collect();
         keys.sort();
-        assert_eq!(keys, ["airTempC", "car", "fuelUsedL", "lapTimeMs", "layout", "online", "pit", "rideHeightAvg", "rideHeightMin", "roadTempC", "topSpeedKmh", "track", "tyres", "valid"]);
+        assert_eq!(keys, [
+            "absShare", "airTempC", "balanceDeg", "brakeBias", "brakeFront", "brakeGMax", "car", "fuelUsedL", "gearAtTopSpeed", "lapTimeMs", "latGMax",
+            "layout", "online", "pit", "rideHeightAvg", "rideHeightMin", "roadTempC", "rpmMax", "tcShare", "topSpeedKmh", "track", "tyres", "valid",
+        ]);
+    }
+
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() < 1e-4
+    }
+
+    #[test]
+    fn sums_up_braking_throttle_and_cornering() {
+        let mut pages = Pages::new();
+        let mut recorder = past_the_out_lap(&mut pages); // the boundary sample stands still: none of the three
+
+        // braking at 150 km/h: half with all four torques (80 % front), ABS and the front left locking at -1.5 G,
+        // half without torque at -1.2 G
+        pages.f32s(SPEED_KMH, &[150.0]);
+        pages.f32s(BRAKE, &[0.8]);
+        pages.f32s(BRAKE_BIAS, &[0.56]);
+        pages.f32s(BRAKE_TORQUE, &[1000.0, 1000.0, 250.0, 250.0]);
+        pages.f32s(SLIP_RATIO, &[-0.2, 0.1, 0.0, 0.0]);
+        pages.physics_i32(ABS_IN_ACTION, 1);
+        pages.f32s(ACC_G, &[0.0, -1.5, 1.0]);
+        pages.drive(&mut recorder, 20);
+        pages.f32s(BRAKE_TORQUE, &[0.0; 4]);
+        pages.f32s(SLIP_RATIO, &[0.0; 4]);
+        pages.physics_i32(ABS_IN_ACTION, 0);
+        pages.f32s(ACC_G, &[0.0, -1.2, 1.0]);
+        pages.drive(&mut recorder, 20);
+
+        // full throttle in 5th: half with the rear wheels spinning and traction control on; the top speed in 6th
+        pages.f32s(BRAKE, &[0.0]);
+        pages.f32s(GAS, &[1.0]);
+        pages.f32s(SPEED_KMH, &[200.0]);
+        pages.f32s(ACC_G, &[0.0, 0.5, 1.0]);
+        pages.physics_i32(GEAR, 5);
+        pages.physics_i32(RPMS, 7000);
+        pages.f32s(SLIP_RATIO, &[0.0, 0.0, 0.3, -0.3]);
+        pages.physics_i32(TC_IN_ACTION, 1);
+        pages.drive(&mut recorder, 15);
+        pages.f32s(SLIP_RATIO, &[0.0; 4]);
+        pages.physics_i32(TC_IN_ACTION, 0);
+        pages.drive(&mut recorder, 14);
+        pages.f32s(SPEED_KMH, &[260.0]);
+        pages.physics_i32(GEAR, 6);
+        pages.physics_i32(RPMS, 8200);
+        pages.drive(&mut recorder, 1);
+
+        // cornering at 120 km/h, part throttle: half pushing the front (0.1 vs 0.05 rad), half the rear (0.02 vs 0.08)
+        pages.f32s(GAS, &[0.3]);
+        pages.f32s(SPEED_KMH, &[120.0]);
+        pages.physics_i32(GEAR, 4);
+        pages.physics_i32(RPMS, 6000);
+        pages.f32s(ACC_G, &[1.2, 0.0, 1.0]);
+        pages.f32s(SLIP_ANGLE, &[0.1, -0.1, 0.05, -0.05]);
+        pages.drive(&mut recorder, 10);
+        pages.f32s(ACC_G, &[-1.6, 0.0, 1.0]);
+        pages.f32s(SLIP_ANGLE, &[0.02, -0.02, 0.08, -0.08]);
+        pages.drive(&mut recorder, 10);
+
+        // slow and straight (none of the three) up to 111 samples
+        pages.f32s(SPEED_KMH, &[20.0]);
+        pages.f32s(ACC_G, &[0.0, 0.0, 1.0]);
+        pages.drive(&mut recorder, 20);
+        pages.count_lap(520_000);
+        let lap = pages.sample(&mut recorder).expect("the lap");
+
+        assert!(close(lap.brake_bias, 0.56));
+        assert!(close(lap.brake_front, 0.8), "only the braking samples with torque");
+        assert_eq!(lap.abs_share, 0.5);
+        assert_eq!((lap.tyres[0].lock_share, lap.tyres[1].lock_share, lap.tyres[2].lock_share), (0.5, 0.0, 0.0));
+        assert_eq!(lap.brake_g_max, 1.5);
+        assert_eq!(lap.tc_share, 0.5);
+        assert_eq!((lap.tyres[0].spin_share, lap.tyres[2].spin_share, lap.tyres[3].spin_share), (0.0, 0.5, 0.5));
+        assert_eq!((lap.top_speed_kmh, lap.gear_at_top_speed, lap.rpm_max), (260.0, 6, 8200));
+        assert_eq!(lap.lat_g_max, 1.6);
+        // (+0.05 rad + -0.06 rad) / 2 = -0.005 rad: slightly oversteering
+        assert!(close(lap.balance_deg, -0.005f32.to_degrees()), "{}", lap.balance_deg);
+    }
+
+    #[test]
+    fn balance_is_positive_when_the_front_slides_more() {
+        let mut pages = Pages::new();
+        let mut recorder = past_the_out_lap(&mut pages);
+        pages.f32s(SPEED_KMH, &[100.0]);
+        pages.f32s(ACC_G, &[-0.9, 0.0, 1.0]);
+        pages.f32s(SLIP_ANGLE, &[-0.1, -0.1, -0.04, -0.04]);
+        pages.drive(&mut recorder, 50);
+        pages.f32s(SPEED_KMH, &[59.0]); // too slow to count as cornering
+        pages.f32s(SLIP_ANGLE, &[0.0, 0.0, 0.5, 0.5]);
+        pages.drive(&mut recorder, 60);
+        pages.count_lap(520_000);
+        let lap = pages.sample(&mut recorder).unwrap();
+        assert!(close(lap.balance_deg, 0.06f32.to_degrees()), "{}", lap.balance_deg);
     }
 
     #[test]

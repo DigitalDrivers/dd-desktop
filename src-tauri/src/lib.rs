@@ -366,8 +366,8 @@ fn sample_laps(app: tauri::AppHandle) {
         let Some(statics) = read_shared_memory("Local\\acevo_pmf_static", evo_memory::STATIC_SIZE) else { continue };
         let Some(lap) = recorder.sample(&graphics, &physics, &statics) else { continue };
         log(&format!(
-            "lap: {} at {} {}, {} ms, valid {}, pit {}; first sample raw: pressure {:?}, core temp {:?}, ride height {:?}",
-            lap.car, lap.track, lap.layout, lap.lap_time_ms, lap.valid, lap.pit, lap.first.pressure, lap.first.core_temp, lap.first.ride_height
+            "lap: {} at {} {}, {} ms, valid {}, pit {}, brake bias {}, balance {} deg; first sample raw: pressure {:?}, core temp {:?}, ride height {:?}",
+            lap.car, lap.track, lap.layout, lap.lap_time_ms, lap.valid, lap.pit, lap.brake_bias, lap.balance_deg, lap.first.pressure, lap.first.core_temp, lap.first.ride_height
         ));
         let state = app.state::<Laps>();
         let mut finished = state.finished.lock().unwrap();
