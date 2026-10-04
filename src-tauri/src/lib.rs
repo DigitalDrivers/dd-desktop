@@ -364,10 +364,11 @@ fn sample_laps(app: tauri::AppHandle) {
         let Some(physics) = read_shared_memory("Local\\acevo_pmf_physics", laps::PHYSICS_SIZE) else { continue };
         let Some(graphics) = read_shared_memory("Local\\acevo_pmf_graphics", evo_memory::GRAPHICS_SIZE) else { continue };
         let Some(statics) = read_shared_memory("Local\\acevo_pmf_static", evo_memory::STATIC_SIZE) else { continue };
-        let Some(lap) = recorder.sample(&graphics, &physics, &statics) else { continue };
+        let Some(mut lap) = recorder.sample(&graphics, &physics, &statics) else { continue };
+        lap.preset = newest_game_log(&app).and_then(|log| laps::preset_of(&log, &lap.car));
         log(&format!(
-            "lap: {} at {} {}, {} ms, valid {}, pit {}, brake bias {}, balance {} deg; first sample raw: pressure {:?}, core temp {:?}, ride height {:?}",
-            lap.car, lap.track, lap.layout, lap.lap_time_ms, lap.valid, lap.pit, lap.brake_bias, lap.balance_deg, lap.first.pressure, lap.first.core_temp, lap.first.ride_height
+            "lap: {} ({:?}) at {} {}, {} ms, valid {}, pit {}, brake bias {}, balance {} deg; first sample raw: pressure {:?}, core temp {:?}, ride height {:?}",
+            lap.car, lap.preset, lap.track, lap.layout, lap.lap_time_ms, lap.valid, lap.pit, lap.brake_bias, lap.balance_deg, lap.first.pressure, lap.first.core_temp, lap.first.ride_height
         ));
         let state = app.state::<Laps>();
         let mut finished = state.finished.lock().unwrap();
@@ -376,6 +377,22 @@ fn sample_laps(app: tauri::AppHandle) {
         }
         finished.push(lap);
     }
+}
+
+/// The newest of AC EVO's logs (`Saved Games\ACE\Logs\log-*.txt`, next to the setups), as text. The game may be
+/// writing it; Rust opens files for shared reading and writing on Windows, so reading does not disturb it.
+fn newest_game_log(app: &tauri::AppHandle) -> Option<String> {
+    let logs = find_ac_evo_setups(app)?.parent()?.join("Logs");
+    let newest = fs::read_dir(logs)
+        .ok()?
+        .flatten()
+        .filter(|entry| {
+            let name = entry.file_name().to_string_lossy().to_string();
+            name.starts_with("log-") && name.ends_with(".txt")
+        })
+        .filter_map(|entry| Some((entry.metadata().ok()?.modified().ok()?, entry.path())))
+        .max()?;
+    fs::read(newest.1).ok().map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
 }
 
 /// A copy of a named shared memory page of another program, if it exists.

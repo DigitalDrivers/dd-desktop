@@ -122,8 +122,31 @@ pub struct LapSummary {
     /// Highest |lateral G|, and highest |longitudinal G| under braking
     pub lat_g_max: f32,
     pub brake_g_max: f32,
+    /// The car's mechanical preset (stage or variant) as the game's log names it; the shell fills it in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preset: Option<String>,
     #[serde(skip)]
     pub first: FirstSample,
+}
+
+/// What the game's log writes when the driver selects a car, followed by the car's id and its preset's path
+/// (`content\cars\<car>\presets\<preset>.mechanicalcarpreset`).
+const SET_CAR: &str = "onSetPlayerCurrentCarCommand: Set new car ";
+
+/// The preset of the last selection of `car` (its folder exactly, not a car whose id merely starts the same) in
+/// the game's log, by its file name without the extension.
+pub fn preset_of(log: &str, car: &str) -> Option<String> {
+    log.lines()
+        .filter_map(|line| {
+            let (_, rest) = line.split_once(SET_CAR)?;
+            let (_, path) = rest.trim().split_once(' ')?;
+            let parts: Vec<&str> = path.trim().split(['\\', '/']).collect();
+            match parts.as_slice() {
+                [.., "cars", folder, "presets", file] if *folder == car => Some(file.rsplit_once('.').map_or(*file, |(stem, _)| stem).to_string()),
+                _ => None,
+            }
+        })
+        .last()
 }
 
 /// The fields of one sample of the three pages.
@@ -419,6 +442,7 @@ impl Lap {
             gear_at_top_speed: self.gear_at_top,
             lat_g_max: self.lat_g_max,
             brake_g_max: self.brake_g_max,
+            preset: None,
             first: self.first,
         }
     }
@@ -676,6 +700,40 @@ mod tests {
             "absShare", "airTempC", "balanceDeg", "brakeBias", "brakeFront", "brakeGMax", "car", "fuelUsedL", "gearAtTopSpeed", "lapTimeMs", "latGMax",
             "layout", "online", "pit", "rideHeightAvg", "rideHeightMin", "roadTempC", "rpmMax", "tcShare", "topSpeedKmh", "track", "tyres", "valid",
         ]);
+    }
+
+    const SELECT_RENNSPORT_UNL3: &str = "[2026-10-04 20:05:21.996] [gameplay] [info] ACEVO-2629 onSetPlayerCurrentCarCommand: Set new car 4422f4ed-904e-8717-71fa-e328d8e09daa content\\cars\\dd_bmw_m3_e46_rennsport\\presets\\preset_dd_bmw_m3_e46_rennsport_unl3.mechanicalcarpreset";
+
+    #[test]
+    fn finds_the_preset_of_a_car_in_the_game_s_log() {
+        let log = format!("[2026-10-04 20:05:20.001] [core] [info] something else\n{SELECT_RENNSPORT_UNL3}\n[2026-10-04 20:05:22.000] [gameplay] [info] driving\n");
+        assert_eq!(preset_of(&log, "dd_bmw_m3_e46_rennsport").as_deref(), Some("preset_dd_bmw_m3_e46_rennsport_unl3"));
+        assert_eq!(preset_of(&log.replace('\n', "\r\n"), "dd_bmw_m3_e46_rennsport").as_deref(), Some("preset_dd_bmw_m3_e46_rennsport_unl3"), "CRLF");
+    }
+
+    #[test]
+    fn takes_the_car_s_last_selection_and_no_other_car_s() {
+        let unl1 = SELECT_RENNSPORT_UNL3.replace("unl3", "unl1");
+        let gt3 = SELECT_RENNSPORT_UNL3.replace("rennsport", "gt3");
+        // a car whose id starts with the other's
+        let longer = SELECT_RENNSPORT_UNL3.replace("dd_bmw_m3_e46_rennsport", "dd_bmw_m3_e46_rennsport_wide");
+        let log = [SELECT_RENNSPORT_UNL3, &unl1, &gt3, &longer].join("\n");
+        assert_eq!(preset_of(&log, "dd_bmw_m3_e46_rennsport").as_deref(), Some("preset_dd_bmw_m3_e46_rennsport_unl1"));
+        assert_eq!(preset_of(&log, "dd_bmw_m3_e46_gt3").as_deref(), Some("preset_dd_bmw_m3_e46_gt3_unl3"));
+        assert_eq!(preset_of(&log, "dd_bmw_m3_e46").as_deref(), None);
+        assert_eq!(preset_of("[2026-10-04 20:05:20.001] [core] [info] started\n", "dd_bmw_m3_e46_rennsport"), None);
+    }
+
+    #[test]
+    fn sends_the_preset_only_when_there_is_one() {
+        let mut pages = Pages::new();
+        let mut recorder = past_the_out_lap(&mut pages);
+        pages.drive(&mut recorder, 120);
+        pages.count_lap(512_000);
+        let mut lap = pages.sample(&mut recorder).unwrap();
+        assert!(serde_json::to_value(&lap).unwrap().get("preset").is_none());
+        lap.preset = Some("preset_dd_bmw_m3_e46_gt3_unl3".into());
+        assert_eq!(serde_json::to_value(&lap).unwrap()["preset"], "preset_dd_bmw_m3_e46_gt3_unl3");
     }
 
     fn close(a: f32, b: f32) -> bool {
