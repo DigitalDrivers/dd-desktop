@@ -10,6 +10,7 @@ use std::time::SystemTime;
 
 use dd_core::evo_memory::{self, LiveSnapshot};
 use dd_core::garage;
+use dd_core::laps::{self, LapRecorder, LapSummary};
 use dd_core::links;
 use dd_core::setups::{self, SetupError, SetupFile};
 use serde::Serialize;
@@ -334,6 +335,49 @@ fn live_snapshot() -> Option<LiveSnapshot> {
     evo_memory::read(&graphics, &statics)
 }
 
+/// Laps finished since the page last took them, and whether the sampler runs.
+#[derive(Default)]
+struct Laps {
+    started: std::sync::atomic::AtomicBool,
+    finished: Mutex<Vec<LapSummary>>,
+}
+
+/// Laps kept while the page does not take them; the oldest go first.
+const LAPS_KEPT: usize = 200;
+
+/// The laps of the club's cars finished since the last call, from AC EVO's shared memory. The first call starts
+/// the sampler, so nothing is read for a driver whose page never asks (the platform asks only with consent).
+#[tauri::command]
+fn take_laps(app: tauri::AppHandle, state: tauri::State<'_, Laps>) -> Vec<LapSummary> {
+    if !state.started.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        log("take_laps: sampling AC EVO's shared memory every 100 ms");
+        std::thread::spawn(move || sample_laps(app));
+    }
+    std::mem::take(&mut *state.finished.lock().unwrap())
+}
+
+/// Samples the pages ten times a second for good; while the game is not running they are missing and skipped.
+fn sample_laps(app: tauri::AppHandle) {
+    let mut recorder = LapRecorder::new();
+    loop {
+        std::thread::sleep(Duration::from_millis(100));
+        let Some(physics) = read_shared_memory("Local\\acevo_pmf_physics", laps::PHYSICS_SIZE) else { continue };
+        let Some(graphics) = read_shared_memory("Local\\acevo_pmf_graphics", evo_memory::GRAPHICS_SIZE) else { continue };
+        let Some(statics) = read_shared_memory("Local\\acevo_pmf_static", evo_memory::STATIC_SIZE) else { continue };
+        let Some(lap) = recorder.sample(&graphics, &physics, &statics) else { continue };
+        log(&format!(
+            "lap: {} at {} {}, {} ms, valid {}, pit {}; first sample raw: pressure {:?}, core temp {:?}, ride height {:?}",
+            lap.car, lap.track, lap.layout, lap.lap_time_ms, lap.valid, lap.pit, lap.first.pressure, lap.first.core_temp, lap.first.ride_height
+        ));
+        let state = app.state::<Laps>();
+        let mut finished = state.finished.lock().unwrap();
+        if finished.len() >= LAPS_KEPT {
+            finished.remove(0);
+        }
+        finished.push(lap);
+    }
+}
+
 /// A copy of a named shared memory page of another program, if it exists.
 #[cfg(windows)]
 fn read_shared_memory(name: &str, size: usize) -> Option<Vec<u8>> {
@@ -631,6 +675,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
                 .manage(PendingUpdate::default())
         .manage(PackageHashes::default())
+        .manage(Laps::default())
         .setup(|app| {
             // The window is built here instead of by the configuration alone, so that links which open a new
             // window (a stream, a download) go to the browser: the app has no tabs, and without this they did
@@ -644,7 +689,7 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, update_check, update_install, launch_ac_evo, car_status, install_car, live_snapshot])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, update_check, update_install, launch_ac_evo, car_status, install_car, live_snapshot, take_laps])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

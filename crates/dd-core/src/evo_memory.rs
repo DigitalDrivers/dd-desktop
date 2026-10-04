@@ -45,11 +45,11 @@ fn u64_at(page: &[u8], at: usize) -> u64 {
     u64::from_le_bytes(page[at..at + 8].try_into().unwrap())
 }
 
-fn f32_at(page: &[u8], at: usize) -> f32 {
+pub(crate) fn f32_at(page: &[u8], at: usize) -> f32 {
     f32::from_le_bytes(page[at..at + 4].try_into().unwrap())
 }
 
-fn text_at(page: &[u8], at: usize, len: usize) -> String {
+pub(crate) fn text_at(page: &[u8], at: usize, len: usize) -> String {
     let bytes = &page[at..at + len];
     let end = bytes.iter().position(|b| *b == 0).unwrap_or(len);
     String::from_utf8_lossy(&bytes[..end]).trim().to_string()
