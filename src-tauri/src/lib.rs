@@ -701,6 +701,14 @@ fn active_steam_user() -> u32 {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // First, as the plugin asks: a second start only brings the running app's window to the front.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            log("second start: focusing the running app");
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
                 .manage(PendingUpdate::default())
         .manage(PackageHashes::default())

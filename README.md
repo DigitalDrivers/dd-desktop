@@ -45,8 +45,8 @@ driver can check what the app does on their PC.
   pressure and core temperature (average, maximum), inner, middle and outer tyre temperature (average), brake
   temperature (maximum), suspension travel (maximum, average) and how often the wheel locked under braking or
   spun under throttle, the ride height (minimum, average), the brake bias and the front's share of the brake
-  torque, how often ABS and traction control worked, the balance in corners (front against rear slip angle), the
-  highest lateral and braking G, and the preset (the car's stage or variant). The page fetches the summaries and
+  torque, the balance in corners (front against rear slip angle), the highest lateral and braking G, and the
+  preset (the car's stage or variant). Time in the pit lane is left out. The page fetches the summaries and
   sends them to the platform; nothing else of the drive or of the log is kept.
 - When you join one of our servers, the app starts Assetto Corsa EVO through Steam (`steam://run/3058630`); the
   page has put the server's join string on the clipboard, which the game's server list takes.

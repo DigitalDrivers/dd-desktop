@@ -43,8 +43,6 @@ const SUSPENSION_TRAVEL: usize = 184;
 const BRAKE_BIAS: usize = 564;
 const SLIP_RATIO: usize = 640;
 const SLIP_ANGLE: usize = 656;
-const TC_IN_ACTION: usize = 672;
-const ABS_IN_ACTION: usize = 676;
 const BRAKE_TORQUE: usize = 716;
 // static
 const TRACK: usize = 136;
@@ -60,6 +58,8 @@ const MIN_SAMPLES: u32 = 100;
 const LAPTIME_WAIT: u32 = 20;
 /// A wheel locks under braking, or spins under throttle, beyond this slip ratio (absolute).
 const SLIP_LIMIT: f32 = 0.15;
+/// Samples (one second at 10 Hz) of the moving averages that keep a single kerb strike out of the extremes.
+const WINDOW: usize = 10;
 
 /// Pressure, core and brake temperature of one wheel over a lap.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -101,29 +101,26 @@ pub struct LapSummary {
     pub lap_time_ms: i32,
     pub valid: bool,
     pub pit: bool,
-    /// Fuel at the first sample minus fuel at the last; negative after refuelling.
+    /// The sum of the decreases between consecutive samples off the pit lane; refuelling does not count.
     pub fuel_used_l: f32,
     pub air_temp_c: f32,
     pub road_temp_c: f32,
     pub top_speed_kmh: f32,
     /// FL FR RL RR
     pub tyres: [Tyre; 4],
-    /// Front, rear
+    /// Front, rear; the minimum is the lowest one-second average
     pub ride_height_min: [f32; 2],
     pub ride_height_avg: [f32; 2],
     /// The brake bias setting, averaged over the braking samples
     pub brake_bias: f32,
     /// The front axle's share of the brake torque, averaged over the braking samples with any torque
     pub brake_front: f32,
-    /// Shares of the braking samples with ABS, and of the throttle samples with traction control, working
-    pub abs_share: f32,
-    pub tc_share: f32,
     /// Front minus rear mean |slip angle| in degrees over the cornering samples: above 0 understeer, below oversteer
     pub balance_deg: f32,
     pub rpm_max: i32,
-    /// The gear of the sample with the highest speed
+    /// The gear of the sample with the highest speed (1 = first; the pages count 0 = reverse, 1 = neutral)
     pub gear_at_top_speed: i32,
-    /// Highest |lateral G|, and highest |longitudinal G| under braking
+    /// Highest one-second average of |lateral G|, and of |longitudinal G| over ten braking samples in a row
     pub lat_g_max: f32,
     pub brake_g_max: f32,
     /// The car's mechanical preset (stage or variant) as the game's log names it; the shell fills it in.
@@ -187,8 +184,6 @@ struct Sample {
     brake_bias: f32,
     slip_ratio: [f32; 4],
     slip_angle: [f32; 4],
-    tc: bool,
-    abs: bool,
     brake_torque: [f32; 4],
 }
 
@@ -268,20 +263,42 @@ impl Sample {
             brake_bias: f32_at(physics, BRAKE_BIAS),
             slip_ratio: f32s_at(physics, SLIP_RATIO),
             slip_angle: f32s_at(physics, SLIP_ANGLE),
-            tc: i32_at(physics, TC_IN_ACTION) != 0,
-            abs: i32_at(physics, ABS_IN_ACTION) != 0,
             brake_torque: f32s_at(physics, BRAKE_TORQUE),
         })
     }
 }
 
-/// The running sums of the lap being driven.
+/// The average of the last `WINDOW` values, kept in a ring with a running sum.
+#[derive(Default)]
+struct Window {
+    values: [f32; WINDOW],
+    len: usize,
+    next: usize,
+    sum: f64,
+}
+
+impl Window {
+    /// Adds a value; the average once the window is full.
+    fn push(&mut self, value: f32) -> Option<f32> {
+        if self.len == WINDOW {
+            self.sum -= self.values[self.next] as f64;
+        } else {
+            self.len += 1;
+        }
+        self.values[self.next] = value;
+        self.sum += value as f64;
+        self.next = (self.next + 1) % WINDOW;
+        (self.len == WINDOW).then(|| (self.sum / WINDOW as f64) as f32)
+    }
+}
+
+/// The running sums of the lap being driven, over its samples off the pit lane.
 struct Lap {
     samples: u32,
     first: FirstSample,
     online: bool,
-    fuel_first: f32,
-    fuel_last: f32,
+    fuel_last: Option<f32>,
+    fuel_used: f64,
     valid: bool,
     pit: bool,
     top_speed: f32,
@@ -296,21 +313,23 @@ struct Lap {
     road_sum: f64,
     gear_at_top: i32,
     rpm_max: i32,
+    lat_g: Window,
     lat_g_max: f32,
+    ride: [Window; 2],
     temp_sum: [[f64; 4]; 3],
     travel_sum: [f64; 4],
     travel_max: [f32; 4],
     braking: u32,
     locked: [u32; 4],
-    abs: u32,
     bias_sum: f64,
+    /// Over the braking samples in a row; emptied when braking stops
+    brake_g: Window,
     brake_g_max: f32,
     /// Braking samples with any brake torque, and the sum of their front shares
     torque_samples: u32,
     front_sum: f64,
     throttle: u32,
     spinning: [u32; 4],
-    tc: u32,
     cornering: u32,
     balance_sum: f64,
 }
@@ -321,15 +340,16 @@ fn per(sum: f64, count: u32) -> f32 {
 }
 
 impl Lap {
-    fn start(s: &Sample) -> Lap {
+    /// A lap starting at this sample; `pit` when it is already known to include the pit lane.
+    fn start(s: &Sample, pit: bool) -> Lap {
         let mut lap = Lap {
             samples: 0,
-            first: FirstSample { pressure: s.pressure, core_temp: s.core_temp, ride_height: s.ride_height },
+            first: FirstSample::default(),
             online: s.online,
-            fuel_first: s.fuel,
-            fuel_last: s.fuel,
+            fuel_last: None,
+            fuel_used: 0.0,
             valid: s.valid,
-            pit: false,
+            pit,
             top_speed: f32::NEG_INFINITY,
             pressure_sum: [0.0; 4],
             pressure_max: [f32::NEG_INFINITY; 4],
@@ -342,53 +362,76 @@ impl Lap {
             road_sum: 0.0,
             gear_at_top: 0,
             rpm_max: i32::MIN,
+            lat_g: Window::default(),
             lat_g_max: 0.0,
+            ride: Default::default(),
             temp_sum: [[0.0; 4]; 3],
             travel_sum: [0.0; 4],
             travel_max: [f32::NEG_INFINITY; 4],
             braking: 0,
             locked: [0; 4],
-            abs: 0,
             bias_sum: 0.0,
+            brake_g: Window::default(),
             brake_g_max: 0.0,
             torque_samples: 0,
             front_sum: 0.0,
             throttle: 0,
             spinning: [0; 4],
-            tc: 0,
             cornering: 0,
             balance_sum: 0.0,
         };
-        lap.add(s);
+        lap.take(s);
         lap
     }
 
-    fn add(&mut self, s: &Sample) {
-        self.samples += 1;
-        self.fuel_last = s.fuel;
+    /// A sample in the pit lane only marks the lap (and breaks the moving averages); any other is summed up.
+    fn take(&mut self, s: &Sample) {
         self.valid = s.valid;
-        self.pit |= s.pit;
+        if s.pit {
+            self.pit = true;
+            self.lat_g = Window::default();
+            self.ride = Default::default();
+            self.brake_g = Window::default();
+            self.fuel_last = None;
+        } else {
+            self.add(s);
+        }
+    }
+
+    fn add(&mut self, s: &Sample) {
+        if self.samples == 0 {
+            self.first = FirstSample { pressure: s.pressure, core_temp: s.core_temp, ride_height: s.ride_height };
+        }
+        self.samples += 1;
+        if let Some(last) = self.fuel_last {
+            self.fuel_used += (last - s.fuel).max(0.0) as f64;
+        }
+        self.fuel_last = Some(s.fuel);
         if s.speed > self.top_speed {
             self.top_speed = s.speed;
             self.gear_at_top = s.gear;
         }
         self.rpm_max = self.rpm_max.max(s.rpm);
-        self.lat_g_max = self.lat_g_max.max(s.acc_g[0].abs());
+        if let Some(average) = self.lat_g.push(s.acc_g[0].abs()) {
+            self.lat_g_max = self.lat_g_max.max(average);
+        }
         let (braking, throttle) = (s.braking(), s.throttle());
         if braking {
             self.braking += 1;
-            self.abs += s.abs as u32;
             self.bias_sum += s.brake_bias as f64;
-            self.brake_g_max = self.brake_g_max.max(s.acc_g[1].abs());
+            if let Some(average) = self.brake_g.push(s.acc_g[1].abs()) {
+                self.brake_g_max = self.brake_g_max.max(average);
+            }
             let torque: f32 = s.brake_torque.iter().sum();
             if torque > 0.0 {
                 self.torque_samples += 1;
                 self.front_sum += ((s.brake_torque[0] + s.brake_torque[1]) / torque) as f64;
             }
+        } else {
+            self.brake_g = Window::default();
         }
         if throttle {
             self.throttle += 1;
-            self.tc += s.tc as u32;
         }
         if s.cornering() {
             self.cornering += 1;
@@ -412,7 +455,9 @@ impl Lap {
             self.spinning[w] += (throttle && slipping) as u32;
         }
         for axle in 0..2 {
-            self.ride_min[axle] = self.ride_min[axle].min(s.ride_height[axle]);
+            if let Some(average) = self.ride[axle].push(s.ride_height[axle]) {
+                self.ride_min[axle] = self.ride_min[axle].min(average);
+            }
             self.ride_sum[axle] += s.ride_height[axle] as f64;
         }
         self.air_sum += s.air_temp as f64;
@@ -430,7 +475,7 @@ impl Lap {
             lap_time_ms,
             valid: self.valid,
             pit: self.pit,
-            fuel_used_l: self.fuel_first - self.fuel_last,
+            fuel_used_l: self.fuel_used as f32,
             air_temp_c: avg(self.air_sum),
             road_temp_c: avg(self.road_sum),
             top_speed_kmh: self.top_speed,
@@ -452,11 +497,9 @@ impl Lap {
             ride_height_avg: [avg(self.ride_sum[0]), avg(self.ride_sum[1])],
             brake_bias: per(self.bias_sum, self.braking),
             brake_front: per(self.front_sum, self.torque_samples),
-            abs_share: per(self.abs as f64, self.braking),
-            tc_share: per(self.tc as f64, self.throttle),
             balance_deg: per(self.balance_sum, self.cornering),
             rpm_max: self.rpm_max,
-            gear_at_top_speed: self.gear_at_top,
+            gear_at_top_speed: self.gear_at_top - 1,
             lat_g_max: self.lat_g_max,
             brake_g_max: self.brake_g_max,
             preset: None,
@@ -480,8 +523,11 @@ struct Stint {
     track: String,
     layout: String,
     lap_count: i32,
-    /// Whether the lap being driven started at a counted boundary (not the out lap, nor one joined midway)
+    /// Whether the lap being driven started at a counted boundary or at the pit exit (not one joined midway)
     from_boundary: bool,
+    /// Whether the last sample was in the pit lane, and whether the game counted a lap since the car entered it
+    in_pit: bool,
+    counted_in_pit: bool,
     lap: Lap,
     pending: Option<Pending>,
     /// `last_laptime_ms` as it was when the previous lap was settled (or the stint started): a different value
@@ -497,7 +543,9 @@ impl Stint {
             layout: s.layout.clone(),
             lap_count: s.lap_count,
             from_boundary: false,
-            lap: Lap::start(s),
+            in_pit: s.pit,
+            counted_in_pit: false,
+            lap: Lap::start(s, false),
             pending: None,
             known_laptime: s.last_laptime_ms,
         }
@@ -518,9 +566,14 @@ impl Stint {
 }
 
 /// Turns samples of the pages into finished laps, of any car (by its display name). Samples outside live driving
-/// are ignored; a
-/// change of car or track, or a lap counter that jumps or goes back (a new session), starts over and forgets a
-/// lap still waiting for its time.
+/// are ignored; a change of car or track, or a lap counter that jumps or goes back (a new session), starts over
+/// and forgets a lap still waiting for its time. The lap the app joined midway is dropped.
+///
+/// Samples in the pit lane are not summed up; they only mark the lap `pit` (an in-lap, when the game counts the
+/// lap after the car entered the pit lane). Leaving the pit lane starts a fresh lap that is kept when the game
+/// counts it, as on Touristenfahrten, where every stint starts in the box and the counter ticks at the end split
+/// before the pit lane. That lap is marked `pit` too if the game counted a lap while the car was in the pit lane
+/// (its time then includes the pit lane).
 ///
 /// A lap ends at the sample where the game counts it; `valid` and `pit` are those of that moment. Its lap time
 /// is the first `last_laptime_ms` that is positive and differs from the one the previous lap was settled with,
@@ -547,9 +600,19 @@ impl LapRecorder {
                 return None;
             }
         };
+        if s.pit && !stint.in_pit {
+            stint.counted_in_pit = false;
+        }
+        let pit_exit = stint.in_pit && !s.pit;
+        stint.in_pit = s.pit;
         match s.lap_count - stint.lap_count {
             0 => {
-                stint.lap.add(&s);
+                if pit_exit {
+                    stint.lap = Lap::start(&s, stint.counted_in_pit);
+                    stint.from_boundary = true;
+                } else {
+                    stint.lap.take(&s);
+                }
                 if let Some(pending) = &mut stint.pending {
                     pending.waited += 1;
                 }
@@ -558,10 +621,11 @@ impl LapRecorder {
             1 => {
                 // A lap still waiting means the new one is shorter than the wait and will not be kept.
                 let earlier = stint.settle(&s, true);
-                let lap = std::mem::replace(&mut stint.lap, Lap::start(&s));
+                let lap = std::mem::replace(&mut stint.lap, Lap::start(&s, false));
                 let keep = stint.from_boundary && lap.samples >= MIN_SAMPLES;
                 stint.pending = Some(Pending { lap, keep, waited: 0 });
                 stint.from_boundary = true;
+                stint.counted_in_pit |= s.pit;
                 stint.lap_count = s.lap_count;
                 earlier.or_else(|| stint.settle(&s, false))
             }
@@ -669,7 +733,7 @@ mod tests {
         pages.f32s(TYRE_CORE_TEMPERATURE, &[80.0, 81.0, 70.0, 71.0]);
         pages.f32s(BRAKE_TEMP, &[300.0, 310.0, 200.0, 210.0]);
         pages.f32s(AIR_TEMP, &[22.0, 30.0]);
-        // left, center, right per wheel: the inner edge is the right one on the left wheels, the left one on the right
+        // left, center, right per wheel; the header documents left as the inner edge on every wheel
         pages.tread([[80.0, 85.0, 90.0], [91.0, 86.0, 81.0], [82.0, 87.0, 92.0], [93.0, 88.0, 83.0]]);
         pages.f32s(SUSPENSION_TRAVEL, &[0.03, 0.03, 0.04, 0.04]);
         pages.physics_i32(GEAR, 4);
@@ -684,7 +748,7 @@ mod tests {
         pages.f32s(BRAKE_TEMP, &[600.0, 610.0, 400.0, 410.0]);
         pages.f32s(RIDE_HEIGHT, &[0.05, 0.06]);
         pages.f32s(SUSPENSION_TRAVEL, &[0.05, 0.03, 0.04, 0.04]);
-        pages.physics_i32(GEAR, 6);
+        pages.physics_i32(GEAR, 7); // 6th: the pages count 0 = reverse, 1 = neutral
         pages.physics_i32(RPMS, 7800);
         assert!(pages.drive(&mut recorder, 1).is_empty());
         pages.count_lap(512_345);
@@ -705,10 +769,11 @@ mod tests {
         assert_eq!((lap.rpm_max, lap.gear_at_top_speed), (7800, 6));
         // no braking, throttle or cornering samples in this lap: every share and average over them is 0
         assert!(lap.tyres.iter().all(|t| t.lock_share == 0.0 && t.spin_share == 0.0));
-        assert_eq!((lap.brake_bias, lap.brake_front, lap.abs_share, lap.tc_share, lap.balance_deg), (0.0, 0.0, 0.0, 0.0, 0.0));
+        assert_eq!((lap.brake_bias, lap.brake_front, lap.balance_deg), (0.0, 0.0, 0.0));
         assert_eq!((lap.lat_g_max, lap.brake_g_max), (0.0, 0.0));
         assert_eq!(lap.tyres[3].brake_temp_max, 410.0);
-        assert_eq!(lap.ride_height_min, [0.05, 0.06]);
+        // one second averages: the last one has nine samples at 0.07 / 0.08 and one at 0.05 / 0.06
+        assert!(close(lap.ride_height_min[0], 0.068) && close(lap.ride_height_min[1], 0.078), "{:?}", lap.ride_height_min);
         assert!((lap.ride_height_avg[0] - 0.0698).abs() < 1e-6);
         assert_eq!(lap.first, FirstSample { pressure: [26.0, 26.5, 25.0, 25.5], core_temp: [80.0, 81.0, 70.0, 71.0], ride_height: [0.07, 0.08] });
 
@@ -725,9 +790,10 @@ mod tests {
         assert!(json.get("first").is_none());
         let mut keys: Vec<_> = json.as_object().unwrap().keys().cloned().collect();
         keys.sort();
+        // absShare and tcShare are gone: the game leaves those fields at 0
         assert_eq!(keys, [
-            "absShare", "airTempC", "balanceDeg", "brakeBias", "brakeFront", "brakeGMax", "car", "fuelUsedL", "gearAtTopSpeed", "lapTimeMs", "latGMax",
-            "layout", "online", "pit", "rideHeightAvg", "rideHeightMin", "roadTempC", "rpmMax", "tcShare", "topSpeedKmh", "track", "tyres", "valid",
+            "airTempC", "balanceDeg", "brakeBias", "brakeFront", "brakeGMax", "car", "fuelUsedL", "gearAtTopSpeed", "lapTimeMs", "latGMax", "layout",
+            "online", "pit", "rideHeightAvg", "rideHeightMin", "roadTempC", "rpmMax", "topSpeedKmh", "track", "tyres", "valid",
         ]);
     }
 
@@ -782,37 +848,33 @@ mod tests {
         let mut pages = Pages::new();
         let mut recorder = past_the_out_lap(&mut pages); // the boundary sample stands still: none of the three
 
-        // braking at 150 km/h: half with all four torques (80 % front), ABS and the front left locking at -1.5 G,
+        // braking at 150 km/h: half with all four torques (80 % front) and the front left locking at -1.5 G,
         // half without torque at -1.2 G
         pages.f32s(SPEED_KMH, &[150.0]);
         pages.f32s(BRAKE, &[0.8]);
         pages.f32s(BRAKE_BIAS, &[0.56]);
         pages.f32s(BRAKE_TORQUE, &[1000.0, 1000.0, 250.0, 250.0]);
         pages.f32s(SLIP_RATIO, &[-0.2, 0.1, 0.0, 0.0]);
-        pages.physics_i32(ABS_IN_ACTION, 1);
         pages.f32s(ACC_G, &[0.0, -1.5, 1.0]);
         pages.drive(&mut recorder, 20);
         pages.f32s(BRAKE_TORQUE, &[0.0; 4]);
         pages.f32s(SLIP_RATIO, &[0.0; 4]);
-        pages.physics_i32(ABS_IN_ACTION, 0);
         pages.f32s(ACC_G, &[0.0, -1.2, 1.0]);
         pages.drive(&mut recorder, 20);
 
-        // full throttle in 5th: half with the rear wheels spinning and traction control on; the top speed in 6th
+        // full throttle in 5th: half with the rear wheels spinning; the top speed in 6th
         pages.f32s(BRAKE, &[0.0]);
         pages.f32s(GAS, &[1.0]);
         pages.f32s(SPEED_KMH, &[200.0]);
         pages.f32s(ACC_G, &[0.0, 0.5, 1.0]);
-        pages.physics_i32(GEAR, 5);
+        pages.physics_i32(GEAR, 6);
         pages.physics_i32(RPMS, 7000);
         pages.f32s(SLIP_RATIO, &[0.0, 0.0, 0.3, -0.3]);
-        pages.physics_i32(TC_IN_ACTION, 1);
         pages.drive(&mut recorder, 15);
         pages.f32s(SLIP_RATIO, &[0.0; 4]);
-        pages.physics_i32(TC_IN_ACTION, 0);
         pages.drive(&mut recorder, 14);
         pages.f32s(SPEED_KMH, &[260.0]);
-        pages.physics_i32(GEAR, 6);
+        pages.physics_i32(GEAR, 7);
         pages.physics_i32(RPMS, 8200);
         pages.drive(&mut recorder, 1);
 
@@ -837,13 +899,11 @@ mod tests {
 
         assert!(close(lap.brake_bias, 0.56));
         assert!(close(lap.brake_front, 0.8), "only the braking samples with torque");
-        assert_eq!(lap.abs_share, 0.5);
         assert_eq!((lap.tyres[0].lock_share, lap.tyres[1].lock_share, lap.tyres[2].lock_share), (0.5, 0.0, 0.0));
-        assert_eq!(lap.brake_g_max, 1.5);
-        assert_eq!(lap.tc_share, 0.5);
+        assert_eq!(lap.brake_g_max, 1.5, "ten braking samples in a row at 1.5");
         assert_eq!((lap.tyres[0].spin_share, lap.tyres[2].spin_share, lap.tyres[3].spin_share), (0.0, 0.5, 0.5));
         assert_eq!((lap.top_speed_kmh, lap.gear_at_top_speed, lap.rpm_max), (260.0, 6, 8200));
-        assert_eq!(lap.lat_g_max, 1.6);
+        assert_eq!(lap.lat_g_max, 1.6, "ten samples in a row at 1.6");
         // (+0.05 rad + -0.06 rad) / 2 = -0.005 rad: slightly oversteering
         assert!(close(lap.balance_deg, -0.005f32.to_degrees()), "{}", lap.balance_deg);
     }
@@ -881,7 +941,6 @@ mod tests {
         pages.drive(&mut recorder, 120);
         pages.count_only(); // still the out lap's 600_000
         assert!(pages.sample(&mut recorder).is_none());
-        pages.graphics[IS_IN_PIT_LANE] = 1;
         pages.graphics[IS_VALID_LAP] = 0;
         assert!(pages.drive(&mut recorder, 2).is_empty());
         pages.i32(LAST_LAPTIME_MS, 512_000);
@@ -889,11 +948,10 @@ mod tests {
         assert_eq!((lap.lap_time_ms, lap.valid, lap.pit), (512_000, true, false));
 
         // the samples while waiting belong to the next lap, which then settles as usual
-        pages.graphics[IS_IN_PIT_LANE] = 0;
         pages.drive(&mut recorder, 96);
         pages.count_lap(514_000);
         let lap = pages.sample(&mut recorder).unwrap();
-        assert_eq!((lap.lap_time_ms, lap.valid, lap.pit), (514_000, false, true));
+        assert_eq!((lap.lap_time_ms, lap.valid, lap.pit), (514_000, false, false));
     }
 
     #[test]
@@ -920,14 +978,21 @@ mod tests {
     }
 
     #[test]
-    fn marks_a_lap_through_the_pits_and_an_invalid_lap() {
+    fn marks_an_in_lap_and_an_invalid_lap() {
         let mut pages = Pages::new();
         let mut recorder = past_the_out_lap(&mut pages);
+        pages.drive(&mut recorder, 110);
+        // the game counts the lap after the car entered the pit lane
         pages.graphics[IS_IN_PIT_LANE] = 1;
         pages.drive(&mut recorder, 10);
-        pages.graphics[IS_IN_PIT_LANE] = 0;
-        pages.drive(&mut recorder, 100);
         pages.count_lap(530_000);
+        let lap = pages.sample(&mut recorder).unwrap();
+        assert!(lap.pit && lap.valid);
+        // leaving the pit lane starts the next lap, still marked: its time includes the pit lane
+        pages.drive(&mut recorder, 10);
+        pages.graphics[IS_IN_PIT_LANE] = 0;
+        pages.drive(&mut recorder, 110);
+        pages.count_lap(540_000);
         let lap = pages.sample(&mut recorder).unwrap();
         assert!(lap.pit && lap.valid);
 
@@ -938,6 +1003,92 @@ mod tests {
         pages.graphics[IS_VALID_LAP] = 1; // the new lap starts valid; the finished one was not
         let lap = pages.sample(&mut recorder).unwrap();
         assert!(!lap.pit && !lap.valid);
+    }
+
+    #[test]
+    fn keeps_the_first_lap_after_leaving_the_box() {
+        // Touristenfahrten: the stint starts in the box, refuelled there; the counter ticks at the end split
+        let mut pages = Pages::new();
+        pages.graphics[IS_IN_PIT_LANE] = 1;
+        pages.fuel(10.0);
+        let mut recorder = LapRecorder::new();
+        pages.drive(&mut recorder, 20);
+        pages.fuel(60.0);
+        pages.f32s(SPEED_KMH, &[300.0]); // in the pit lane: not summed up
+        pages.drive(&mut recorder, 20);
+        pages.graphics[IS_IN_PIT_LANE] = 0;
+        pages.f32s(SPEED_KMH, &[200.0]);
+        pages.drive(&mut recorder, 60);
+        pages.fuel(59.0);
+        pages.drive(&mut recorder, 60);
+        pages.count_lap(375_780);
+        let lap = pages.sample(&mut recorder).expect("the first timed lap");
+        assert_eq!((lap.lap_time_ms, lap.pit, lap.top_speed_kmh, lap.fuel_used_l), (375_780, false, 200.0, 1.0));
+
+        // the next one ends at the end split, then the car goes into the pit lane: the bit before it is dropped,
+        // and leaving the pit lane starts a fresh lap again
+        pages.drive(&mut recorder, 50);
+        pages.graphics[IS_IN_PIT_LANE] = 1;
+        pages.drive(&mut recorder, 300);
+        pages.fuel(61.0);
+        pages.graphics[IS_IN_PIT_LANE] = 0;
+        pages.drive(&mut recorder, 100);
+        pages.count_lap(368_283);
+        let lap = pages.sample(&mut recorder).expect("the lap after the stop");
+        assert_eq!((lap.lap_time_ms, lap.pit, lap.fuel_used_l), (368_283, false, 0.0));
+    }
+
+    #[test]
+    fn counts_only_the_fuel_burnt() {
+        let mut pages = Pages::new();
+        pages.fuel(40.0);
+        let mut recorder = past_the_out_lap(&mut pages);
+        pages.drive(&mut recorder, 40);
+        pages.fuel(39.0);
+        pages.drive(&mut recorder, 30);
+        pages.fuel(60.0); // refuelled without the pit lane (a reset to the box, say)
+        pages.drive(&mut recorder, 30);
+        pages.fuel(59.5);
+        pages.drive(&mut recorder, 10);
+        pages.count_lap(500_000);
+        assert_eq!(pages.sample(&mut recorder).unwrap().fuel_used_l, 1.5);
+    }
+
+    #[test]
+    fn keeps_a_kerb_strike_out_of_the_extremes() {
+        let mut pages = Pages::new();
+        let mut recorder = past_the_out_lap(&mut pages);
+        pages.f32s(SPEED_KMH, &[150.0]);
+        pages.f32s(ACC_G, &[1.0, 0.0, 1.0]);
+        pages.drive(&mut recorder, 50);
+        pages.f32s(ACC_G, &[12.3, -6.5, 1.0]);
+        pages.f32s(RIDE_HEIGHT, &[-0.016, -0.022]);
+        pages.f32s(BRAKE, &[0.5]);
+        pages.drive(&mut recorder, 1);
+        pages.f32s(ACC_G, &[1.0, 0.0, 1.0]);
+        pages.f32s(RIDE_HEIGHT, &[0.07, 0.08]);
+        pages.f32s(BRAKE, &[0.0]);
+        pages.drive(&mut recorder, 20);
+        // short stops (under a second) count for nothing; ten braking samples in a row at 1.4 G do
+        pages.f32s(BRAKE, &[0.9]);
+        pages.f32s(ACC_G, &[0.0, -3.0, 1.0]);
+        for _ in 0..3 {
+            pages.drive(&mut recorder, 5);
+            pages.f32s(BRAKE, &[0.0]);
+            pages.drive(&mut recorder, 1);
+            pages.f32s(BRAKE, &[0.9]);
+        }
+        pages.f32s(ACC_G, &[0.0, -1.4, 1.0]);
+        pages.drive(&mut recorder, 10);
+        pages.f32s(BRAKE, &[0.0]);
+        pages.f32s(ACC_G, &[0.0, 0.0, 1.0]);
+        pages.drive(&mut recorder, 20);
+        pages.count_lap(500_000);
+        let lap = pages.sample(&mut recorder).unwrap();
+        assert!(close(lap.lat_g_max, (9.0 + 12.3) / 10.0), "{}", lap.lat_g_max);
+        assert!(close(lap.brake_g_max, 1.4), "{}", lap.brake_g_max);
+        assert!(close(lap.ride_height_min[0], (9.0 * 0.07 - 0.016) / 10.0), "{:?}", lap.ride_height_min);
+        assert!(close(lap.ride_height_min[1], (9.0 * 0.08 - 0.022) / 10.0), "{:?}", lap.ride_height_min);
     }
 
     #[test]

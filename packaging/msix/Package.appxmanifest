@@ -12,7 +12,7 @@
   <Identity
     Name="DigitalDrivers.Desktop"
     Publisher="CN=Digital Drivers Dev"
-    Version="0.14.1.0" />
+    Version="0.15.0.0" />
 
   <Properties>
     <DisplayName>Digital Drivers</DisplayName>

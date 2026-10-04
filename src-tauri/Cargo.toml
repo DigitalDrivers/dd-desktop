@@ -1,6 +1,6 @@
 [package]
 name = "dd-desktop"
-version = "0.14.1"
+version = "0.15.0"
 description = "Digital Drivers desktop app"
 edition.workspace = true
 license.workspace = true
@@ -22,6 +22,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Keeps the setup.exe install up to date from our GitHub releases: signed update manifests, download, installer.
 tauri-plugin-updater = "2.13.1"
+# Tauri's own plugin: a second start focuses the running app instead of sampling and uploading every lap twice
+# and downloading cars twice.
+tauri-plugin-single-instance = "2.5.2"
 # Downloads the club's car packages (the garage). Both are in the build already through the updater; the
 # features of reqwest (TLS) come from there too.
 reqwest = { version = "0.13", default-features = false }
