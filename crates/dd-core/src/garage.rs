@@ -38,13 +38,22 @@ pub fn is_stale(saved_car: &[u8], car_id: &str, package: &HashSet<String>) -> bo
 
 const KINDS: [&str; 5] = ["compatiblepart", "mechanicalcarpreset", "visualcarpreset", "compatiblerim", "design"];
 
-/// The paths of the car's own files a saved car refers to: `content\cars\<id>\<printable ASCII>.<kind>`.
+/// The paths of the car's own files a saved car refers to (`content\cars\<id>\...`). The game writes each as
+/// a protobuf string, so the varint just before it is its length, and every kind of file counts: a saved car
+/// that points at a livery's `.material` the new version dropped crashes the game on every start as well
+/// (2026-10-05, after the GT3 and Clubsport got new liveries; materials were not among `KINDS`). Where no
+/// length fits, the shortest path that ends in one of `KINDS`.
 fn references(data: &[u8], car_id: &str) -> Vec<String> {
     let prefix = format!("content\\cars\\{car_id}\\").into_bytes();
     let mut found = Vec::new();
     let mut i = 0;
     while let Some(at) = data[i..].windows(prefix.len()).position(|w| w == prefix.as_slice()) {
         let start = i + at;
+        if let Some(path) = length_prefixed(data, start, prefix.len()) {
+            found.push(path);
+            i = start + prefix.len();
+            continue;
+        }
         let mut end = start + prefix.len();
         while end < data.len() && (0x20..=0x7e).contains(&data[end]) {
             end += 1;
@@ -59,6 +68,27 @@ fn references(data: &[u8], car_id: &str) -> Vec<String> {
         i = start + prefix.len();
     }
     found
+}
+
+/// The string that starts at `start` when the varint before it (one or two bytes) is its length: printable
+/// ASCII, at least `min` long, ending in a file extension.
+fn length_prefixed(data: &[u8], start: usize, min: usize) -> Option<String> {
+    let last = *data.get(start.checked_sub(1)?)?;
+    if last & 0x80 != 0 {
+        return None;
+    }
+    let mut lengths = Vec::new();
+    if let Some(first) = start.checked_sub(2).and_then(|p| data.get(p)).filter(|b| *b & 0x80 != 0) {
+        lengths.push(usize::from(first & 0x7f) | usize::from(last) << 7);
+    }
+    lengths.push(usize::from(last));
+    lengths.into_iter().find_map(|len| {
+        let bytes = data.get(start..start.checked_add(len)?)?;
+        let name = bytes.rsplit(|b| *b == b'\\').next()?;
+        let extension = name.rsplit(|b| *b == b'.').next().filter(|e| e.len() < name.len() && !e.is_empty())?;
+        let fits = len >= min && bytes.iter().all(|b| (0x20..=0x7e).contains(b)) && extension.iter().all(u8::is_ascii_alphanumeric);
+        fits.then(|| String::from_utf8_lossy(bytes).to_string())
+    })
 }
 
 /// The pguid in a saved car's file name (`<id>_<pguid with dashes>.carfinalstatewithconsumable`), as 32 hex chars.
@@ -157,13 +187,29 @@ mod tests {
     #[test]
     fn finds_a_saved_car_that_points_at_a_part_the_package_lost() {
         let package: HashSet<String> = ["content\\cars\\dd_x\\presets\\gt3.mechanicalcarpreset".to_string()].into();
-        let ok = b"\x0a\x30content\\cars\\dd_x\\Presets\\GT3.mechanicalcarpreset\x12\x00".to_vec();
+        let ok = b"\x0a\x31content\\cars\\dd_x\\Presets\\GT3.mechanicalcarpreset\x12\x00".to_vec();
         assert!(!is_stale(&ok, "dd_x", &package));
         let lost = [ok.clone(), b"\x1acontent\\cars\\dd_x\\parts\\csl_rim.compatiblerim\x00".to_vec()].concat();
         assert!(is_stale(&lost, "dd_x", &package));
         // Kunos files the car uses by path are not the package's business.
         let kunos = [ok, b"content\\cars\\ks_bmw_m4_gt3\\rims\\x.compatiblerim".to_vec()].concat();
         assert!(!is_stale(&kunos, "dd_x", &package));
+    }
+
+    #[test]
+    fn finds_a_saved_car_that_points_at_a_livery_material_the_package_lost() {
+        let material = "content\\cars\\dd_x\\skins\\dd_mstripes\\EXT_SKIN_DD_MSTRIPES.material";
+        let saved = [vec![0x42, material.len() as u8], material.as_bytes().to_vec(), b"R\x0b".to_vec()].concat();
+        let with: HashSet<String> = [material.to_lowercase()].into();
+        assert!(!is_stale(&saved, "dd_x", &with));
+        assert!(is_stale(&saved, "dd_x", &HashSet::new()));
+    }
+
+    #[test]
+    fn reads_a_path_whose_length_takes_two_bytes() {
+        let path = format!("content\\cars\\dd_x\\{}\\part.compatiblepart", "p".repeat(120));
+        let saved = [vec![0x0a, 0x80 | (path.len() & 0x7f) as u8, (path.len() >> 7) as u8], path.as_bytes().to_vec(), b"Z".to_vec()].concat();
+        assert_eq!(references(&saved, "dd_x"), vec![path]);
     }
 
     #[test]

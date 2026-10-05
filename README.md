@@ -22,8 +22,8 @@ driver can check what the app does on their PC.
   the platform, checks its SHA-256 and writes it as `Saved Games\ACE\mods\<id>.kspkg`, never while the game
   runs; while the app is open it updates the cars you have the same way, once an hour. To report which cars you
   have, it hashes the packages of the names the platform asks about. After an update it reads the saved cars of
-  that car in `ProfileData\<profile>\OpenData\SavedCars`: one that points at a part the new version no longer
-  has moves to `SavedCars\stale` (the game would crash on start). If your garage had selected a saved car of
+  that car in `ProfileData\<profile>\OpenData\SavedCars`: one that points at any file of that car the new
+  version no longer has (a part, preset, rim, design or a livery's material) moves to `SavedCars\stale` (the game would crash on start). If your garage had selected a saved car of
   that car, stale or not, `garage.drivergarage` is saved as `.bak` and then selects the Kunos Porsche 911 GT3 Cup,
   because the game loads the selected car on every start.
 - When the game no longer starts after an update of a club car, "Fix game start" on the garage page points
