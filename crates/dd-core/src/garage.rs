@@ -1,9 +1,9 @@
 //! The club's own cars for Assetto Corsa EVO. A car is one package, `Saved Games\ACE\mods\<id>.kspkg`, which
 //! the app puts there from the platform and keeps up to date. A new version can drop a part or preset that a
 //! driver's saved car still points at; the game then crashes on every start while that car is the selected
-//! one. So after an update the saved cars of that car are checked against the package's file table, the stale
-//! ones move to `SavedCars\stale` (never deleted), and a garage that selects one of them is pointed at a stock
-//! car, after a backup.
+//! one. So after an update the saved cars of that car move to `SavedCars\stale` (never deleted), the check
+//! against the package's file table says which of them were stale, and a garage that selects one of them is
+//! pointed at a stock car, after a backup.
 
 use std::collections::HashSet;
 
@@ -147,14 +147,13 @@ pub fn selected_pguid(garage: &[u8]) -> Option<String> {
     None
 }
 
-/// What the end of a game log says about why the game stopped, for support: the lines a broken car file leaves
-/// (a failed protobuf check, a file not found, a critical error), else the last lines, where a crash cuts the
-/// log off. At most three. The game writes many harmless `[error]` lines, so those alone say nothing.
+/// The last 20 lines of a game log, for support. A crash cuts the log off right after the line that says why
+/// (2026-10-05: `[critical] Protobuf: ... CHECK failed: it != end(): key not found:`), with what the game was
+/// loading just before it; a clean exit ends with the shutdown. Picking marked lines misleads: a normal session
+/// logs harmless `[critical]` lines too (`tyre_texture_data is empty`).
 pub fn crash_lines(log: &str) -> Vec<String> {
     let lines: Vec<&str> = log.lines().map(str::trim_end).filter(|l| !l.is_empty()).collect();
-    let marked: Vec<&str> = lines.iter().copied().filter(|l| l.contains("CHECK failed") || l.contains("Failed to find") || l.contains("] [critical]")).collect();
-    let pick = if marked.is_empty() { &lines[..] } else { &marked[..] };
-    pick[pick.len().saturating_sub(3)..].iter().map(|l| l.chars().take(300).collect()).collect()
+    lines[lines.len().saturating_sub(20)..].iter().map(|l| l.chars().take(300).collect()).collect()
 }
 
 /// A garage that selects a stock car every player has, the Kunos Porsche 992 GT3 Cup
@@ -226,10 +225,17 @@ mod tests {
 
     #[test]
     fn tells_why_the_game_stopped() {
-        let log = "[t] [gameplay] [error] Empty detector_pit?\n[t] [core] [info] loading dd_x\n[t] [core] [critical] Protobuf map CHECK failed: key not found\n[t] [core] [info] last\n";
-        assert_eq!(crash_lines(log), vec!["[t] [core] [critical] Protobuf map CHECK failed: key not found"]);
-        let plain = "a\nb\n\nc\nd\n";
-        assert_eq!(crash_lines(plain), vec!["b", "c", "d"]);
+        // A harmless critical line early in the session, the crash at the end, as the game logs them.
+        let mut log = String::from("[t] [dataUtils] [critical] tyre_texture_data is empty (tyre_compund is 120)\n");
+        for i in 0..30 {
+            log += &format!("[t] [core] [info] line {i}\n\n");
+        }
+        log += "[t] [platformCore] [critical] Protobuf: map.h:1060 CHECK failed: it != end(): key not found:\n";
+        let lines = crash_lines(&log);
+        assert_eq!(lines.len(), 20);
+        assert_eq!(lines[0], "[t] [core] [info] line 11");
+        assert!(lines[19].ends_with("key not found:"));
+        assert_eq!(crash_lines("a\n\nb\n"), vec!["a", "b"]);
         assert!(crash_lines("").is_empty());
     }
 

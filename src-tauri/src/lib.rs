@@ -277,15 +277,16 @@ async fn download_car(app: &tauri::AppHandle, id: &str, path: &str, sha256: &str
         return Err("game-running".to_string());
     }
     fs::rename(&part, &target).map_err(|e| format!("failed: {e}"))?;
-    Ok(retire_stale_cars(&user_dir, id, &target))
+    Ok(retire_saved_cars(&user_dir, id, &target))
 }
 
-/// Moves the saved cars of `id` that point at files the installed package no longer has to `SavedCars\stale`,
-/// in every profile, and points a garage that selects any saved car of `id` at a stock car: the game loads the
-/// selected car on every start, and a new version can break a saved car in ways the file check does not see
-/// (2026-10-05: after the GT3 and Clubsport updates a tester's game no longer started). The saved car itself
-/// stays unless it is stale. Returns how many moved.
-fn retire_stale_cars(user_dir: &Path, id: &str, package: &Path) -> usize {
+/// Moves every saved car of `id` to `SavedCars\stale\<unix time>` in every profile (kept, never deleted), and
+/// points a garage that selected one of them at a stock car: the game loads the selected car on every start, and
+/// a new version can break a saved car in ways the file check does not see (2026-10-05: after the GT3 and
+/// Clubsport updates a tester's game crashed on start, `Protobuf ... CHECK failed: ... key not found:`). The
+/// driver picks stage and livery again after an update. What the file check says about each one goes to the
+/// log, until the cause is found. Returns how many moved.
+fn retire_saved_cars(user_dir: &Path, id: &str, package: &Path) -> usize {
     use std::io::{Read, Seek, SeekFrom};
     let table = (|| -> std::io::Result<Vec<u8>> {
         let mut file = fs::File::open(package)?;
@@ -295,35 +296,37 @@ fn retire_stale_cars(user_dir: &Path, id: &str, package: &Path) -> usize {
         file.read_to_end(&mut table)?;
         Ok(table)
     })();
-    let Ok(table) = table else { return 0 };
-    let paths = garage::package_paths(&table);
+    let paths = table.ok().map(|table| garage::package_paths(&table));
+    let stamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     let mut retired = 0;
     for profile in fs::read_dir(user_dir.join("ProfileData")).into_iter().flatten().flatten() {
         let open = profile.path().join("OpenData");
         let saved = open.join("SavedCars");
+        let stale = saved.join("stale").join(stamp.to_string());
         let garage_file = open.join("garage.drivergarage");
         let selected = fs::read(&garage_file).ok().and_then(|g| garage::selected_pguid(&g));
         for entry in fs::read_dir(&saved).into_iter().flatten().flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
-            if !name.starts_with(&format!("{id}_")) {
+            if !entry.path().is_file() || !name.starts_with(&format!("{id}_")) {
                 continue;
             }
-            let Ok(data) = fs::read(entry.path()) else { continue };
             let is_selected = selected.is_some() && garage::pguid_of(&name) == selected;
             if is_selected {
                 let _ = fs::copy(&garage_file, open.join("garage.drivergarage.bak"));
                 let _ = fs::write(&garage_file, garage::RESCUED_GARAGE);
                 log(&format!("the garage selected {name}: it selects the Porsche 992 GT3 Cup now (backup garage.drivergarage.bak)"));
             }
-            if !garage::is_stale(&data, id, &paths) {
-                continue;
-            }
-            let _ = fs::create_dir_all(saved.join("stale"));
-            if fs::rename(entry.path(), saved.join("stale").join(&name)).is_err() {
+            let check = match (&paths, fs::read(entry.path())) {
+                (Some(paths), Ok(data)) if garage::is_stale(&data, id, paths) => "stale",
+                (Some(_), Ok(_)) => "not stale",
+                _ => "unchecked",
+            };
+            let _ = fs::create_dir_all(&stale);
+            if fs::rename(entry.path(), stale.join(&name)).is_err() {
                 continue;
             }
             retired += 1;
-            log(&format!("retired stale saved car {name}"));
+            log(&format!("moved saved car {name} to SavedCars\\stale\\{stamp} (file check: {check})"));
         }
     }
     retired
@@ -808,5 +811,29 @@ mod tests {
         assert!(is_cargo_target_dir(&Path::new("dd-desktop").join("target").join("release")));
         assert!(!is_cargo_target_dir(&Path::new("Program Files").join("Digital Drivers")));
         assert!(!is_cargo_target_dir(&Path::new("WindowsApps").join("DigitalDrivers.Desktop_0.2.0.0_x64__5sms3s9pdbqt0")));
+    }
+
+    #[test]
+    fn moves_every_saved_car_of_an_updated_car_aside() {
+        let user = std::env::temp_dir().join(format!("dd-retire-{}", std::process::id()));
+        let open = user.join("ProfileData").join("p").join("OpenData");
+        let saved = open.join("SavedCars");
+        fs::create_dir_all(&saved).unwrap();
+        // The garage selects the GT3 Cup's pguid, which the first saved car carries here.
+        fs::write(open.join("garage.drivergarage"), garage::RESCUED_GARAGE).unwrap();
+        let selected = "dd_x_4F44A4BE-5BE3-3C37-2B05-1984457156AC.carfinalstatewithconsumable";
+        for name in [selected, "dd_x_1.carfinalstatewithconsumable", "ks_y_2.carfinalstatewithconsumable"] {
+            fs::write(saved.join(name), b"\x0a\x16content\\cars\\dd_x\\a.material").unwrap();
+        }
+        let package = user.join("dd_x.kspkg");
+        fs::write(&package, b"").unwrap();
+        assert_eq!(retire_saved_cars(&user, "dd_x", &package), 2);
+        assert!(saved.join("ks_y_2.carfinalstatewithconsumable").is_file());
+        let stale: Vec<_> = fs::read_dir(saved.join("stale")).unwrap().flatten().collect();
+        assert_eq!(stale.len(), 1);
+        assert!(stale[0].path().join(selected).is_file());
+        assert!(stale[0].path().join("dd_x_1.carfinalstatewithconsumable").is_file());
+        assert!(open.join("garage.drivergarage.bak").is_file());
+        fs::remove_dir_all(&user).unwrap();
     }
 }
