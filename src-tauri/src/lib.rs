@@ -281,7 +281,10 @@ async fn download_car(app: &tauri::AppHandle, id: &str, path: &str, sha256: &str
 }
 
 /// Moves the saved cars of `id` that point at files the installed package no longer has to `SavedCars\stale`,
-/// in every profile, and points a garage that selected one of them at a stock car. Returns how many moved.
+/// in every profile, and points a garage that selects any saved car of `id` at a stock car: the game loads the
+/// selected car on every start, and a new version can break a saved car in ways the file check does not see
+/// (2026-10-05: after the GT3 and Clubsport updates a tester's game no longer started). The saved car itself
+/// stays unless it is stale. Returns how many moved.
 fn retire_stale_cars(user_dir: &Path, id: &str, package: &Path) -> usize {
     use std::io::{Read, Seek, SeekFrom};
     let table = (|| -> std::io::Result<Vec<u8>> {
@@ -306,6 +309,12 @@ fn retire_stale_cars(user_dir: &Path, id: &str, package: &Path) -> usize {
                 continue;
             }
             let Ok(data) = fs::read(entry.path()) else { continue };
+            let is_selected = selected.is_some() && garage::pguid_of(&name) == selected;
+            if is_selected {
+                let _ = fs::copy(&garage_file, open.join("garage.drivergarage.bak"));
+                let _ = fs::write(&garage_file, garage::RESCUED_GARAGE);
+                log(&format!("the garage selected {name}: it selects the Porsche 992 GT3 Cup now (backup garage.drivergarage.bak)"));
+            }
             if !garage::is_stale(&data, id, &paths) {
                 continue;
             }
@@ -315,14 +324,72 @@ fn retire_stale_cars(user_dir: &Path, id: &str, package: &Path) -> usize {
             }
             retired += 1;
             log(&format!("retired stale saved car {name}"));
-            if selected.is_some() && garage::pguid_of(&name) == selected {
-                let _ = fs::copy(&garage_file, open.join("garage.drivergarage.bak"));
-                let _ = fs::write(&garage_file, garage::RESCUED_GARAGE);
-                log("the garage selected it: it selects the Porsche 992 GT3 Cup now (backup garage.drivergarage.bak)");
-            }
         }
     }
     retired
+}
+
+/// What `fix_game_start` did, for the page.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GameStartFix {
+    /// Garages (one per profile) that select the Porsche 992 GT3 Cup now.
+    garages: usize,
+    /// Saved cars of the club's cars moved to `SavedCars\stale\<unix time>`.
+    moved: usize,
+    /// What the newest game log says about why the game stopped, for support.
+    log: Vec<String>,
+}
+
+/// One click for a game that no longer starts after an update of a club car. The game loads the selected car
+/// on every start, so a saved car the new version cannot read crashes it every time. Every profile's garage
+/// selects the Porsche 992 GT3 Cup again (after a backup), and the saved cars of the club's cars (`ids`) move to
+/// `SavedCars\stale\<unix time>`, never deleted. Refused while the game runs.
+#[tauri::command]
+fn fix_game_start(app: tauri::AppHandle, ids: Vec<String>) -> Result<GameStartFix, String> {
+    if ids.is_empty() || ids.len() > 50 || !ids.iter().all(|id| garage::is_car_id(id)) {
+        return Err("invalid-car".to_string());
+    }
+    let user_dir = find_ac_evo_user_dir(&app).ok_or("ac-evo-not-found")?;
+    if ac_evo_running() {
+        return Err("game-running".to_string());
+    }
+    let stamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let mut fix = GameStartFix { garages: 0, moved: 0, log: Vec::new() };
+    for profile in fs::read_dir(user_dir.join("ProfileData")).into_iter().flatten().flatten() {
+        let open = profile.path().join("OpenData");
+        let garage_file = open.join("garage.drivergarage");
+        if garage_file.is_file() {
+            let _ = fs::copy(&garage_file, open.join(format!("garage.drivergarage.{stamp}.bak")));
+            if fs::write(&garage_file, garage::RESCUED_GARAGE).is_ok() {
+                fix.garages += 1;
+            }
+        }
+        let saved = open.join("SavedCars");
+        let stale = saved.join("stale").join(stamp.to_string());
+        for entry in fs::read_dir(&saved).into_iter().flatten().flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if !entry.path().is_file() || !ids.iter().any(|id| name.starts_with(&format!("{id}_"))) {
+                continue;
+            }
+            let _ = fs::create_dir_all(&stale);
+            if fs::rename(entry.path(), stale.join(&name)).is_ok() {
+                fix.moved += 1;
+            }
+        }
+    }
+    let newest = fs::read_dir(user_dir.join("Logs"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().is_file())
+        .max_by_key(|e| e.metadata().and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH));
+    if let Some(bytes) = newest.and_then(|e| fs::read(e.path()).ok()) {
+        let tail = &bytes[bytes.len().saturating_sub(2_000_000)..];
+        fix.log = garage::crash_lines(&String::from_utf8_lossy(tail));
+    }
+    log(&format!("fix_game_start: {} garages select the Porsche 992 GT3 Cup, {} saved cars moved to SavedCars\\stale\\{stamp}; log: {:?}", fix.garages, fix.moved, fix.log));
+    Ok(fix)
 }
 
 /// What AC EVO's shared memory says about the running session: the track and every car the game knows with
@@ -726,7 +793,7 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, update_check, update_install, launch_ac_evo, car_status, install_car, live_snapshot, take_laps])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, update_check, update_install, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

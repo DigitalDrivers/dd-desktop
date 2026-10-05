@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-fix-game-start"
+description = "Enables the fix_game_start command without any pre-configured scope."
+commands.allow = ["fix_game_start"]
+
+[[permission]]
+identifier = "deny-fix-game-start"
+description = "Denies the fix_game_start command without any pre-configured scope."
+commands.deny = ["fix_game_start"]

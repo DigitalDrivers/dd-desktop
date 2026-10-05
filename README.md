@@ -23,8 +23,13 @@ driver can check what the app does on their PC.
   runs; while the app is open it updates the cars you have the same way, once an hour. To report which cars you
   have, it hashes the packages of the names the platform asks about. After an update it reads the saved cars of
   that car in `ProfileData\<profile>\OpenData\SavedCars`: one that points at a part the new version no longer
-  has moves to `SavedCars\stale` (the game would crash on start), and if your garage had selected it,
-  `garage.drivergarage` is saved as `.bak` and then selects the Kunos Porsche 911 GT3 Cup.
+  has moves to `SavedCars\stale` (the game would crash on start). If your garage had selected a saved car of
+  that car, stale or not, `garage.drivergarage` is saved as `.bak` and then selects the Kunos Porsche 911 GT3 Cup,
+  because the game loads the selected car on every start.
+- When the game no longer starts after an update of a club car, "Fix game start" on the garage page points
+  every profile's garage at the Porsche 911 GT3 Cup (after a backup `garage.drivergarage.<time>.bak`) and moves
+  the saved cars of the club's cars to `SavedCars\stale\<time>` (never deleted). It shows the last lines of the
+  newest game log in `Saved Games\ACE\Logs` that tell why the game stopped, so you can send them to us.
 - When you install a car setup of the platform for Assetto Corsa EVO, the app writes that one file into the
   game's setup folder (`Saved Games\ACE\Car Setups\<car>\<track>\<name>.carsetup`), where the game's setup
   screen lists it. To show which setups you have already, it reads the files of the names the platform asks
@@ -65,7 +70,7 @@ Nothing else is read, and nothing is uploaded by the shell itself.
 | Part | What |
 | --- | --- |
 | `src/` | Bundled start page: checks that the platform is reachable, then opens it. Offline it shows a system check. |
-| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `update_check`, `update_install`, `launch_ac_evo`, `car_status`, `install_car`, `live_snapshot` and `take_laps`. |
+| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `update_check`, `update_install`, `launch_ac_evo`, `car_status`, `install_car`, `fix_game_start`, `live_snapshot` and `take_laps`. |
 | `src-tauri/capabilities/` | Which page may call which command. The hosted interface only gets the commands listed in `platform.json`; `dev-localhost.json` is enabled for development builds only. |
 | `crates/dd-core/` | Platform-independent logic (locating Assetto Corsa EVO and the Steam account, car setups, the club's car packages and their saved cars), unit-tested on any machine. |
 

@@ -117,6 +117,16 @@ pub fn selected_pguid(garage: &[u8]) -> Option<String> {
     None
 }
 
+/// What the end of a game log says about why the game stopped, for support: the lines a broken car file leaves
+/// (a failed protobuf check, a file not found, a critical error), else the last lines, where a crash cuts the
+/// log off. At most three. The game writes many harmless `[error]` lines, so those alone say nothing.
+pub fn crash_lines(log: &str) -> Vec<String> {
+    let lines: Vec<&str> = log.lines().map(str::trim_end).filter(|l| !l.is_empty()).collect();
+    let marked: Vec<&str> = lines.iter().copied().filter(|l| l.contains("CHECK failed") || l.contains("Failed to find") || l.contains("] [critical]")).collect();
+    let pick = if marked.is_empty() { &lines[..] } else { &marked[..] };
+    pick[pick.len().saturating_sub(3)..].iter().map(|l| l.chars().take(300).collect()).collect()
+}
+
 /// A garage that selects a stock car every player has, the Kunos Porsche 992 GT3 Cup
 /// (4f44a4be-5be3-3c37-2b05-1984457156ac), version 7 as the game writes it.
 pub const RESCUED_GARAGE: [u8; 24] = [
@@ -166,6 +176,15 @@ mod tests {
         );
         assert_eq!(pguid_of("dd_bmw_m3_e46_gt3_x.carfinalstatewithconsumable"), None);
         assert_eq!(selected_pguid(b"\x50\x07"), None);
+    }
+
+    #[test]
+    fn tells_why_the_game_stopped() {
+        let log = "[t] [gameplay] [error] Empty detector_pit?\n[t] [core] [info] loading dd_x\n[t] [core] [critical] Protobuf map CHECK failed: key not found\n[t] [core] [info] last\n";
+        assert_eq!(crash_lines(log), vec!["[t] [core] [critical] Protobuf map CHECK failed: key not found"]);
+        let plain = "a\nb\n\nc\nd\n";
+        assert_eq!(crash_lines(plain), vec!["b", "c", "d"]);
+        assert!(crash_lines("").is_empty());
     }
 
     #[test]
