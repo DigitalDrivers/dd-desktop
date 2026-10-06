@@ -14,7 +14,7 @@ use dd_core::laps::{self, LapRecorder, LapSummary};
 use dd_core::links;
 use dd_core::setups::{self, SetupError, SetupFile};
 use serde::Serialize;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
 /// Address of the hosted interface. `DD_PLATFORM_URL` overrides it for development.
@@ -178,6 +178,15 @@ async fn install_car(app: tauri::AppHandle, state: tauri::State<'_, PackageHashe
     result.map(|_| ()).map_err(|e| e.split(':').next().unwrap_or("failed").to_string())
 }
 
+/// How far the download of a car is, as the event `car-progress` tells the page. `total` is None when the server
+/// names no length.
+#[derive(Clone, Serialize)]
+struct CarProgress {
+    id: String,
+    received: u64,
+    total: Option<u64>,
+}
+
 async fn download_car(app: &tauri::AppHandle, id: &str, path: &str, sha256: &str) -> Result<usize, String> {
     use sha2::{Digest, Sha256};
     use std::io::Write;
@@ -235,8 +244,20 @@ async fn download_car(app: &tauri::AppHandle, id: &str, path: &str, sha256: &str
     let file = fs::File::create(&part).map_err(|e| format!("failed: {e}"))?;
     let mut target_file = Some(Hashing { inner: std::io::BufWriter::new(file), hasher: Sha256::new() });
     let mut out: Option<Sink<_>> = None;
+    // Bytes as they arrive (gzipped, as the length the server names counts them), for the page's progress bar.
+    let total = response.content_length();
+    let mut received: u64 = 0;
+    let mut last_progress: Option<std::time::Instant> = None;
+    let progress = |received: u64| {
+        let _ = app.emit("car-progress", CarProgress { id: id.to_string(), received, total });
+    };
     let written: Result<(), String> = async {
         while let Some(chunk) = response.chunk().await.map_err(|e| format!("download-failed: {e}"))? {
+            received += chunk.len() as u64;
+            if last_progress.is_none_or(|at| at.elapsed() >= Duration::from_millis(250)) {
+                last_progress = Some(std::time::Instant::now());
+                progress(received);
+            }
             if out.is_none() {
                 let hashing = target_file.take().expect("the file is taken once");
                 let gzip = chunk.starts_with(&[0x1f, 0x8b]);
@@ -249,6 +270,7 @@ async fn download_car(app: &tauri::AppHandle, id: &str, path: &str, sha256: &str
             }
             .map_err(|e| format!("failed: {e}"))?;
         }
+        progress(received);
         Ok(())
     }
     .await;
@@ -590,6 +612,32 @@ async fn install_setup(webview: tauri::Webview, app: tauri::AppHandle, setup: Se
     }
 }
 
+/// Removes setups the platform handed out from the game's setup folder, each only while it is still the file the
+/// platform hands out (`sha256`); one the driver changed stays. Answers "removed", "changed" or "missing" for each
+/// file in the order asked. Track and car folders the removal left empty go too.
+#[tauri::command]
+async fn remove_setups(webview: tauri::Webview, app: tauri::AppHandle, files: Vec<setups::HandedOutSetup>) -> Result<Vec<String>, String> {
+    log(&format!("remove_setups requested by {}: {} files", webview.url().map(|u| u.to_string()).unwrap_or_default(), files.len()));
+    if files.len() > 500 {
+        return Err("too-many-files".to_string());
+    }
+    let removed = find_ac_evo_setups(&app).ok_or(SetupError::AcEvoNotFound).and_then(|dir| setups::remove(&dir, &files));
+    match removed {
+        Ok(removals) => {
+            let count = |what: setups::Removal| removals.iter().filter(|r| **r == what).count();
+            log(&format!(
+                "remove_setups -> {} removed, {} changed, {} missing",
+                count(setups::Removal::Removed), count(setups::Removal::Changed), count(setups::Removal::Missing)
+            ));
+            Ok(removals.into_iter().map(|r| r.code().to_string()).collect())
+        }
+        Err(error) => {
+            log(&format!("remove_setups failed: {error:?}"));
+            Err(error.code())
+        }
+    }
+}
+
 /// Shows a native notification (a Windows toast), also while the window is minimised. The hosted
 /// interface calls it for new notifications of the signed-in driver. Plain text only, cut to a sane length.
 #[tauri::command]
@@ -796,7 +844,7 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, update_check, update_install, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

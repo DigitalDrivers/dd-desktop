@@ -34,7 +34,10 @@ driver can check what the app does on their PC.
   game's setup folder (`Saved Games\ACE\Car Setups\<car>\<track>\<name>.carsetup`), where the game's setup
   screen lists it. To show which setups you have already, it reads the files of the names the platform asks
   about in that folder and reports their SHA-256. A setup you changed and saved under the same name is not
-  overwritten, unless you ask for the original. Nothing else in the folder is read, changed or removed.
+  overwritten, unless you ask for the original. When you remove setups of the platform, the app deletes only
+  files that still have the content the platform handed out (it checks the SHA-256 right before), and then the
+  folders of the track and the car if that left them empty; a setup you changed stays. Nothing else in the folder
+  is read, changed or removed.
 - Only if you switch on the live map on the platform (Telemetry and live map): while AC EVO drives an online
   session, the page asks the app once a second for what the game publishes in its shared memory
   (`Local\acevo_pmf_graphics` and `Local\acevo_pmf_static`, documented by Kunos; the app only opens them for
@@ -69,7 +72,7 @@ Nothing else is read, and nothing is uploaded by the shell itself.
 | Part | What |
 | --- | --- |
 | `src/` | Bundled start page: checks that the platform is reachable, then opens it. Offline it shows a system check. |
-| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `update_check`, `update_install`, `launch_ac_evo`, `car_status`, `install_car`, `fix_game_start`, `live_snapshot` and `take_laps`. |
+| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `remove_setups`, `update_check`, `update_install`, `launch_ac_evo`, `car_status`, `install_car`, `fix_game_start`, `live_snapshot` and `take_laps`. |
 | `src-tauri/capabilities/` | Which page may call which command. The hosted interface only gets the commands listed in `platform.json`; `dev-localhost.json` is enabled for development builds only. |
 | `crates/dd-core/` | Platform-independent logic (locating Assetto Corsa EVO and the Steam account, car setups, the club's car packages and their saved cars), unit-tested on any machine. |
 
@@ -88,7 +91,12 @@ or that it is not there; the platform knows whether that is the setup it hands o
 The second takes one place and the content of the file and writes it there. A place consists of plain names
 and the file ends in `.carsetup`, so nothing can be written outside the game's setup folder; the content is
 at most 64 KB. Loading a setup stays with the driver, in the game's setup screen: the app cannot know which
-setup the game drives with.
+setup the game drives with. `remove_setups` (since 0.17.0) takes places with the SHA-256 the platform hands
+out and answers `removed`, `changed` (the driver's own work, kept) or `missing` for each.
+
+While `install_car` downloads a package, the app sends the event `car-progress` (`{ id, received, total }`, bytes
+as they arrive; `total` is null when the server names no length) at most every 250 ms and once at the end. The
+hosted interface may listen to events (`core:event:allow-listen`, `allow-unlisten`), not send them.
 
 `update_check` and `update_install` keep the `setup.exe` install up to date. The bundled start page calls them
 before the interface loads; since 0.8.0 the hosted interface may call them too, for a notice while the app

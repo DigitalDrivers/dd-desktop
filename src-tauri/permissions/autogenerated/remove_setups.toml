@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-remove-setups"
+description = "Enables the remove_setups command without any pre-configured scope."
+commands.allow = ["remove_setups"]
+
+[[permission]]
+identifier = "deny-remove-setups"
+description = "Denies the remove_setups command without any pre-configured scope."
+commands.deny = ["remove_setups"]

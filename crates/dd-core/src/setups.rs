@@ -133,6 +133,81 @@ pub fn install(setups_dir: &Path, file: &SetupFile, data: &[u8], replace: bool) 
     fs::write(&path, data).map_err(|e| failed("setup file", e))
 }
 
+/// A setup the platform handed out, with the SHA-256 of the file as the platform hands it out.
+#[derive(Debug, Clone, Deserialize)]
+pub struct HandedOutSetup {
+    #[serde(flatten)]
+    pub file: SetupFile,
+    /// Lower-case hex, as `hash_setups` reports it
+    pub sha256: String,
+}
+
+impl HandedOutSetup {
+    pub fn validate(&self) -> Result<(), SetupError> {
+        self.file.validate()?;
+        if self.sha256.len() != 64 || !self.sha256.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+            return Err(SetupError::InvalidSetup("sha256"));
+        }
+        Ok(())
+    }
+}
+
+/// What `remove` did with one setup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Removal {
+    /// The file was the one the platform hands out, and is gone.
+    Removed,
+    /// The file has other content: the driver's own work, it stays.
+    Changed,
+    /// There is no such file.
+    Missing,
+}
+
+impl Removal {
+    pub fn code(self) -> &'static str {
+        match self {
+            Removal::Removed => "removed",
+            Removal::Changed => "changed",
+            Removal::Missing => "missing",
+        }
+    }
+}
+
+/// Removes setups the platform handed out from the game's setup folder, each only while its content is still the
+/// one handed out: the SHA-256 is taken from the file right before it is deleted, so a setup the driver changed
+/// and saved under that name stays. The folders of the track and then of the car go too once they are empty;
+/// anything else in them keeps them. Every place is checked before anything is removed. Answers in the order asked.
+pub fn remove(setups_dir: &Path, files: &[HandedOutSetup]) -> Result<Vec<Removal>, SetupError> {
+    for file in files {
+        file.validate()?;
+    }
+    let failed = |what: &str, error: std::io::Error| SetupError::Failed(format!("{what}: {error}"));
+    let mut removals = Vec::with_capacity(files.len());
+    for HandedOutSetup { file, sha256 } in files {
+        let path = file.path_below(setups_dir);
+        let there = match sha256_of(&path) {
+            Ok(hash) => hash,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                removals.push(Removal::Missing);
+                continue;
+            }
+            Err(error) => return Err(failed("setup file", error)),
+        };
+        if there != *sha256 {
+            removals.push(Removal::Changed);
+            continue;
+        }
+        fs::remove_file(&path).map_err(|e| failed("setup file", e))?;
+        // `remove_dir` removes a folder only while it is empty, so one that still holds anything stays.
+        let track = path.parent().expect("a setup is in the folder of its track");
+        if fs::remove_dir(track).is_ok() {
+            let _ = fs::remove_dir(track.parent().expect("a track is in the folder of its car"));
+        }
+        removals.push(Removal::Removed);
+    }
+    Ok(removals)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,6 +303,98 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
+    fn handed_out(file: SetupFile) -> HandedOutSetup {
+        HandedOutSetup { file, sha256: ABC.to_string() }
+    }
+
+    #[test]
+    fn reads_a_handed_out_setup_the_way_the_page_names_it() {
+        let sent = format!(r#"{{"carFolder":"Mercedes-AMG GT2","trackFolder":"Nurburgring","name":"DD Stint v2.carsetup","sha256":"{ABC}"}}"#);
+        let setup: HandedOutSetup = serde_json::from_str(&sent).unwrap();
+        assert_eq!(setup.validate(), Ok(()));
+        assert_eq!((setup.file.car_folder.as_str(), setup.file.name.as_str(), setup.sha256.as_str()), ("Mercedes-AMG GT2", "DD Stint v2.carsetup", ABC));
+    }
+
+    #[test]
+    fn removes_a_setup_handed_out_and_the_folders_it_leaves_empty() {
+        let dir = setups_dir("removes");
+        install(&dir, &hotlap(), b"abc", false).unwrap();
+        assert_eq!(remove(&dir, &[handed_out(hotlap())]), Ok(vec![Removal::Removed]));
+        assert!(!dir.join("Porsche 911 GT3 Cup (992)").exists());
+        // The game's setup folder itself stays.
+        assert!(dir.is_dir());
+        // Gone is gone: asked again, it is missing.
+        assert_eq!(remove(&dir, &[handed_out(hotlap())]), Ok(vec![Removal::Missing]));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn keeps_a_setup_the_driver_changed_and_answers_in_the_order_asked() {
+        let dir = setups_dir("remove-changed");
+        let stint = SetupFile { name: "DD Nordschleife Stint v1.carsetup".to_string(), ..hotlap() };
+        let race = SetupFile { name: "DD Nordschleife Race v1.carsetup".to_string(), ..hotlap() };
+        install(&dir, &hotlap(), b"abc", false).unwrap();
+        install(&dir, &stint, b"abc with less wing", false).unwrap();
+        assert_eq!(
+            remove(&dir, &[handed_out(stint.clone()), handed_out(race), handed_out(hotlap())]),
+            Ok(vec![Removal::Changed, Removal::Missing, Removal::Removed])
+        );
+        assert_eq!(fs::read(stint.path_below(&dir)).unwrap(), b"abc with less wing");
+        assert!(!hotlap().path_below(&dir).exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn takes_the_hash_from_the_file_at_removal_not_from_an_earlier_status() {
+        let dir = setups_dir("remove-recheck");
+        install(&dir, &hotlap(), b"abc", false).unwrap();
+        // The page saw the setup it hands out ...
+        assert_eq!(hash_setups(&dir, &[hotlap()]), Ok(vec![Some(ABC.to_string())]));
+        // ... and then the driver saved a change under that name.
+        fs::write(hotlap().path_below(&dir), b"abc with more wing").unwrap();
+        assert_eq!(remove(&dir, &[handed_out(hotlap())]), Ok(vec![Removal::Changed]));
+        assert_eq!(fs::read(hotlap().path_below(&dir)).unwrap(), b"abc with more wing");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn keeps_folders_that_still_hold_anything() {
+        let dir = setups_dir("remove-folders");
+        let car = dir.join("Porsche 911 GT3 Cup (992)");
+        // The driver's own setup next to the platform's keeps the track's folder (and so the car's).
+        install(&dir, &hotlap(), b"abc", false).unwrap();
+        fs::write(car.join("Nurburgring").join("Mine.carsetup"), b"mine").unwrap();
+        assert_eq!(remove(&dir, &[handed_out(hotlap())]), Ok(vec![Removal::Removed]));
+        assert!(car.join("Nurburgring").join("Mine.carsetup").is_file());
+        // Another track's folder keeps the car's, while the emptied track's folder goes.
+        let spa = SetupFile { track_folder: "Spa".to_string(), ..hotlap() };
+        install(&dir, &spa, b"abc", false).unwrap();
+        assert_eq!(remove(&dir, &[handed_out(spa)]), Ok(vec![Removal::Removed]));
+        assert!(!car.join("Spa").exists());
+        assert!(car.join("Nurburgring").join("Mine.carsetup").is_file());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn refuses_a_removal_with_a_bad_place_or_hash_before_removing_anything() {
+        let dir = setups_dir("remove-refuses");
+        install(&dir, &hotlap(), b"abc", false).unwrap();
+        let cases = [
+            (handed_out(SetupFile { car_folder: "..".to_string(), ..hotlap() }), "carFolder"),
+            (handed_out(SetupFile { track_folder: "..\\..".to_string(), ..hotlap() }), "trackFolder"),
+            (handed_out(SetupFile { name: "start.bat".to_string(), ..hotlap() }), "name"),
+            (HandedOutSetup { sha256: ABC.to_uppercase(), ..handed_out(hotlap()) }, "sha256"),
+            (HandedOutSetup { sha256: ABC[..63].to_string(), ..handed_out(hotlap()) }, "sha256"),
+            (HandedOutSetup { sha256: String::new(), ..handed_out(hotlap()) }, "sha256"),
+        ];
+        for (bad, field) in cases {
+            // The good one first: it must still be there after the refusal.
+            assert_eq!(remove(&dir, &[handed_out(hotlap()), bad]), Err(SetupError::InvalidSetup(field)));
+            assert_eq!(fs::read(hotlap().path_below(&dir)).unwrap(), b"abc");
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn finds_the_saved_games_folder_also_when_it_was_moved() {
         let home = Path::new("C:\\Users\\anna");
@@ -244,5 +411,6 @@ mod tests {
         assert_eq!(SetupError::AcEvoNotFound.code(), "ac-evo-not-found");
         assert_eq!(SetupError::Changed.code(), "setup-changed");
         assert_eq!(SetupError::Failed("setup file: access denied".to_string()).code(), "failed");
+        assert_eq!([Removal::Removed, Removal::Changed, Removal::Missing].map(Removal::code), ["removed", "changed", "missing"]);
     }
 }

@@ -7,5 +7,5 @@
   "remote": {
     "urls": ["https://digitaldrivers.club", "https://*.digitaldrivers.club"]
   },
-  "permissions": ["allow-system-check", "allow-show-toast", "allow-setup-status", "allow-install-setup", "allow-launch-ac-evo", "allow-update-check", "allow-update-install", "allow-car-status", "allow-install-car", "allow-fix-game-start", "allow-live-snapshot", "allow-take-laps"]
+  "permissions": ["allow-system-check", "allow-show-toast", "allow-setup-status", "allow-install-setup", "allow-remove-setups", "allow-launch-ac-evo", "allow-update-check", "allow-update-install", "allow-car-status", "allow-install-car", "allow-fix-game-start", "allow-live-snapshot", "allow-take-laps", "core:event:allow-listen", "core:event:allow-unlisten"]
 }
