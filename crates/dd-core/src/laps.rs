@@ -19,12 +19,6 @@ const LAST_LAPTIME_MS: usize = 2396;
 const CAR_MODEL: usize = 3086;
 const IS_IN_PIT_LANE: usize = 3120;
 const IS_VALID_LAP: usize = 3121;
-/// `SMEvoTyreState` of each wheel (FL FR RL RR), 256 bytes apart, with the surface temperatures across the tread
-const TYRE_STATE: usize = 220;
-const TYRE_STATE_SIZE: usize = 256;
-const TYRE_TEMPERATURE_LEFT: usize = 24;
-const TYRE_TEMPERATURE_CENTER: usize = 28;
-const TYRE_TEMPERATURE_RIGHT: usize = 32;
 // physics, wheels in the order FL FR RL RR
 const SPEED_KMH: usize = 28;
 const WHEELS_PRESSURE: usize = 88;
@@ -70,10 +64,6 @@ pub struct Tyre {
     pub core_temp_avg: f32,
     pub core_temp_max: f32,
     pub brake_temp_max: f32,
-    /// Averages of the inner, middle and outer surface temperature
-    pub temp_inner: f32,
-    pub temp_middle: f32,
-    pub temp_outer: f32,
     pub travel_max: f32,
     pub travel_avg: f32,
     /// Share of the braking samples with the wheel's |slip ratio| above 0.15
@@ -179,8 +169,6 @@ struct Sample {
     rpm: i32,
     acc_g: [f32; 3],
     travel: [f32; 4],
-    /// Inner, middle, outer
-    tread_temp: [[f32; 4]; 3],
     brake_bias: f32,
     slip_ratio: [f32; 4],
     slip_angle: [f32; 4],
@@ -206,21 +194,6 @@ impl Sample {
 
 fn i32_at(page: &[u8], at: usize) -> i32 {
     i32::from_le_bytes(page[at..at + 4].try_into().unwrap())
-}
-
-/// Inner, middle and outer surface temperature of each wheel. The physics page's `tyreTempI/M/O` stay 0 in EVO;
-/// the graphics page has them as left, center and right, which the official header documents as the inner
-/// and the outer edge of every wheel. Not yet checked against a driven car (cambered fronts run hotter inside).
-fn tread_temperatures(graphics: &[u8]) -> [[f32; 4]; 3] {
-    let mut temps = [[0.0; 4]; 3];
-    for w in 0..4 {
-        let at = TYRE_STATE + w * TYRE_STATE_SIZE;
-        let (left, center, right) = (f32_at(graphics, at + TYRE_TEMPERATURE_LEFT), f32_at(graphics, at + TYRE_TEMPERATURE_CENTER), f32_at(graphics, at + TYRE_TEMPERATURE_RIGHT));
-        temps[0][w] = left;
-        temps[1][w] = center;
-        temps[2][w] = right;
-    }
-    temps
 }
 
 fn f32s_at<const N: usize>(page: &[u8], at: usize) -> [f32; N] {
@@ -259,7 +232,6 @@ impl Sample {
             rpm: i32_at(physics, RPMS),
             acc_g: f32s_at(physics, ACC_G),
             travel: f32s_at(physics, SUSPENSION_TRAVEL),
-            tread_temp: tread_temperatures(graphics),
             brake_bias: f32_at(physics, BRAKE_BIAS),
             slip_ratio: f32s_at(physics, SLIP_RATIO),
             slip_angle: f32s_at(physics, SLIP_ANGLE),
@@ -316,7 +288,6 @@ struct Lap {
     lat_g: Window,
     lat_g_max: f32,
     ride: [Window; 2],
-    temp_sum: [[f64; 4]; 3],
     travel_sum: [f64; 4],
     travel_max: [f32; 4],
     braking: u32,
@@ -365,7 +336,6 @@ impl Lap {
             lat_g: Window::default(),
             lat_g_max: 0.0,
             ride: Default::default(),
-            temp_sum: [[0.0; 4]; 3],
             travel_sum: [0.0; 4],
             travel_max: [f32::NEG_INFINITY; 4],
             braking: 0,
@@ -445,9 +415,6 @@ impl Lap {
             self.core_sum[w] += s.core_temp[w] as f64;
             self.core_max[w] = self.core_max[w].max(s.core_temp[w]);
             self.brake_max[w] = self.brake_max[w].max(s.brake_temp[w]);
-            for edge in 0..3 {
-                self.temp_sum[edge][w] += s.tread_temp[edge][w] as f64;
-            }
             self.travel_sum[w] += s.travel[w] as f64;
             self.travel_max[w] = self.travel_max[w].max(s.travel[w]);
             let slipping = s.slip_ratio[w].abs() > SLIP_LIMIT;
@@ -485,9 +452,6 @@ impl Lap {
                 core_temp_avg: avg(self.core_sum[w]),
                 core_temp_max: self.core_max[w],
                 brake_temp_max: self.brake_max[w],
-                temp_inner: avg(self.temp_sum[0][w]),
-                temp_middle: avg(self.temp_sum[1][w]),
-                temp_outer: avg(self.temp_sum[2][w]),
                 travel_max: self.travel_max[w],
                 travel_avg: avg(self.travel_sum[w]),
                 lock_share: per(self.locked[w] as f64, self.braking),
@@ -669,16 +633,6 @@ mod tests {
             self.graphics[at..at + 4].copy_from_slice(&value.to_le_bytes());
         }
 
-        /// Left, center and right surface temperature of each wheel, as the graphics page has them.
-        fn tread(&mut self, temps: [[f32; 3]; 4]) {
-            for (w, wheel) in temps.iter().enumerate() {
-                for (i, t) in wheel.iter().enumerate() {
-                    let at = TYRE_STATE + w * TYRE_STATE_SIZE + TYRE_TEMPERATURE_LEFT + i * 4;
-                    self.graphics[at..at + 4].copy_from_slice(&t.to_le_bytes());
-                }
-            }
-        }
-
         fn physics_i32(&mut self, at: usize, value: i32) {
             self.physics[at..at + 4].copy_from_slice(&value.to_le_bytes());
         }
@@ -733,8 +687,6 @@ mod tests {
         pages.f32s(TYRE_CORE_TEMPERATURE, &[80.0, 81.0, 70.0, 71.0]);
         pages.f32s(BRAKE_TEMP, &[300.0, 310.0, 200.0, 210.0]);
         pages.f32s(AIR_TEMP, &[22.0, 30.0]);
-        // left, center, right per wheel; the header documents left as the inner edge on every wheel
-        pages.tread([[80.0, 85.0, 90.0], [91.0, 86.0, 81.0], [82.0, 87.0, 92.0], [93.0, 88.0, 83.0]]);
         pages.f32s(SUSPENSION_TRAVEL, &[0.03, 0.03, 0.04, 0.04]);
         pages.physics_i32(GEAR, 4);
         pages.physics_i32(RPMS, 6000);
@@ -761,9 +713,6 @@ mod tests {
         assert_eq!((lap.air_temp_c, lap.road_temp_c), (22.0, 30.0));
         let fl = &lap.tyres[0];
         assert_eq!((fl.pressure_avg, fl.pressure_max, fl.core_temp_avg, fl.core_temp_max, fl.brake_temp_max), (26.02, 28.0, 80.1, 90.0, 600.0));
-        let tread: Vec<_> = lap.tyres.iter().map(|t| (t.temp_inner, t.temp_middle, t.temp_outer)).collect();
-        // inner = the left edge, outer = the right edge on every wheel, as the header documents
-        assert_eq!(tread, [(80.0, 85.0, 90.0), (91.0, 86.0, 81.0), (82.0, 87.0, 92.0), (93.0, 88.0, 83.0)]);
         assert_eq!((fl.travel_max, lap.tyres[1].travel_max), (0.05, 0.03));
         assert!((fl.travel_avg - 0.0302).abs() < 1e-6);
         assert_eq!((lap.rpm_max, lap.gear_at_top_speed), (7800, 6));
@@ -784,7 +733,8 @@ mod tests {
         assert_eq!(json["tyres"][0]["brakeTempMax"], 600.0);
         let mut tyre_keys: Vec<_> = json["tyres"][0].as_object().unwrap().keys().cloned().collect();
         tyre_keys.sort();
-        assert_eq!(tyre_keys, ["brakeTempMax", "coreTempAvg", "coreTempMax", "lockShare", "pressureAvg", "pressureMax", "spinShare", "tempInner", "tempMiddle", "tempOuter", "travelAvg", "travelMax"]);
+        // tempInner/Middle/Outer are gone: the graphics page's tread temperatures spread by 1 °C at most
+        assert_eq!(tyre_keys, ["brakeTempMax", "coreTempAvg", "coreTempMax", "lockShare", "pressureAvg", "pressureMax", "spinShare", "travelAvg", "travelMax"]);
         assert_eq!(json["gearAtTopSpeed"], 6);
         assert_eq!(json["rideHeightMin"].as_array().unwrap().len(), 2);
         assert!(json.get("first").is_none());

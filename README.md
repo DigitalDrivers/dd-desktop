@@ -47,12 +47,11 @@ driver can check what the app does on their PC.
   names the car only by its display name. Only a lap of one of the club's cars (ids starting with `dd_`) is kept;
   the laps of any other car are dropped right there. Per lap it keeps a summary: car, track, lap time, valid,
   pit, fuel used, air and road temperature, top speed and the gear it was reached in, highest rpm, per wheel tyre
-  pressure and core temperature (average, maximum), inner, middle and outer tyre temperature (average), brake
-  temperature (maximum), suspension travel (maximum, average) and how often the wheel locked under braking or
-  spun under throttle, the ride height (minimum, average), the brake bias and the front's share of the brake
-  torque, the balance in corners (front against rear slip angle), the highest lateral and braking G, and the
-  preset (the car's stage or variant). Time in the pit lane is left out. The page fetches the summaries and
-  sends them to the platform; nothing else of the drive or of the log is kept.
+  pressure and core temperature (average, maximum), brake temperature (maximum), suspension travel (maximum,
+  average) and how often the wheel locked under braking or spun under throttle, the ride height (minimum, average),
+  the brake bias and the front's share of the brake torque, the balance in corners (front against rear slip angle),
+  the highest lateral and braking G, and the preset (the car's stage or variant). Time in the pit lane is left out.
+  The page fetches the summaries and sends them to the platform; nothing else of the drive or of the log is kept.
 - When you join one of our servers, the app starts Assetto Corsa EVO through Steam (`steam://run/3058630`); the
   page has put the server's join string on the clipboard, which the game's server list takes.
 - A link the platform opens in a new window (a stream, a download) goes to your default browser; the app has no
