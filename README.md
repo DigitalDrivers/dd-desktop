@@ -21,15 +21,18 @@ driver can check what the app does on their PC.
 - When you put one of the club's cars into the game (the garage), the app downloads that car's package from
   the platform, checks its SHA-256 and writes it as `Saved Games\ACE\mods\<id>.kspkg`, never while the game
   runs; while the app is open it updates the cars you have the same way, once an hour. To report which cars you
-  have, it hashes the packages of the names the platform asks about. After an update it moves every saved car
-  of that car in `ProfileData\<profile>\OpenData\SavedCars` to `SavedCars\stale\<time>` (never deleted), because
-  a saved car of an older version can crash the game on start; you pick stage and livery again in the game. If
-  your garage had selected one of them, `garage.drivergarage` is saved as `.bak` and then selects the Kunos
-  Porsche 911 GT3 Cup, because the game loads the selected car on every start.
+  have, it hashes the packages of the names the platform asks about. After an update, the saved cars of that
+  car in `ProfileData\<profile>\OpenData\SavedCars` that point at a file the new version no longer has move to
+  `SavedCars\stale\<time>` (never deleted), because such a saved car crashes the game when it loads it; the
+  others stay in the game's "My cars". If your garage had selected any saved car of that car,
+  `garage.drivergarage` is saved as `.bak` and then selects the Kunos Porsche 911 GT3 Cup, because the game loads
+  the selected car on every start and a new version can break a saved car in ways the file check does not see.
 - When the game no longer starts after an update of a club car, "Fix game start" on the garage page points
   every profile's garage at the Porsche 911 GT3 Cup (after a backup `garage.drivergarage.<time>.bak`) and moves
-  the saved cars of the club's cars to `SavedCars\stale\<time>` (never deleted). It shows the last 20 lines of the
-  newest game log in `Saved Games\ACE\Logs`, where a crash leaves the reason, so you can copy them and send them to us.
+  the saved car it had selected to `SavedCars\stale\<time>` (never deleted) when it is one of the club's cars;
+  your other saved cars stay. A second button moves every saved car of the club's cars when that did not help.
+  It shows the last 20 lines of the newest game log in `Saved Games\ACE\Logs`, where a crash leaves the reason,
+  so you can copy them and send them to us.
 - When you install a car setup of the platform for Assetto Corsa EVO, the app writes that one file into the
   game's setup folder (`Saved Games\ACE\Car Setups\<car>\<track>\<name>.carsetup`), where the game's setup
   screen lists it. To show which setups you have already, it reads the files of the names the platform asks

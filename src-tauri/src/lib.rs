@@ -180,8 +180,8 @@ fn ac_evo_running() -> bool {
 
 /// Puts one of the club's cars into the game: downloads `path` (an address of the platform's garage, with the
 /// ticket the page got), unpacks it on the way, checks its SHA-256 and only then replaces `mods\<id>.kspkg`.
-/// Refused while the game runs. Saved cars of that car that point at parts the new version no longer has move
-/// to `SavedCars\stale`, and a garage that selected one of them selects a stock car (after a backup).
+/// Refused while the game runs. Saved cars of that car that point at files the new version no longer has move
+/// to `SavedCars\stale`, and a garage that selected any saved car of it selects a stock car (after a backup).
 #[tauri::command]
 async fn install_car(app: tauri::AppHandle, state: tauri::State<'_, PackageHashes>, id: String, path: String, sha256: String) -> Result<(), String> {
     log(&format!("install_car requested: {id} ({sha256})"));
@@ -318,12 +318,14 @@ async fn download_car(app: &tauri::AppHandle, id: &str, path: &str, sha256: &str
     Ok(retire_saved_cars(&user_dir, id, &target))
 }
 
-/// Moves every saved car of `id` to `SavedCars\stale\<unix time>` in every profile (kept, never deleted), and
-/// points a garage that selected one of them at a stock car: the game loads the selected car on every start, and
-/// a new version can break a saved car in ways the file check does not see (2026-10-05: after the GT3 and
-/// Clubsport updates a tester's game crashed on start, `Protobuf ... CHECK failed: ... key not found:`). The
-/// driver picks stage and livery again after an update. What the file check says about each one goes to the
-/// log, until the cause is found. Returns how many moved.
+/// After an update of `id`: every saved car of it that points at a file the new version no longer has moves to
+/// `SavedCars\stale\<unix time>` in every profile (kept, never deleted; also when the package's file table
+/// cannot be read), the others stay in the game's "My cars". A garage that selected any saved car of `id` is
+/// pointed at a stock car (after a backup): the game loads only the selected car on start, and a new version
+/// can break a saved car in ways the file check does not see (2026-10-05: after the GT3 and Clubsport updates a
+/// tester's game crashed on start, `Protobuf ... CHECK failed: ... key not found:`, no file missing). Such a
+/// saved car crashes the game when the driver picks it; `fix_game_start` then moves that one. Returns how many
+/// moved.
 fn retire_saved_cars(user_dir: &Path, id: &str, package: &Path) -> usize {
     use std::io::{Read, Seek, SeekFrom};
     let table = (|| -> std::io::Result<Vec<u8>> {
@@ -356,7 +358,10 @@ fn retire_saved_cars(user_dir: &Path, id: &str, package: &Path) -> usize {
             }
             let check = match (&paths, fs::read(entry.path())) {
                 (Some(paths), Ok(data)) if garage::is_stale(&data, id, paths) => "stale",
-                (Some(_), Ok(_)) => "not stale",
+                (Some(_), Ok(_)) => {
+                    log(&format!("saved car {name} points only at files the new version has: it stays"));
+                    continue;
+                }
                 _ => "unchecked",
             };
             let _ = fs::create_dir_all(&stale);
@@ -384,10 +389,11 @@ struct GameStartFix {
 
 /// One click for a game that no longer starts after an update of a club car. The game loads the selected car
 /// on every start, so a saved car the new version cannot read crashes it every time. Every profile's garage
-/// selects the Porsche 992 GT3 Cup again (after a backup), and the saved cars of the club's cars (`ids`) move to
-/// `SavedCars\stale\<unix time>`, never deleted. Refused while the game runs.
+/// selects the Porsche 992 GT3 Cup again (after a backup), and the saved car it had selected, when it is one of
+/// the club's cars (`ids`), moves to `SavedCars\stale\<unix time>`, never deleted; the driver's other saved
+/// cars stay. With `all`, every saved car of the club's cars moves. Refused while the game runs.
 #[tauri::command]
-fn fix_game_start(app: tauri::AppHandle, ids: Vec<String>) -> Result<GameStartFix, String> {
+fn fix_game_start(app: tauri::AppHandle, ids: Vec<String>, all: Option<bool>) -> Result<GameStartFix, String> {
     if ids.is_empty() || ids.len() > 50 || !ids.iter().all(|id| garage::is_car_id(id)) {
         return Err("invalid-car".to_string());
     }
@@ -395,11 +401,16 @@ fn fix_game_start(app: tauri::AppHandle, ids: Vec<String>) -> Result<GameStartFi
     if ac_evo_running() {
         return Err("game-running".to_string());
     }
+    Ok(fix_game_start_in(&user_dir, &ids, all.unwrap_or(false)))
+}
+
+fn fix_game_start_in(user_dir: &Path, ids: &[String], all: bool) -> GameStartFix {
     let stamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     let mut fix = GameStartFix { garages: 0, moved: 0, log: Vec::new() };
     for profile in fs::read_dir(user_dir.join("ProfileData")).into_iter().flatten().flatten() {
         let open = profile.path().join("OpenData");
         let garage_file = open.join("garage.drivergarage");
+        let selected = fs::read(&garage_file).ok().and_then(|g| garage::selected_pguid(&g));
         if garage_file.is_file() {
             let _ = fs::copy(&garage_file, open.join(format!("garage.drivergarage.{stamp}.bak")));
             if fs::write(&garage_file, garage::RESCUED_GARAGE).is_ok() {
@@ -410,7 +421,9 @@ fn fix_game_start(app: tauri::AppHandle, ids: Vec<String>) -> Result<GameStartFi
         let stale = saved.join("stale").join(stamp.to_string());
         for entry in fs::read_dir(&saved).into_iter().flatten().flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
-            if !entry.path().is_file() || !ids.iter().any(|id| name.starts_with(&format!("{id}_"))) {
+            let ours = ids.iter().any(|id| name.starts_with(&format!("{id}_")));
+            let is_selected = selected.is_some() && garage::pguid_of(&name) == selected;
+            if !entry.path().is_file() || !ours || !(all || is_selected) {
                 continue;
             }
             let _ = fs::create_dir_all(&stale);
@@ -429,8 +442,8 @@ fn fix_game_start(app: tauri::AppHandle, ids: Vec<String>) -> Result<GameStartFi
         let tail = &bytes[bytes.len().saturating_sub(2_000_000)..];
         fix.log = garage::crash_lines(&String::from_utf8_lossy(tail));
     }
-    log(&format!("fix_game_start: {} garages select the Porsche 992 GT3 Cup, {} saved cars moved to SavedCars\\stale\\{stamp}; log: {:?}", fix.garages, fix.moved, fix.log));
-    Ok(fix)
+    log(&format!("fix_game_start (all: {all}): {} garages select the Porsche 992 GT3 Cup, {} saved cars moved to SavedCars\\stale\\{stamp}; log: {:?}", fix.garages, fix.moved, fix.log));
+    fix
 }
 
 /// What AC EVO's shared memory says about the running session: the track and every car the game knows with
@@ -877,27 +890,70 @@ mod tests {
         assert!(!is_cargo_target_dir(&Path::new("WindowsApps").join("DigitalDrivers.Desktop_0.2.0.0_x64__5sms3s9pdbqt0")));
     }
 
-    #[test]
-    fn moves_every_saved_car_of_an_updated_car_aside() {
-        let user = std::env::temp_dir().join(format!("dd-retire-{}", std::process::id()));
+    /// A profile whose garage selects the GT3 Cup's pguid, which the saved car `selected` carries here, next to
+    /// a second saved car of ours and one of a Kunos car; every saved car points at `a.material` of dd_x.
+    fn profile(tag: &str) -> (PathBuf, PathBuf, &'static str) {
+        let user = std::env::temp_dir().join(format!("dd-{tag}-{}", std::process::id()));
         let open = user.join("ProfileData").join("p").join("OpenData");
         let saved = open.join("SavedCars");
         fs::create_dir_all(&saved).unwrap();
-        // The garage selects the GT3 Cup's pguid, which the first saved car carries here.
         fs::write(open.join("garage.drivergarage"), garage::RESCUED_GARAGE).unwrap();
         let selected = "dd_x_4F44A4BE-5BE3-3C37-2B05-1984457156AC.carfinalstatewithconsumable";
         for name in [selected, "dd_x_1.carfinalstatewithconsumable", "ks_y_2.carfinalstatewithconsumable"] {
-            fs::write(saved.join(name), b"\x0a\x16content\\cars\\dd_x\\a.material").unwrap();
+            fs::write(saved.join(name), b"\x0a\x1ccontent\\cars\\dd_x\\a.material").unwrap();
         }
+        (user, open, selected)
+    }
+
+    fn stale_names(saved: &Path) -> Vec<String> {
+        let folders: Vec<_> = fs::read_dir(saved.join("stale")).unwrap().flatten().collect();
+        assert_eq!(folders.len(), 1);
+        let mut names: Vec<String> = fs::read_dir(folders[0].path()).unwrap().flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn an_update_moves_only_the_saved_cars_it_broke_and_hands_the_garage_to_a_stock_car() {
+        let (user, open, selected) = profile("retire");
+        let saved = open.join("SavedCars");
+        // dd_x_1 also points at a part the new version does not have.
+        fs::write(saved.join("dd_x_1.carfinalstatewithconsumable"), b"\x0a\x1ccontent\\cars\\dd_x\\a.material\x12\x2bcontent\\cars\\dd_x\\parts\\gone.compatiblepart").unwrap();
+        // The package: a file that is only its table, with one entry.
+        let path = b"content\\cars\\dd_x\\a.material";
+        let mut entry = vec![0u8; garage::ENTRY];
+        entry[..path.len()].copy_from_slice(path);
+        let table: Vec<u8> = entry.iter().enumerate().map(|(i, b)| b ^ garage::KEY[i % 8]).collect();
         let package = user.join("dd_x.kspkg");
-        fs::write(&package, b"").unwrap();
-        assert_eq!(retire_saved_cars(&user, "dd_x", &package), 2);
+        fs::write(&package, table).unwrap();
+        assert_eq!(retire_saved_cars(&user, "dd_x", &package), 1);
+        assert_eq!(stale_names(&saved), vec!["dd_x_1.carfinalstatewithconsumable"]);
+        assert!(saved.join(selected).is_file());
         assert!(saved.join("ks_y_2.carfinalstatewithconsumable").is_file());
-        let stale: Vec<_> = fs::read_dir(saved.join("stale")).unwrap().flatten().collect();
-        assert_eq!(stale.len(), 1);
-        assert!(stale[0].path().join(selected).is_file());
-        assert!(stale[0].path().join("dd_x_1.carfinalstatewithconsumable").is_file());
+        // The garage selected a saved car of the updated car: it selects the Porsche now, with a backup.
         assert!(open.join("garage.drivergarage.bak").is_file());
+        assert_eq!(fs::read(open.join("garage.drivergarage")).unwrap(), garage::RESCUED_GARAGE);
+        fs::remove_dir_all(&user).unwrap();
+    }
+
+    #[test]
+    fn the_fix_moves_the_selected_saved_car_and_every_one_of_ours_only_when_asked() {
+        let (user, open, selected) = profile("fix");
+        let saved = open.join("SavedCars");
+        let ids = vec!["dd_x".to_string()];
+        let fix = fix_game_start_in(&user, &ids, false);
+        assert_eq!((fix.garages, fix.moved), (1, 1));
+        assert_eq!(stale_names(&saved), vec![selected]);
+        assert!(saved.join("dd_x_1.carfinalstatewithconsumable").is_file());
+        assert!(saved.join("ks_y_2.carfinalstatewithconsumable").is_file());
+        assert_eq!(fs::read(open.join("garage.drivergarage")).unwrap(), garage::RESCUED_GARAGE);
+        assert_eq!(fs::read_dir(&open).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().ends_with(".bak")).count(), 1);
+        // The garage selects the Porsche now, which no saved car carries: a second click moves nothing more...
+        assert_eq!(fix_game_start_in(&user, &ids, false).moved, 0);
+        // ...unless asked for every saved car of ours.
+        assert_eq!(fix_game_start_in(&user, &ids, true).moved, 1);
+        assert!(!saved.join("dd_x_1.carfinalstatewithconsumable").exists());
+        assert!(saved.join("ks_y_2.carfinalstatewithconsumable").is_file());
         fs::remove_dir_all(&user).unwrap();
     }
 }

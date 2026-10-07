@@ -1,16 +1,16 @@
 //! The club's own cars for Assetto Corsa EVO. A car is one package, `Saved Games\ACE\mods\<id>.kspkg`, which
 //! the app puts there from the platform and keeps up to date. A new version can drop a part or preset that a
-//! driver's saved car still points at; the game then crashes on every start while that car is the selected
-//! one. So after an update the saved cars of that car move to `SavedCars\stale` (never deleted), the check
-//! against the package's file table says which of them were stale, and a garage that selects one of them is
-//! pointed at a stock car, after a backup.
+//! driver's saved car still points at; the game then crashes when it loads that car, and it loads the selected
+//! car on every start. So after an update the saved cars of that car which the check against the package's file
+//! table finds stale move to `SavedCars\stale` (never deleted), the others stay in the game's "My cars", and a
+//! garage that selects any saved car of that car is pointed at a stock car, after a backup.
 
 use std::collections::HashSet;
 
-/// The package's file table: the last 64 MB of the file, XOR'd with this key.
+/// The package's file table: the last 64 MB of the file, one `ENTRY` per file, XOR'd with `KEY`.
 pub const TABLE_SIZE: usize = 0x400_0000;
-const KEY: [u8; 8] = [0xc1, 0x35, 0x11, 0x7d, 0xa9, 0x21, 0x97, 0x9f];
-const ENTRY: usize = 0x100;
+pub const KEY: [u8; 8] = [0xc1, 0x35, 0x11, 0x7d, 0xa9, 0x21, 0x97, 0x9f];
+pub const ENTRY: usize = 0x100;
 const PATH_BYTES: usize = 0xE0;
 
 /// A car id as the game takes it: a lower-case content folder name.
