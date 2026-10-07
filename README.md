@@ -72,7 +72,7 @@ Nothing else is read, and nothing is uploaded by the shell itself.
 | Part | What |
 | --- | --- |
 | `src/` | Bundled start page: checks that the platform is reachable, then opens it. Offline it shows a system check. |
-| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `remove_setups`, `update_check`, `update_install`, `launch_ac_evo`, `car_status`, `install_car`, `fix_game_start`, `live_snapshot` and `take_laps`. |
+| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `remove_setups`, `update_check`, `update_install`, `update_at_start`, `launch_ac_evo`, `car_status`, `install_car`, `fix_game_start`, `live_snapshot` and `take_laps`. |
 | `src-tauri/capabilities/` | Which page may call which command. The hosted interface only gets the commands listed in `platform.json`; `dev-localhost.json` is enabled for development builds only. |
 | `crates/dd-core/` | Platform-independent logic (locating Assetto Corsa EVO and the Steam account, car setups, the club's car packages and their saved cars), unit-tested on any machine. |
 
@@ -104,7 +104,9 @@ stays open and a "check for updates" button. The first asks the update manifest 
 version, the second downloads that installer, checks its signature against the public key in
 `tauri.conf.json` (tauri-plugin-updater, the signature cannot be skipped) and runs it; the installer closes
 the app and starts the new version. An install the Store made, or a build started from the `target` folder,
-answers that it does not update itself.
+answers that it does not update itself. `update_at_start` (since 0.18.0) is the update center's switch "App
+updates at start": without an argument it answers whether the start page installs a newer release (on unless
+the driver turned it off), with `{ on }` it changes that for this PC (a marker file in the app's config folder).
 
 ## Development
 

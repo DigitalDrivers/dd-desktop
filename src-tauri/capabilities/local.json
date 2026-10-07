@@ -3,5 +3,5 @@
   "identifier": "local",
   "description": "The bundled start page of the shell",
   "windows": ["main"],
-  "permissions": ["core:default", "allow-platform-url", "allow-system-check", "allow-show-toast", "allow-update-check", "allow-update-install", "allow-launch-ac-evo"]
+  "permissions": ["core:default", "allow-platform-url", "allow-system-check", "allow-show-toast", "allow-update-check", "allow-update-install", "allow-update-at-start", "allow-launch-ac-evo"]
 }

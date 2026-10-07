@@ -7,5 +7,6 @@ pub mod evo_memory;
 pub mod garage;
 pub mod laps;
 pub mod links;
+pub mod settings;
 pub mod setups;
 pub mod steam;

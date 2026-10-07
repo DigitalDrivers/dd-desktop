@@ -13,9 +13,11 @@ async function showSystemCheck() {
 }
 
 // A newer release is installed before the interface loads; the installer restarts the app. Without one, or
-// without a connection, the interface loads as it is.
+// without a connection, the interface loads as it is. A driver who turned "App updates at start" off in the
+// update center installs them from there.
 async function updateIfAvailable() {
   try {
+    if (!(await invoke('update_at_start').catch(() => true))) return false
     const update = await invoke('update_check')
     if (!update) return false
     statusEl.textContent = `Updating to version ${update.version}…`

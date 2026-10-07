@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-update-at-start"
+description = "Enables the update_at_start command without any pre-configured scope."
+commands.allow = ["update_at_start"]
+
+[[permission]]
+identifier = "deny-update-at-start"
+description = "Denies the update_at_start command without any pre-configured scope."
+commands.deny = ["update_at_start"]

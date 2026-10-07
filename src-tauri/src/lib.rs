@@ -12,6 +12,7 @@ use dd_core::evo_memory::{self, LiveSnapshot};
 use dd_core::garage;
 use dd_core::laps::{self, LapRecorder, LapSummary};
 use dd_core::links;
+use dd_core::settings;
 use dd_core::setups::{self, SetupError, SetupFile};
 use serde::Serialize;
 use tauri::{Emitter, Manager};
@@ -90,6 +91,21 @@ async fn update_install(app: tauri::AppHandle, state: tauri::State<'_, PendingUp
         "failed".to_string()
     })?;
     app.restart()
+}
+
+/// Whether the bundled start page installs a newer release before the interface loads: the update center's
+/// switch "App updates at start", per PC. With `on` it changes it; it answers what holds now. Since 0.18.0.
+#[tauri::command]
+fn update_at_start(app: tauri::AppHandle, on: Option<bool>) -> Result<bool, String> {
+    let dir = app.path().app_config_dir().map_err(|_| "failed".to_string())?;
+    if let Some(on) = on {
+        settings::set_update_at_start(&dir, on).map_err(|error| {
+            log(&format!("update_at_start failed: {error}"));
+            "failed".to_string()
+        })?;
+        log(&format!("update_at_start -> {on}"));
+    }
+    Ok(settings::update_at_start(&dir))
 }
 
 /// SHA-256 of the installed car packages, by path, as long as size and modification time are the same: hashing
@@ -844,7 +860,7 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
