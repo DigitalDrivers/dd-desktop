@@ -690,7 +690,7 @@ dependencies = [
 
 [[package]]
 name = "dd-desktop"
-version = "0.19.0"
+version = "0.20.0"
 dependencies = [
  "dd-core",
  "flate2",
