@@ -6,24 +6,28 @@ const TEXTS = {
   en: {
     connecting: 'Connecting to Digital Drivers…',
     updating: 'Updating to version {version}…',
-    unreachable: 'Digital Drivers cannot be reached. Check your internet connection.',
+    unreachable: 'Digital Drivers can\'t be reached right now. Check your connection or try again in a few minutes.',
     retry: 'Try again',
     check: 'System check',
     appVersion: 'App version',
     setupsFolder: 'Setups folder',
-    notFound: 'not found',
+    notFound: 'not found. Is it installed through Steam?',
     notThereYet: 'not there yet (start the game once)',
+    steamRunning: 'running',
+    steamMissing: 'not running. Start Steam and sign in.',
   },
   de: {
     connecting: 'Verbinde mit Digital Drivers…',
     updating: 'Aktualisiere auf Version {version}…',
-    unreachable: 'Digital Drivers ist nicht erreichbar. Prüf deine Internetverbindung.',
+    unreachable: 'Digital Drivers ist gerade nicht erreichbar. Prüf deine Verbindung oder versuch es in ein paar Minuten.',
     retry: 'Erneut versuchen',
     check: 'Systemprüfung',
     appVersion: 'App-Version',
     setupsFolder: 'Setup-Ordner',
-    notFound: 'nicht gefunden',
+    notFound: 'nicht gefunden. Ist es über Steam installiert?',
     notThereYet: 'noch nicht da (starte das Spiel einmal)',
+    steamRunning: 'läuft',
+    steamMissing: 'läuft nicht. Starte Steam und melde dich an.',
   },
 }
 const lang = navigator.language.toLowerCase().startsWith('de') ? 'de' : 'en'
@@ -38,6 +42,7 @@ async function showSystemCheck() {
   const check = await invoke('system_check')
   document.querySelector('#check-version').textContent = check.appVersion
   document.querySelector('#check-evo').textContent = check.acEvoPath ?? text('notFound')
+  document.querySelector('#check-steam').textContent = check.steamId ? text('steamRunning') : text('steamMissing')
   document.querySelector('#check-folder').textContent = check.acEvoSetupsPath ?? text('notThereYet')
   document.querySelector('#check').hidden = false
 }
@@ -75,8 +80,10 @@ async function connect() {
     if (typeof health.status !== 'string') throw new Error('not the Digital Drivers health endpoint')
   }
   catch {
+    // The status line is a live region; the button gets the focus, so the keyboard is where the next step is.
     statusEl.textContent = text('unreachable')
     retryEl.hidden = false
+    retryEl.focus()
     await showSystemCheck()
     return
   }
