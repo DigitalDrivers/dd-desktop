@@ -10,17 +10,17 @@
   <body>
     <main>
       <img src="logo.svg" alt="Digital Drivers" class="logo" />
-      <p id="status">Connecting to Digital Drivers…</p>
-      <button id="retry" hidden>Try again</button>
+      <p id="status" data-text="connecting">Connecting to Digital Drivers…</p>
+      <button id="retry" data-text="retry" hidden>Try again</button>
 
       <section id="check" hidden>
-        <h2>System check</h2>
+        <h2 data-text="check">System check</h2>
         <dl>
-          <dt>App version</dt>
+          <dt data-text="appVersion">App version</dt>
           <dd id="check-version">–</dd>
           <dt>Assetto Corsa EVO</dt>
           <dd id="check-evo">–</dd>
-          <dt>Mods folder</dt>
+          <dt data-text="setupsFolder">Setups folder</dt>
           <dd id="check-folder">–</dd>
         </dl>
       </section>

@@ -1,14 +1,44 @@
 // Local start page of the shell: opens the hosted interface, or explains why that is not possible.
 const { invoke } = window.__TAURI__.core
 
+// The page's words in the driver's language (Windows' display language); English is the source.
+const TEXTS = {
+  en: {
+    connecting: 'Connecting to Digital Drivers…',
+    updating: 'Updating to version {version}…',
+    unreachable: 'Digital Drivers cannot be reached. Check your internet connection.',
+    retry: 'Try again',
+    check: 'System check',
+    appVersion: 'App version',
+    setupsFolder: 'Setups folder',
+    notFound: 'not found',
+    notThereYet: 'not there yet (start the game once)',
+  },
+  de: {
+    connecting: 'Verbinde mit Digital Drivers…',
+    updating: 'Aktualisiere auf Version {version}…',
+    unreachable: 'Digital Drivers ist nicht erreichbar. Prüf deine Internetverbindung.',
+    retry: 'Erneut versuchen',
+    check: 'Systemprüfung',
+    appVersion: 'App-Version',
+    setupsFolder: 'Setup-Ordner',
+    notFound: 'nicht gefunden',
+    notThereYet: 'noch nicht da (starte das Spiel einmal)',
+  },
+}
+const lang = navigator.language.toLowerCase().startsWith('de') ? 'de' : 'en'
+const text = (key, values = {}) => TEXTS[lang][key].replace(/\{(\w+)\}/g, (_, name) => values[name])
+document.documentElement.lang = lang
+for (const el of document.querySelectorAll('[data-text]')) el.textContent = text(el.dataset.text)
+
 const statusEl = document.querySelector('#status')
 const retryEl = document.querySelector('#retry')
 
 async function showSystemCheck() {
   const check = await invoke('system_check')
   document.querySelector('#check-version').textContent = check.appVersion
-  document.querySelector('#check-evo').textContent = check.acEvoPath ?? 'not found'
-  document.querySelector('#check-folder').textContent = check.acEvoSetupsPath ?? 'not there yet (start the game once)'
+  document.querySelector('#check-evo').textContent = check.acEvoPath ?? text('notFound')
+  document.querySelector('#check-folder').textContent = check.acEvoSetupsPath ?? text('notThereYet')
   document.querySelector('#check').hidden = false
 }
 
@@ -20,7 +50,7 @@ async function updateIfAvailable() {
     if (!(await invoke('update_at_start').catch(() => true))) return false
     const update = await invoke('update_check')
     if (!update) return false
-    statusEl.textContent = `Updating to version ${update.version}…`
+    statusEl.textContent = text('updating', { version: update.version })
     await invoke('update_install')
     return true
   }
@@ -31,19 +61,21 @@ async function updateIfAvailable() {
 
 async function connect() {
   retryEl.hidden = true
-  statusEl.textContent = 'Connecting to Digital Drivers…'
+  statusEl.textContent = text('connecting')
   if (await updateIfAvailable()) return
 
-  const url = await invoke('platform_url')
+  let url
   try {
+    url = await invoke('platform_url')
     // Only a JSON answer from our own health endpoint counts. An error page of a proxy or a parked
-    // domain must not be opened inside the shell.
-    const res = await fetch(`${url}/api/health`, { cache: 'no-store' })
+    // domain must not be opened inside the shell. A connection that hangs counts as none after 8 seconds,
+    // so the driver gets the button to try again instead of a page that keeps connecting.
+    const res = await fetch(`${url}/api/health`, { cache: 'no-store', signal: AbortSignal.timeout(8000) })
     const health = await res.json()
     if (typeof health.status !== 'string') throw new Error('not the Digital Drivers health endpoint')
   }
   catch {
-    statusEl.textContent = 'Digital Drivers cannot be reached. Check your internet connection.'
+    statusEl.textContent = text('unreachable')
     retryEl.hidden = false
     await showSystemCheck()
     return
