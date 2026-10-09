@@ -18,6 +18,37 @@ pub fn is_car_id(id: &str) -> bool {
     (3..=100).contains(&id.len()) && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
 }
 
+/// The version in the address `install_car` downloads a package from, when the address is exactly the
+/// platform's package of car `id` with a download ticket: `/api/garage/<id>/<version>/package?ticket=<expiry>.<hex>`.
+/// Anything else is refused, `..` above all: the HTTP client resolves it, so a prefix check let a page download
+/// any answer of the platform as the package (security audit 2026-10-09, S9).
+pub fn package_version(id: &str, path: &str) -> Option<u32> {
+    let rest = path.strip_prefix("/api/garage/")?.strip_prefix(id)?.strip_prefix('/')?;
+    let (version, ticket) = rest.split_once("/package?ticket=")?;
+    let (expiry, signature) = ticket.split_once('.')?;
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    let hex = signature.len() == 64 && signature.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+    if !digits(version) || version.starts_with('0') || !digits(expiry) || !hex {
+        return None;
+    }
+    version.parse().ok()
+}
+
+/// The public key of the club's car packages (minisign, Ed25519): its own key, not the one of app updates. The
+/// private half stays with the car builder (dd-platform scripts/car-signing.mjs), outside every repository.
+pub const PACKAGE_KEY: &str = "RWT0+kQp/ceIjLZHAQhCH/jziaQoii/n2Rmvbt64t9shMOuKF37dlOV9";
+
+/// Whether `signature` (a minisign signature as text, as the platform hands it out) of `key` says that the
+/// package with this SHA-256 is version `version` of car `id`. The club signs that statement, not the 200 MB
+/// package itself: the app checks the package's SHA-256 anyway, and the statement binds the bytes to the car and
+/// version, so a package of another car or version cannot be passed off (security audit 2026-10-09, S4).
+pub fn is_signed(key: &str, signature: &str, id: &str, version: u32, sha256: &str) -> bool {
+    let (Ok(key), Ok(signature)) = (minisign_verify::PublicKey::from_base64(key), minisign_verify::Signature::decode(signature)) else {
+        return false;
+    };
+    key.verify(format!("dd-car-package:{id}:{version}:{sha256}").as_bytes(), &signature, false).is_ok()
+}
+
 /// The paths in a package's file table, lower case (`content\cars\<id>\...`). `table` is the table as it is
 /// on disk, still XOR'd.
 pub fn package_paths(table: &[u8]) -> HashSet<String> {
@@ -237,6 +268,57 @@ mod tests {
         assert!(lines[19].ends_with("key not found:"));
         assert_eq!(crash_lines("a\n\nb\n"), vec!["a", "b"]);
         assert!(crash_lines("").is_empty());
+    }
+
+    #[test]
+    fn takes_only_the_package_address_of_the_car() {
+        let ticket = format!("1760000000.{}", "ab".repeat(32));
+        assert_eq!(package_version("dd_x", &format!("/api/garage/dd_x/31/package?ticket={ticket}")), Some(31));
+        for bad in [
+            // `..` is resolved by the HTTP client: this is /api/evo/hotlaps (security audit 2026-10-09, S9).
+            format!("/api/garage/dd_x/../../evo/hotlaps?ticket={ticket}"),
+            format!("/api/garage/dd_x/31/../../dd_y/31/package?ticket={ticket}"),
+            format!("/api/garage/dd_x/31/%2e%2e/package?ticket={ticket}"),
+            format!("/api/garage/dd_x/31/preview?ticket={ticket}"),
+            format!("/api/garage/dd_y/31/package?ticket={ticket}"),
+            format!("/api/garage/dd_x/31/package?ticket={ticket}&x=1"),
+            format!("/api/garage/dd_x/31/package?ticket={ticket}#x"),
+            format!("/api/garage/dd_x/031/package?ticket={ticket}"),
+            format!("/api/garage/dd_x/+31/package?ticket={ticket}"),
+            "/api/garage/dd_x/31/package?ticket=1760000000.ab".to_string(),
+            format!("/api/garage/dd_x/31/package?ticket=1760000000.{}", "AB".repeat(32)),
+            format!("/api/garage/dd_x/31/package?ticket=.{}", "ab".repeat(32)),
+            "/api/garage/dd_x/31/package".to_string(),
+            format!("//evil.example/api/garage/dd_x/31/package?ticket={ticket}"),
+        ] {
+            assert_eq!(package_version("dd_x", &bad), None, "{bad}");
+        }
+    }
+
+    /// Made by dd-platform's scripts/car-signing.mjs with a key made for this test only.
+    const TEST_KEY: &str = "RWSk5AM3Hs0I5zE/5SvFlmAijnh/pKxFsGCUEGzl2ME0l8ir7c2j4YzC";
+    const TEST_SIGNATURE: &str = "untrusted comment: signature from the Digital Drivers car package key\nRUSk5AM3Hs0I520lPCdJo/qX5epVcQ0jJmRDmUgiKxIBiLg0UcXYxDwYqCDVYPrpjWGleHefksT5Mt8gqkJCyshZYIdwYRmGawM=\ntrusted comment: dd-car-package:dd_x:31:abababababababababababababababababababababababababababababababab\njC3dz0OnMffwh0gj63gZEJctYUWi4vPTPNj09tm/3+KOzjxNCqzyfRDyUU56FuJx88OsZ6J+iCVD4wV6r/w3AQ==\n";
+
+    #[test]
+    fn installs_only_a_package_the_club_signed_for_this_car_and_version() {
+        let sha = "ab".repeat(32);
+        assert!(is_signed(TEST_KEY, TEST_SIGNATURE, "dd_x", 31, &sha));
+        // The signature names car, version and package: none of them can be swapped.
+        assert!(!is_signed(TEST_KEY, TEST_SIGNATURE, "dd_y", 31, &sha));
+        assert!(!is_signed(TEST_KEY, TEST_SIGNATURE, "dd_x", 30, &sha));
+        assert!(!is_signed(TEST_KEY, TEST_SIGNATURE, "dd_x", 31, &"cd".repeat(32)));
+        // Another key's signature, a changed one, none at all.
+        assert!(!is_signed(PACKAGE_KEY, TEST_SIGNATURE, "dd_x", 31, &sha));
+        assert!(!is_signed(TEST_KEY, &TEST_SIGNATURE.replace("trusted comment: dd", "trusted comment: xx"), "dd_x", 31, &sha));
+        assert!(!is_signed(TEST_KEY, &TEST_SIGNATURE.replace("RUSk5AM3Hs0I520l", "RUSk5AM3Hs0I520m"), "dd_x", 31, &sha));
+        assert!(!is_signed(TEST_KEY, "", "dd_x", 31, &sha));
+        assert!(!is_signed(TEST_KEY, "not a signature", "dd_x", 31, &sha));
+    }
+
+    #[test]
+    fn has_the_club_key_built_in() {
+        assert!(minisign_verify::PublicKey::from_base64(PACKAGE_KEY).is_ok());
+        assert_ne!(PACKAGE_KEY, TEST_KEY);
     }
 
     #[test]

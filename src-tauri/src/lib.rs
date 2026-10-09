@@ -180,12 +180,13 @@ fn ac_evo_running() -> bool {
 
 /// Puts one of the club's cars into the game: downloads `path` (an address of the platform's garage, with the
 /// ticket the page got), unpacks it on the way, checks its SHA-256 and only then replaces `mods\<id>.kspkg`.
-/// Refused while the game runs. Saved cars of that car that point at files the new version no longer has move
+/// Before the download, `signature` (since 0.20.0, from the platform's garage) must be the club's signature of
+/// that SHA-256 as this car and version; without it nothing is downloaded. Refused while the game runs. Saved cars of that car that point at files the new version no longer has move
 /// to `SavedCars\stale`, and a garage that selected any saved car of it selects a stock car (after a backup).
 #[tauri::command]
-async fn install_car(app: tauri::AppHandle, state: tauri::State<'_, PackageHashes>, id: String, path: String, sha256: String) -> Result<(), String> {
+async fn install_car(app: tauri::AppHandle, state: tauri::State<'_, PackageHashes>, id: String, path: String, sha256: String, signature: Option<String>) -> Result<(), String> {
     log(&format!("install_car requested: {id} ({sha256})"));
-    let result = download_car(&app, &id, &path, &sha256).await;
+    let result = download_car(&app, &id, &path, &sha256, signature.as_deref()).await;
     match &result {
         Ok(retired) => log(&format!("install_car -> {id} installed, {retired} stale saved cars retired")),
         Err(error) => log(&format!("install_car failed: {error}")),
@@ -203,11 +204,15 @@ struct CarProgress {
     total: Option<u64>,
 }
 
-async fn download_car(app: &tauri::AppHandle, id: &str, path: &str, sha256: &str) -> Result<usize, String> {
+async fn download_car(app: &tauri::AppHandle, id: &str, path: &str, sha256: &str, signature: Option<&str>) -> Result<usize, String> {
     use sha2::{Digest, Sha256};
     use std::io::Write;
-    if !garage::is_car_id(id) || !path.starts_with(&format!("/api/garage/{id}/")) || sha256.len() != 64 {
-        return Err("invalid-car".to_string());
+    let version = match garage::package_version(id, path) {
+        Some(version) if garage::is_car_id(id) && sha256.len() == 64 => version,
+        _ => return Err("invalid-car".to_string()),
+    };
+    if !signature.is_some_and(|signature| garage::is_signed(garage::PACKAGE_KEY, signature, id, version, sha256)) {
+        return Err(format!("signature: {id} version {version} is {}", if signature.is_some() { "not signed by the club" } else { "unsigned" }));
     }
     let user_dir = find_ac_evo_user_dir(app).ok_or("ac-evo-not-found")?;
     if ac_evo_running() {
@@ -864,11 +869,21 @@ pub fn run() {
             // The window is built here instead of by the configuration alone, so that links which open a new
             // window (a stream, a download) go to the browser: the app has no tabs, and without this they did
             // nothing at all.
+            // The window itself stays on the platform and Steam's sign-in; any other page goes to the browser.
             let config = app.config().app.windows.first().cloned().ok_or("no window in tauri.conf.json")?;
+            let platform = platform_url();
             tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?
                 .on_new_window(|url, _features| {
                     open_in_browser(url.as_str());
                     tauri::webview::NewWindowResponse::Deny
+                })
+                .on_navigation(move |url| {
+                    if links::stays_in_app(url.as_str(), &platform) {
+                        return true;
+                    }
+                    log(&format!("navigation kept out of the window: {url}"));
+                    open_in_browser(url.as_str());
+                    false
                 })
                 .build()?;
             Ok(())

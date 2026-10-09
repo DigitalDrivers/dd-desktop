@@ -61,7 +61,9 @@ driver can check what the app does on their PC.
 - When you join one of our servers, the app starts Assetto Corsa EVO through Steam (`steam://run/3058630`); the
   page has put the server's join string on the clipboard, which the game's server list takes.
 - A link the platform opens in a new window (a stream, a download) goes to your default browser; the app has no
-  tabs. Only web addresses (`http`, `https`) are passed on, anything else is refused.
+  tabs. Only web addresses (`http`, `https`) are passed on, anything else is refused. The app window itself only
+  shows the platform (`https://digitaldrivers.club`) and Steam's sign-in (`https://steamcommunity.com`); a page
+  of any other site goes to the browser as well.
 - Installed with the `setup.exe`, the app asks GitHub at every start for the newest release (one request to
   `github.com`, the update manifest of this repository's releases). A newer installer is downloaded, checked
   against the signing key built into the app and run; it replaces the app and starts it again. The Store build
@@ -96,6 +98,14 @@ and the file ends in `.carsetup`, so nothing can be written outside the game's s
 at most 64 KB. Loading a setup stays with the driver, in the game's setup screen: the app cannot know which
 setup the game drives with. `remove_setups` (since 0.17.0) takes places with the SHA-256 the platform hands
 out and answers `removed`, `changed` (the driver's own work, kept) or `missing` for each.
+
+`install_car` takes the car id, the download address with the ticket the platform made
+(`/api/garage/<id>/<version>/package?ticket=...`, nothing else), the package's SHA-256 and, since 0.20.0, its
+`signature`: the club's minisign signature (Ed25519) of `dd-car-package:<id>:<version>:<sha256>`, which the
+platform hands out with the version. The public key is built in (`crates/dd-core/src/garage.rs`, `PACKAGE_KEY`);
+its private half is the car builder's (dd-platform `scripts/car-signing.mjs`), a key of its own, not the one of
+app updates. Without a valid signature nothing is downloaded (`signature`); a package whose SHA-256 differs is
+thrown away (`checksum`).
 
 While `install_car` downloads a package, the app sends the event `car-progress` (`{ id, received, total }`, bytes
 as they arrive; `total` is null when the server names no length) at most every 250 ms and once at the end. The
