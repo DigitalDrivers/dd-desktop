@@ -181,7 +181,8 @@ fn ac_evo_running() -> bool {
 /// Puts one of the club's cars into the game: downloads `path` (an address of the platform's garage, with the
 /// ticket the page got), unpacks it on the way, checks its SHA-256 and only then replaces `mods\<id>.kspkg`.
 /// Before the download, `signature` (since 0.20.0, from the platform's garage) must be the club's signature of
-/// that SHA-256 as this car and version; without it nothing is downloaded. Refused while the game runs. Saved cars of that car that point at files the new version no longer has move
+/// that SHA-256 as this car and version; without it nothing is downloaded. A version lower than the one the app
+/// installed last is refused (`downgrade`), the same one already in the game is nothing to do. Refused while the game runs. Saved cars of that car that point at files the new version no longer has move
 /// to `SavedCars\stale`, and a garage that selected any saved car of it selects a stock car (after a backup).
 #[tauri::command]
 async fn install_car(app: tauri::AppHandle, state: tauri::State<'_, PackageHashes>, id: String, path: String, sha256: String, signature: Option<String>) -> Result<(), String> {
@@ -222,6 +223,25 @@ async fn download_car(app: &tauri::AppHandle, id: &str, path: &str, sha256: &str
     fs::create_dir_all(&mods).map_err(|e| format!("failed: mods folder: {e}"))?;
     let target = mods.join(format!("{id}.kspkg"));
     let part = mods.join(format!("{id}.kspkg.part"));
+    // Never a lower version than the one installed; the same one already in the game is nothing to do. The
+    // signature checked above says which version a package with this SHA-256 is, so it is kept as installed.
+    let config = app.path().app_config_dir().map_err(|e| format!("failed: config folder: {e}"))?;
+    let installed = garage::installed_version(&config, id);
+    let file = target.clone();
+    let on_disk = target.exists() && tauri::async_runtime::spawn_blocking(move || sha256_hex(&file)).await.is_ok_and(|hash| hash.is_ok_and(|hash| hash == sha256));
+    match garage::install_plan(installed, version, on_disk) {
+        garage::InstallPlan::Downgrade { installed } => return Err(format!("downgrade: {id} version {version} is older than version {installed} on this PC")),
+        garage::InstallPlan::NothingToDo => {
+            log(&format!("install_car: {id} version {version} is already in the game"));
+            if installed != Some(version) {
+                if let Err(error) = garage::record_installed(&config, id, version) {
+                    log(&format!("install_car: keeping the version of {id}: {error}"));
+                }
+            }
+            return Ok(0);
+        }
+        garage::InstallPlan::Install => {}
+    }
 
     let url = format!("{}{path}", platform_url());
     log(&format!("install_car: downloading {id}"));
@@ -320,6 +340,9 @@ async fn download_car(app: &tauri::AppHandle, id: &str, path: &str, sha256: &str
         return Err("game-running".to_string());
     }
     fs::rename(&part, &target).map_err(|e| format!("failed: {e}"))?;
+    if let Err(error) = garage::record_installed(&config, id, version) {
+        log(&format!("install_car: keeping the version of {id}: {error}"));
+    }
     Ok(retire_saved_cars(&user_dir, id, &target))
 }
 

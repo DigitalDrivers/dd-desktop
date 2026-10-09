@@ -6,6 +6,9 @@
 //! garage that selects any saved car of that car is pointed at a stock car, after a backup.
 
 use std::collections::HashSet;
+use std::fs;
+use std::io;
+use std::path::Path;
 
 /// The package's file table: the last 64 MB of the file, one `ENTRY` per file, XOR'd with `KEY`.
 pub const TABLE_SIZE: usize = 0x400_0000;
@@ -47,6 +50,43 @@ pub fn is_signed(key: &str, signature: &str, id: &str, version: u32, sha256: &st
         return false;
     };
     key.verify(format!("dd-car-package:{id}:{version}:{sha256}").as_bytes(), &signature, false).is_ok()
+}
+
+/// What installing version `offered` of a car comes to. `installed` is the version the app last put into the
+/// game for it (also the highest: it never installs a lower one), `on_disk` whether the package in the game is
+/// the offered one (same SHA-256). A lower version than the installed one is refused: a compromised platform
+/// could hand out an older version the club once signed, with its faults (security audit 2026-10-09). The club
+/// rolls a car back by publishing the old state under a new, higher version.
+#[derive(Debug, PartialEq, Eq)]
+pub enum InstallPlan {
+    Install,
+    NothingToDo,
+    Downgrade { installed: u32 },
+}
+
+pub fn install_plan(installed: Option<u32>, offered: u32, on_disk: bool) -> InstallPlan {
+    match installed {
+        Some(installed) if offered < installed => InstallPlan::Downgrade { installed },
+        _ if on_disk => InstallPlan::NothingToDo,
+        _ => InstallPlan::Install,
+    }
+}
+
+/// The file in the app's config folder that keeps the version of car `id` the app installed last.
+fn version_file(dir: &Path, id: &str) -> Option<std::path::PathBuf> {
+    is_car_id(id).then(|| dir.join("cars").join(format!("{id}.version")))
+}
+
+/// The version of car `id` the app installed last on this PC; None before its first install by an app that keeps
+/// the version.
+pub fn installed_version(dir: &Path, id: &str) -> Option<u32> {
+    fs::read_to_string(version_file(dir, id)?).ok()?.trim().parse().ok()
+}
+
+pub fn record_installed(dir: &Path, id: &str, version: u32) -> io::Result<()> {
+    let file = version_file(dir, id).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "not a car id"))?;
+    fs::create_dir_all(file.parent().unwrap())?;
+    fs::write(file, version.to_string())
 }
 
 /// The paths in a package's file table, lower case (`content\cars\<id>\...`). `table` is the table as it is
@@ -319,6 +359,39 @@ mod tests {
     fn has_the_club_key_built_in() {
         assert!(minisign_verify::PublicKey::from_base64(PACKAGE_KEY).is_ok());
         assert_ne!(PACKAGE_KEY, TEST_KEY);
+    }
+
+    #[test]
+    fn never_installs_a_lower_version_than_the_one_installed() {
+        // A compromised platform could hand out an older version the club once signed (security audit 2026-10-09).
+        assert_eq!(install_plan(Some(31), 30, false), InstallPlan::Downgrade { installed: 31 });
+        assert_eq!(install_plan(Some(31), 1, false), InstallPlan::Downgrade { installed: 31 });
+        // Also when a driver put the older package back by hand: the app does not install it again.
+        assert_eq!(install_plan(Some(31), 30, true), InstallPlan::Downgrade { installed: 31 });
+        // The same version already in the game: nothing to do; missing or damaged, it comes again.
+        assert_eq!(install_plan(Some(31), 31, true), InstallPlan::NothingToDo);
+        assert_eq!(install_plan(Some(31), 31, false), InstallPlan::Install);
+        // Newer versions, and cars the app has not installed yet (or before it kept their version).
+        assert_eq!(install_plan(Some(31), 32, false), InstallPlan::Install);
+        assert_eq!(install_plan(None, 5, false), InstallPlan::Install);
+        assert_eq!(install_plan(None, 5, true), InstallPlan::NothingToDo);
+    }
+
+    #[test]
+    fn keeps_the_installed_version_of_each_car() {
+        let dir = std::env::temp_dir().join(format!("dd-garage-{}", std::process::id())).join("config");
+        assert_eq!(installed_version(&dir, "dd_x"), None);
+        // The config folder does not exist before the first car.
+        record_installed(&dir, "dd_x", 31).unwrap();
+        record_installed(&dir, "dd_y", 4).unwrap();
+        assert_eq!(installed_version(&dir, "dd_x"), Some(31));
+        assert_eq!(installed_version(&dir, "dd_y"), Some(4));
+        record_installed(&dir, "dd_x", 32).unwrap();
+        assert_eq!(installed_version(&dir, "dd_x"), Some(32));
+        // Only car ids name a file.
+        assert!(record_installed(&dir, "..", 1).is_err());
+        assert_eq!(installed_version(&dir, ".."), None);
+        std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
     }
 
     #[test]
