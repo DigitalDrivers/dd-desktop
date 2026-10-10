@@ -83,6 +83,18 @@ pub fn installed_version(dir: &Path, id: &str) -> Option<u32> {
     fs::read_to_string(version_file(dir, id)?).ok()?.trim().parse().ok()
 }
 
+/// The version of car `id` the app installed last, as long as `package` (the game's `mods\<id>.kspkg`) is the file
+/// it installed then: the app records the version after it put the package in place, so a package changed after
+/// that (a builder's own build copied in) has no known version.
+pub fn installed_package_version(dir: &Path, id: &str, package: &Path) -> Option<u32> {
+    let recorded = fs::metadata(version_file(dir, id)?).ok()?.modified().ok()?;
+    let changed = fs::metadata(package).ok()?.modified().ok()?;
+    if changed > recorded {
+        return None;
+    }
+    installed_version(dir, id)
+}
+
 pub fn record_installed(dir: &Path, id: &str, version: u32) -> io::Result<()> {
     let file = version_file(dir, id).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "not a car id"))?;
     fs::create_dir_all(file.parent().unwrap())?;
@@ -392,6 +404,27 @@ mod tests {
         assert!(record_installed(&dir, "..", 1).is_err());
         assert_eq!(installed_version(&dir, ".."), None);
         std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn names_the_installed_version_only_while_the_package_is_the_one_the_app_installed() {
+        let root = std::env::temp_dir().join(format!("dd-garage-package-{}", std::process::id()));
+        let (dir, package) = (root.join("config"), root.join("mods").join("dd_x.kspkg"));
+        fs::create_dir_all(package.parent().unwrap()).unwrap();
+        // no package, or none installed by the app
+        assert_eq!(installed_package_version(&dir, "dd_x", &package), None);
+        fs::write(&package, b"v31").unwrap();
+        assert_eq!(installed_package_version(&dir, "dd_x", &package), None);
+        // the app writes the package, then its version
+        let at = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+        fs::File::options().write(true).open(&package).unwrap().set_modified(at).unwrap();
+        record_installed(&dir, "dd_x", 31).unwrap();
+        assert_eq!(installed_package_version(&dir, "dd_x", &package), Some(31));
+        // a package copied in after that (a builder's own build) is not version 31
+        fs::File::options().write(true).open(&package).unwrap().set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(60)).unwrap();
+        assert_eq!(installed_package_version(&dir, "dd_x", &package), None);
+        assert_eq!(installed_package_version(&dir, "..", &package), None);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

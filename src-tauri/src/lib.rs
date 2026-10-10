@@ -517,8 +517,13 @@ fn sample_laps(app: tauri::AppHandle) {
         // The pages give the car's display name; which car it is, the game's log says. Only the club's cars' laps
         // are kept: nothing of any other car leaves the PC.
         let display_name = std::mem::take(&mut lap.car);
-        match newest_game_log(&app).and_then(|log| laps::current_car(&log)) {
+        let game_log = newest_game_log(&app);
+        match game_log.as_deref().and_then(laps::current_car) {
             Some((id, preset)) if laps::is_club_car(&id) => {
+                let config = app.path().app_config_dir().ok();
+                let package = find_ac_evo_user_dir(&app).map(|dir| dir.join("mods").join(format!("{id}.kspkg")));
+                lap.package_version = config.zip(package).and_then(|(config, package)| garage::installed_package_version(&config, &id, &package));
+                lap.setup_name = game_log.as_deref().and_then(laps::current_setup);
                 lap.car = id;
                 lap.preset = Some(preset);
             }
@@ -528,8 +533,8 @@ fn sample_laps(app: tauri::AppHandle) {
             }
         }
         log(&format!(
-            "lap: {} ({display_name}, {:?}) at {} {}, {} ms, valid {}, pit {}, brake bias {}, balance {} deg; first sample raw: pressure {:?}, core temp {:?}, ride height {:?}",
-            lap.car, lap.preset, lap.track, lap.layout, lap.lap_time_ms, lap.valid, lap.pit, lap.brake_bias, lap.balance_deg, lap.first.pressure, lap.first.core_temp, lap.first.ride_height
+            "lap: {} ({display_name}, {:?}, version {:?}, setup {:?}) at {} {}, {} ms, valid {}, pit {}, brake bias {}, balance {} deg; first sample raw: pressure {:?}, core temp {:?}, ride height {:?}",
+            lap.car, lap.preset, lap.package_version, lap.setup_name, lap.track, lap.layout, lap.lap_time_ms, lap.valid, lap.pit, lap.brake_bias, lap.balance_deg, lap.first.pressure, lap.first.core_temp, lap.first.ride_height
         ));
         let state = app.state::<Laps>();
         let mut finished = state.finished.lock().unwrap();

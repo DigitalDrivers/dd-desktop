@@ -61,6 +61,10 @@ const WINDOW: usize = 10;
 pub struct Tyre {
     pub pressure_avg: f32,
     pub pressure_max: f32,
+    /// The pressure of the lap's last sample off the pit lane. At 10 Hz it moves by 0.007 psi at most from one
+    /// sample to the next (three Nordschleife MoTeC logs of 2026-10-09): one sample is the lap's end, a mean of
+    /// the last seconds would only lag behind.
+    pub pressure_end: f32,
     pub core_temp_avg: f32,
     pub core_temp_max: f32,
     pub brake_temp_max: f32,
@@ -116,6 +120,12 @@ pub struct LapSummary {
     /// The car's mechanical preset (stage or variant) as the game's log names it; the shell fills it in.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preset: Option<String>,
+    /// The version of the car's package the app installed, if the package is still that one; the shell fills it in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub package_version: Option<u32>,
+    /// The setup the driver loaded for the car as the game's log names it, see [`current_setup`]; the shell fills it in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub setup_name: Option<String>,
     #[serde(skip)]
     pub first: FirstSample,
 }
@@ -138,6 +148,26 @@ pub fn current_car(log: &str) -> Option<(String, String)> {
             }
         })
         .last()
+}
+
+/// What the game's log writes when the driver loads a setup in the setup screen, followed by the setup's name.
+const LOAD_SETUP: &str = "] Load preset ";
+/// The platform refuses a longer setup name (in UTF-16 units) and with it the whole batch of laps.
+const SETUP_NAME_MAX: usize = 128;
+
+/// The setup the driver loaded last according to the game's log, if that was after the car was last selected:
+/// the game logs the car again when a session starts, and nothing says a setup loaded before still applies.
+/// None when the driver drives the game's default setup or one the game picked by itself, or the name is too long.
+pub fn current_setup(log: &str) -> Option<String> {
+    let mut setup = None;
+    for line in log.lines() {
+        if line.contains(SET_CAR) {
+            setup = None;
+        } else if let Some((_, name)) = line.split_once(LOAD_SETUP) {
+            setup = Some(name.trim()).filter(|name| !name.is_empty() && name.encode_utf16().count() <= SETUP_NAME_MAX);
+        }
+    }
+    setup.map(str::to_string)
 }
 
 /// Whether a car id is one of the club's cars.
@@ -276,6 +306,7 @@ struct Lap {
     top_speed: f32,
     pressure_sum: [f64; 4],
     pressure_max: [f32; 4],
+    pressure_end: [f32; 4],
     core_sum: [f64; 4],
     core_max: [f32; 4],
     brake_max: [f32; 4],
@@ -324,6 +355,7 @@ impl Lap {
             top_speed: f32::NEG_INFINITY,
             pressure_sum: [0.0; 4],
             pressure_max: [f32::NEG_INFINITY; 4],
+            pressure_end: [0.0; 4],
             core_sum: [0.0; 4],
             core_max: [f32::NEG_INFINITY; 4],
             brake_max: [f32::NEG_INFINITY; 4],
@@ -409,6 +441,7 @@ impl Lap {
             let front_minus_rear = mean(s.slip_angle[0], s.slip_angle[1]) - mean(s.slip_angle[2], s.slip_angle[3]);
             self.balance_sum += front_minus_rear.to_degrees() as f64;
         }
+        self.pressure_end = s.pressure;
         for w in 0..4 {
             self.pressure_sum[w] += s.pressure[w] as f64;
             self.pressure_max[w] = self.pressure_max[w].max(s.pressure[w]);
@@ -449,6 +482,7 @@ impl Lap {
             tyres: std::array::from_fn(|w| Tyre {
                 pressure_avg: avg(self.pressure_sum[w]),
                 pressure_max: self.pressure_max[w],
+                pressure_end: self.pressure_end[w],
                 core_temp_avg: avg(self.core_sum[w]),
                 core_temp_max: self.core_max[w],
                 brake_temp_max: self.brake_max[w],
@@ -467,6 +501,8 @@ impl Lap {
             lat_g_max: self.lat_g_max,
             brake_g_max: self.brake_g_max,
             preset: None,
+            package_version: None,
+            setup_name: None,
             first: self.first,
         }
     }
@@ -721,6 +757,8 @@ mod tests {
         assert_eq!((lap.brake_bias, lap.brake_front, lap.balance_deg), (0.0, 0.0, 0.0));
         assert_eq!((lap.lat_g_max, lap.brake_g_max), (0.0, 0.0));
         assert_eq!(lap.tyres[3].brake_temp_max, 410.0);
+        // the pressures of the lap's last sample
+        assert_eq!(lap.tyres.each_ref().map(|t| t.pressure_end), [28.0, 28.5, 27.0, 27.5]);
         // one second averages: the last one has nine samples at 0.07 / 0.08 and one at 0.05 / 0.06
         assert!(close(lap.ride_height_min[0], 0.068) && close(lap.ride_height_min[1], 0.078), "{:?}", lap.ride_height_min);
         assert!((lap.ride_height_avg[0] - 0.0698).abs() < 1e-6);
@@ -734,7 +772,7 @@ mod tests {
         let mut tyre_keys: Vec<_> = json["tyres"][0].as_object().unwrap().keys().cloned().collect();
         tyre_keys.sort();
         // tempInner/Middle/Outer are gone: the graphics page's tread temperatures spread by 1 °C at most
-        assert_eq!(tyre_keys, ["brakeTempMax", "coreTempAvg", "coreTempMax", "lockShare", "pressureAvg", "pressureMax", "spinShare", "travelAvg", "travelMax"]);
+        assert_eq!(tyre_keys, ["brakeTempMax", "coreTempAvg", "coreTempMax", "lockShare", "pressureAvg", "pressureEnd", "pressureMax", "spinShare", "travelAvg", "travelMax"]);
         assert_eq!(json["gearAtTopSpeed"], 6);
         assert_eq!(json["rideHeightMin"].as_array().unwrap().len(), 2);
         assert!(json.get("first").is_none());
@@ -768,6 +806,45 @@ mod tests {
         assert_eq!(current_car(&log), Some(("bmw_m2_coupe".to_string(), "preset_bmw_m2_coupe_stock".to_string())));
         let log = [&kunos, SELECT_RENNSPORT_UNL3].join("\n");
         assert_eq!(current_car(&log).unwrap().0, "dd_bmw_m3_e46_rennsport");
+    }
+
+    const LOAD_GT3_QUALIFYING: &str = "[2026-10-08 23:42:34.726] [gameface] [info] Load preset DD Nordschleife GT3 Nordschleife Qualifying v4 ";
+
+    #[test]
+    fn finds_the_setup_loaded_for_the_selected_car_in_the_game_s_log() {
+        // As on 2026-10-08: the car is selected (twice, the second time as the session starts), then the setup is loaded.
+        let gt3 = SELECT_RENNSPORT_UNL3.replace("rennsport", "gt3");
+        let dynamic = "[2026-10-08 23:41:42.515] [physics] [info] Loading DynamicTrack preset: content\\tracks\\nurburgring/dynamic_track/Touristenfahrten.dynamictrackpresetcompressed";
+        let log = [gt3.as_str(), &gt3, dynamic, "[2026-10-08 23:42:34.726] [gameface] [warning] CarSetupRequestPresetList ", LOAD_GT3_QUALIFYING, "[2026-10-08 23:42:34.726] [gameface] [warning] CarSetupRequestLoadPreset "].join("\r\n");
+        assert_eq!(current_setup(&log).as_deref(), Some("DD Nordschleife GT3 Nordschleife Qualifying v4"));
+        // the last one loaded counts
+        let stage3 = LOAD_GT3_QUALIFYING.replace("GT3 Nordschleife Qualifying v4", "S54 Stage 3 Hotlap v1");
+        assert_eq!(current_setup(&[log.as_str(), &stage3].join("\n")).as_deref(), Some("DD Nordschleife S54 Stage 3 Hotlap v1"));
+        // a setup loaded before the car was selected (again) is not known to be on it
+        assert_eq!(current_setup(&[LOAD_GT3_QUALIFYING, &gt3].join("\n")), None);
+        assert_eq!(current_setup(&[log.as_str(), SELECT_RENNSPORT_UNL3].join("\n")), None);
+        // none loaded, or an empty name
+        assert_eq!(current_setup(&[gt3.as_str(), dynamic].join("\n")), None);
+        assert_eq!(current_setup(&[gt3.as_str(), "[2026-10-08 23:42:34.726] [gameface] [info] Load preset  "].join("\n")), None);
+        // a name the platform takes, and one too long for it
+        let load = |name: &str| [gt3.as_str(), &format!("[2026-10-08 23:42:34.726] [gameface] [info] Load preset {name}")].join("\n");
+        assert_eq!(current_setup(&load(&"ä".repeat(128))), Some("ä".repeat(128)));
+        assert_eq!(current_setup(&load(&"ä".repeat(129))), None);
+    }
+
+    #[test]
+    fn sends_the_package_version_and_the_setup_only_when_known() {
+        let mut pages = Pages::new();
+        let mut recorder = past_the_out_lap(&mut pages);
+        pages.drive(&mut recorder, 120);
+        pages.count_lap(512_000);
+        let mut lap = pages.sample(&mut recorder).unwrap();
+        let json = serde_json::to_value(&lap).unwrap();
+        assert!(json.get("packageVersion").is_none() && json.get("setupName").is_none());
+        lap.package_version = Some(47);
+        lap.setup_name = Some("DD Nordschleife GT3 Nordschleife Qualifying v4".into());
+        let json = serde_json::to_value(&lap).unwrap();
+        assert_eq!((json["packageVersion"].as_u64(), json["setupName"].as_str()), (Some(47), Some("DD Nordschleife GT3 Nordschleife Qualifying v4")));
     }
 
     #[test]
@@ -931,13 +1008,17 @@ mod tests {
     fn marks_an_in_lap_and_an_invalid_lap() {
         let mut pages = Pages::new();
         let mut recorder = past_the_out_lap(&mut pages);
+        pages.f32s(WHEELS_PRESSURE, &[27.4, 27.5, 26.8, 26.9]);
         pages.drive(&mut recorder, 110);
         // the game counts the lap after the car entered the pit lane
         pages.graphics[IS_IN_PIT_LANE] = 1;
+        pages.f32s(WHEELS_PRESSURE, &[26.0, 26.0, 26.0, 26.0]);
         pages.drive(&mut recorder, 10);
         pages.count_lap(530_000);
         let lap = pages.sample(&mut recorder).unwrap();
         assert!(lap.pit && lap.valid);
+        // the pressures at the lap's end are those of its last sample off the pit lane
+        assert_eq!(lap.tyres.each_ref().map(|t| t.pressure_end), [27.4, 27.5, 26.8, 26.9]);
         // leaving the pit lane starts the next lap, still marked: its time includes the pit lane
         pages.drive(&mut recorder, 10);
         pages.graphics[IS_IN_PIT_LANE] = 0;
