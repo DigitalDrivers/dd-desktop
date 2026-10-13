@@ -1,8 +1,8 @@
 //! Lap summaries from what Assetto Corsa EVO publishes in its shared memory (`Local\acevo_pmf_physics`,
 //! `Local\acevo_pmf_graphics` and `Local\acevo_pmf_static`). The shell samples the pages about ten times a second
 //! and hands the bytes here; a lap is summed up when the game counts it. The pages name the car only by its
-//! display name, so the shell keeps a lap only when the game's log says the club's car (id starting with `dd_`)
-//! is selected, see [`current_car`]. Offsets are those of the official header with `#pragma pack(4)` (page sizes 800, 4900 and 208
+//! display name, so the shell takes the car's id from the game's log, see [`current_car`], and keeps a lap only
+//! when the log names one. Offsets are those of the official header with `#pragma pack(4)` (page sizes 800, 4900 and 208
 //! bytes). The values are sent as the game publishes them: their units are not documented for EVO.
 
 use serde::Serialize;
@@ -44,7 +44,7 @@ const TRACK_CONFIGURATION: usize = 169;
 const IS_ONLINE: usize = 86;
 /// `ACEVO_STATUS`: 2 = live driving
 const LIVE: i32 = 2;
-/// The club's cars; the laps of any other car are not kept.
+/// The club's cars; only their laps carry the version of the car's package.
 const CLUB_CAR_PREFIX: &str = "dd_";
 /// A lap with fewer samples (ten seconds at 10 Hz) is not summed up.
 const MIN_SAMPLES: u32 = 100;
@@ -174,6 +174,18 @@ pub fn current_setup(log: &str) -> Option<String> {
 pub fn is_club_car(id: &str) -> bool {
     id.starts_with(CLUB_CAR_PREFIX)
 }
+
+/// Whether the platform takes `id` as a car (`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`): it refuses the whole batch of laps
+/// for one it does not take, and since 0.23.0 the laps of any car, a mod's too, are sent.
+pub fn platform_takes_car(id: &str) -> bool {
+    let mut chars = id.chars();
+    id.len() <= 64
+        && chars.next().is_some_and(|c| c.is_ascii_alphanumeric())
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
+}
+
+/// The platform refuses a longer preset name (in UTF-16 units) and with it the whole batch of laps.
+pub const PRESET_MAX: usize = 96;
 
 /// The fields of one sample of the three pages.
 struct Sample {
@@ -848,10 +860,29 @@ mod tests {
     }
 
     #[test]
+    fn finds_a_kunos_car_in_the_game_s_log() {
+        // Joe's log of 2026-10-13: the Kunos Porsche 911 GT2 RS Clubsport Evo
+        let log = "[2026-10-13 01:44:09.063] [ui] [info] onSetPlayerCurrentCarCommand\r\n[2026-10-13 01:44:09.064] [gameplay] [info] ACEVO-2629 onSetPlayerCurrentCarCommand: Set new car 49339e2d-d379-a396-2e0e-17fc1d2f868f content\\cars\\ks_porsche_991ii_gt2_rs_clubsport_evo\\presets\\preset_gt2rscs_mech_1.mechanicalcarpreset\r\n";
+        let (id, preset) = current_car(log).unwrap();
+        assert_eq!((id.as_str(), preset.as_str()), ("ks_porsche_991ii_gt2_rs_clubsport_evo", "preset_gt2rscs_mech_1"));
+        assert!(!is_club_car(&id), "a lap of it carries no package version");
+    }
+
+    #[test]
     fn knows_the_club_s_cars_by_their_id() {
         assert!(is_club_car("dd_bmw_m3_e46_gt3"));
         assert!(!is_club_car("bmw_m2_coupe"));
         assert!(!is_club_car("BMW M2 Coupe"));
+    }
+
+    #[test]
+    fn sends_only_car_ids_the_platform_takes() {
+        for id in ["dd_bmw_m3_e46_gt3", "ks_porsche_991ii_gt2_rs_clubsport_evo", "cky_m3.e46-v2", &"a".repeat(64)] {
+            assert!(platform_takes_car(id), "{id}");
+        }
+        for id in ["", "_dd", "BMW M2 Coupe", "car/x", "caf\u{e9}", &"a".repeat(65)] {
+            assert!(!platform_takes_car(id), "{id}");
+        }
     }
 
     #[test]

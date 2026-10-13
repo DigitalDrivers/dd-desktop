@@ -494,7 +494,7 @@ struct Laps {
 /// Laps kept while the page does not take them; the oldest go first.
 const LAPS_KEPT: usize = 200;
 
-/// The laps of the club's cars finished since the last call, from AC EVO's shared memory. The first call starts
+/// The laps of every car finished since the last call, from AC EVO's shared memory. The first call starts
 /// the sampler, so nothing is read for a driver whose page never asks (the platform asks only with consent).
 #[tauri::command]
 fn take_laps(app: tauri::AppHandle, state: tauri::State<'_, Laps>) -> Vec<LapSummary> {
@@ -514,24 +514,26 @@ fn sample_laps(app: tauri::AppHandle) {
         let Some(graphics) = read_shared_memory("Local\\acevo_pmf_graphics", evo_memory::GRAPHICS_SIZE) else { continue };
         let Some(statics) = read_shared_memory("Local\\acevo_pmf_static", evo_memory::STATIC_SIZE) else { continue };
         let Some(mut lap) = recorder.sample(&graphics, &physics, &statics) else { continue };
-        // The pages give the car's display name; which car it is, the game's log says. Only the club's cars' laps
-        // are kept: nothing of any other car leaves the PC.
+        // The pages give the car's display name; which car it is, the game's log says. Laps of every car are kept
+        // (since 0.23.0); only the club's cars have a package version.
         let display_name = std::mem::take(&mut lap.car);
         let game_log = newest_game_log(&app);
-        match game_log.as_deref().and_then(laps::current_car) {
-            Some((id, preset)) if laps::is_club_car(&id) => {
-                let config = app.path().app_config_dir().ok();
-                let package = find_ac_evo_user_dir(&app).map(|dir| dir.join("mods").join(format!("{id}.kspkg")));
-                lap.package_version = config.zip(package).and_then(|(config, package)| garage::installed_package_version(&config, &id, &package));
-                lap.setup_name = game_log.as_deref().and_then(laps::current_setup);
-                lap.car = id;
-                lap.preset = Some(preset);
-            }
-            other => {
-                log(&format!("lap of {display_name} not kept: not a club car ({})", other.map_or("none".to_string(), |(id, _)| id)));
-                continue;
-            }
+        let Some((id, preset)) = game_log.as_deref().and_then(laps::current_car) else {
+            log(&format!("lap of {display_name} not kept: the game's log names no car"));
+            continue;
+        };
+        if !laps::platform_takes_car(&id) {
+            log(&format!("lap of {display_name} not kept: the platform does not take the car id {id:?}"));
+            continue;
         }
+        if laps::is_club_car(&id) {
+            let config = app.path().app_config_dir().ok();
+            let package = find_ac_evo_user_dir(&app).map(|dir| dir.join("mods").join(format!("{id}.kspkg")));
+            lap.package_version = config.zip(package).and_then(|(config, package)| garage::installed_package_version(&config, &id, &package));
+        }
+        lap.setup_name = game_log.as_deref().and_then(laps::current_setup);
+        lap.car = id;
+        lap.preset = Some(preset).filter(|preset| preset.encode_utf16().count() <= laps::PRESET_MAX);
         log(&format!(
             "lap: {} ({display_name}, {:?}, version {:?}, setup {:?}) at {} {}, {} ms, valid {}, pit {}, brake bias {}, balance {} deg; first sample raw: pressure {:?}, core temp {:?}, ride height {:?}",
             lap.car, lap.preset, lap.package_version, lap.setup_name, lap.track, lap.layout, lap.lap_time_ms, lap.valid, lap.pit, lap.brake_bias, lap.balance_deg, lap.first.pressure, lap.first.core_temp, lap.first.ride_height

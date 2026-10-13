@@ -50,15 +50,15 @@ driver can check what the app does on their PC.
   `Local\acevo_pmf_physics`, `Local\acevo_pmf_graphics` and `Local\acevo_pmf_static` ten times a second until it is
   closed, while you drive live. When a lap ends, it reads the game's newest log (`Saved Games\ACE\Logs\log-*.txt`)
   to see which car and preset you selected last and which setup you loaded for it, because the shared memory names
-  the car only by its display name. Only a lap of one of the club's cars (ids starting with `dd_`) is kept; the
-  laps of any other car are dropped right there. Per lap it keeps a summary: car, track, lap time, valid, pit, fuel
-  used, air and road temperature, top speed and the gear it was reached in, highest rpm, per wheel tyre pressure
-  (average, maximum, at the lap's end) and core temperature (average, maximum), brake temperature (maximum),
-  suspension travel (maximum, average) and how often the wheel locked under braking or spun under throttle, the
-  ride height (minimum, average), the brake bias and the front's share of the brake torque, the balance in corners
+  the car only by its display name. Since 0.23.0 the laps of every car are kept (Kunos cars and mods too), by the
+  car's id from the log; a lap the log names no car for is dropped. Per lap it keeps a summary: car, track, lap time,
+  valid, pit, fuel used, air and road temperature, top speed and the gear it was reached in, highest rpm, per wheel
+  tyre pressure (average, maximum, at the lap's end) and core temperature (average, maximum), brake temperature
+  (maximum), suspension travel (maximum, average) and how often the wheel locked under braking or spun under throttle,
+  the ride height (minimum, average), the brake bias and the front's share of the brake torque, the balance in corners
   (front against rear slip angle), the highest lateral and braking G, the preset (the car's stage or variant), the
-  setup's name, and the version of the car the app installed. Time in the pit lane is left out. The page fetches
-  the summaries and sends them to the platform; nothing else of the drive or of the log is kept.
+  setup's name, and for the club's cars the version of the car the app installed. Time in the pit lane is left out.
+  The page fetches the summaries and sends them to the platform; nothing else of the drive or of the log is kept.
 - When you join one of our servers, the app starts Assetto Corsa EVO through Steam (`steam://run/3058630`); the
   page has put the server's join string on the clipboard, which the game's server list takes.
 - A link the platform opens in a new window (a stream, a download) goes to your default browser; the app has no
