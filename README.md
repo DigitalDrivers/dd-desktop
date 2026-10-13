@@ -59,6 +59,15 @@ driver can check what the app does on their PC.
   (front against rear slip angle), the highest lateral and braking G, the preset (the car's stage or variant), the
   setup's name, and for the club's cars the version of the car the app installed. Time in the pit lane is left out.
   The page fetches the summaries and sends them to the platform; nothing else of the drive or of the log is kept.
+- Only if you switch on the MoTeC upload on the platform (Telemetry, since 0.23.0): the page asks the app once a
+  minute to upload one of the game's MoTeC sessions (`Saved Games\ACE\MoTec\<car>\<track>\*.ld` and `.ldx`, of every
+  car). The game writes a new, larger file after every lap of a session; the app uploads only the newest file of
+  each session, gzipped (in a temporary file in `%TEMP%`, deleted afterwards), in 8 MB parts with a pause between
+  them, and the `.ldx` next to it. A session counts as running while the game drives, or while it runs and wrote a
+  MoTeC file in the last 10 minutes; nothing is uploaded then. Sessions older than 30 days and files of only a
+  header (under 64 KB) are never uploaded. What went up is noted in `motec-uploaded.json` in the app's config
+  folder (`%APPDATA%\club.digitaldrivers.desktop`), so nothing goes up twice. The app only reads the folder: it
+  changes or deletes nothing in it. Nothing of it is read while the switch is off.
 - When you join one of our servers, the app starts Assetto Corsa EVO through Steam (`steam://run/3058630`); the
   page has put the server's join string on the clipboard, which the game's server list takes.
 - A link the platform opens in a new window (a stream, a download) goes to your default browser; the app has no
@@ -71,14 +80,15 @@ driver can check what the app does on their PC.
   does not do this: the Store keeps it up to date.
 - It writes a log to `%TEMP%\dd-desktop.log`.
 
-Nothing else is read, and nothing is uploaded by the shell itself.
+Nothing else is read, and nothing is uploaded by the shell itself, except the MoTeC sessions above when the page
+asks for them.
 
 ## How it works
 
 | Part | What |
 | --- | --- |
 | `src/` | Bundled start page: checks that the platform is reachable, then opens it. Offline it shows a system check. |
-| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `remove_setups`, `update_check`, `update_install`, `update_at_start`, `launch_ac_evo`, `car_status`, `install_car`, `fix_game_start`, `live_snapshot` and `take_laps`. |
+| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `remove_setups`, `update_check`, `update_install`, `update_at_start`, `launch_ac_evo`, `car_status`, `install_car`, `fix_game_start`, `live_snapshot`, `take_laps` and `upload_motec`. |
 | `src-tauri/capabilities/` | Which page may call which command. The hosted interface only gets the commands listed in `platform.json`; `dev-localhost.json` is enabled for development builds only. |
 | `crates/dd-core/` | Platform-independent logic (locating Assetto Corsa EVO and the Steam account, car setups, the club's car packages and their saved cars), unit-tested on any machine. |
 
@@ -111,6 +121,15 @@ thrown away (`checksum`).
 While `install_car` downloads a package, the app sends the event `car-progress` (`{ id, received, total }`, bytes
 as they arrive; `total` is null when the server names no length) at most every 250 ms and once at the end. The
 hosted interface may listen to events (`core:event:allow-listen`, `allow-unlisten`), not send them.
+
+`upload_motec` (since 0.23.0) takes the platform's address, which must be the one the app shows, and a ticket the
+page got from `POST /api/telemetry/motec/ticket`, and uploads at most one MoTeC session per call: it asks
+`GET /api/telemetry/motec/upload` how much the platform has, sends the rest with `PUT .../upload?offset=` (8 MiB
+each, a `409` names the size to go on from), then `POST .../complete` with the gzip's size, SHA-256 and the `.ldx`.
+It answers `{ uploaded, waiting, busy }`: the name uploaded or null, the sessions still to upload, and whether a
+session was running (or an earlier call still uploads). A full quota (`413 motec-quota`) leaves the session for
+later and pauses uploads for 6 hours (as does a file the platform found broken, `motec-mismatch`); a file too large for the platform (`413 motec-too-large`) is noted as done and stays on the PC. Other refusals
+answer the platform's `problem` (`no-consent`, `invalid-ticket`, `motec-mismatch`, ...) or `upload-failed`.
 
 `update_check` and `update_install` keep the `setup.exe` install up to date. The bundled start page calls them
 before the interface loads; since 0.8.0 the hosted interface may call them too, for a notice while the app

@@ -12,6 +12,7 @@ use dd_core::evo_memory::{self, LiveSnapshot};
 use dd_core::garage;
 use dd_core::laps::{self, LapRecorder, LapSummary};
 use dd_core::links;
+use dd_core::motec;
 use dd_core::settings;
 use dd_core::setups::{self, SetupError, SetupFile};
 use serde::Serialize;
@@ -563,6 +564,264 @@ fn newest_game_log(app: &tauri::AppHandle) -> Option<String> {
     fs::read(newest.1).ok().map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
 }
 
+/// What `upload_motec` did, for the page.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MotecUpload {
+    /// The session uploaded by this call (`<car>/<track>/<file>.ld`), or that none was.
+    uploaded: Option<String>,
+    /// Sessions still to upload after this call.
+    waiting: u32,
+    /// A session is running, or the previous call still uploads: nothing was uploaded.
+    busy: bool,
+}
+
+/// Whether a call of `upload_motec` is uploading (the page asks every minute, and an upload can take longer), and
+/// until when no upload starts: after a full quota or a file the platform found broken, every attempt would send up
+/// to 8 MiB, or the whole file, again for nothing.
+#[derive(Default)]
+struct MotecUploading {
+    running: std::sync::atomic::AtomicBool,
+    paused_until: Mutex<Option<std::time::Instant>>,
+}
+
+/// How long uploads pause after a full quota or a file the platform found broken.
+const MOTEC_RETRY: Duration = Duration::from_secs(6 * 60 * 60);
+
+/// The pause before every chunk of an upload, which leaves the line to the driver's other traffic.
+const MOTEC_PAUSE: Duration = Duration::from_secs(1);
+
+/// Uploads one of the game's MoTeC sessions (`Saved Games\ACE\MoTec`) to the platform at `base`, which must be
+/// the platform this app shows, with the ticket the page got (since 0.23.0; the page asks only with the driver's
+/// MoTeC consent). The oldest session that ended and is not uploaded yet goes up: its newest `.ld`, gzipped, in
+/// 8 MiB chunks from where the platform is, then its `.ldx`. Nothing while the game drives live, or runs and
+/// wrote a MoTeC file in the last 10 minutes. The app's config folder keeps what went up (`motec-uploaded.json`).
+#[tauri::command]
+async fn upload_motec(app: tauri::AppHandle, state: tauri::State<'_, MotecUploading>, base: String, ticket: String) -> Result<MotecUpload, String> {
+    use std::sync::atomic::Ordering::SeqCst;
+    let platform = std::env::var("DD_PLATFORM_URL").unwrap_or_else(|_| DEFAULT_PLATFORM_URL.to_string());
+    if base.trim_end_matches('/') != platform.trim_end_matches('/') {
+        log(&format!("upload_motec refused: {base} is not the platform"));
+        return Err("invalid-base".to_string());
+    }
+    if state.running.swap(true, SeqCst) {
+        return Ok(MotecUpload { uploaded: None, waiting: 0, busy: true });
+    }
+    let result = upload_next_motec(&app, &state, &base, &ticket).await;
+    state.running.store(false, SeqCst);
+    if let Err(error) = &result {
+        log(&format!("upload_motec failed: {error}"));
+        if error.starts_with("motec-mismatch") {
+            *state.paused_until.lock().unwrap() = Some(std::time::Instant::now() + MOTEC_RETRY);
+        }
+    }
+    result.map_err(|e| e.split(':').next().unwrap_or("failed").to_string())
+}
+
+/// How the upload of one session ended, short of an error.
+enum MotecOutcome {
+    Uploaded,
+    /// The platform had it completed already.
+    AlreadyThere,
+    /// Larger than the platform takes for one file: never uploaded.
+    TooLarge,
+    /// The driver's quota on the platform is full: tried again later.
+    Quota,
+    /// The game started driving: the rest goes up later.
+    Driving,
+}
+
+async fn upload_next_motec(app: &tauri::AppHandle, state: &MotecUploading, base: &str, ticket: &str) -> Result<MotecUpload, String> {
+    let root = find_ac_evo_user_dir(app).ok_or("ac-evo-not-found")?.join(motec::MOTEC_DIR);
+    let config = app.path().app_config_dir().map_err(|e| format!("failed: config folder: {e}"))?;
+    let listed = root.clone();
+    let files = tauri::async_runtime::spawn_blocking(move || motec_files(&listed)).await.map_err(|e| format!("failed: {e}"))?;
+    let now = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let pending = motec::pending(&files, &motec::uploaded(&config), now);
+    let waiting = pending.len() as u32;
+    let paused = state.paused_until.lock().unwrap().is_some_and(|until| std::time::Instant::now() < until);
+    let Some(next) = pending.first().filter(|_| !paused) else {
+        return Ok(MotecUpload { uploaded: None, waiting, busy: false });
+    };
+    if motec::busy(&files, now, ac_evo_running()) || live_snapshot().is_some() {
+        return Ok(MotecUpload { uploaded: None, waiting, busy: true });
+    }
+    let (name, size) = (next.name.clone(), next.size);
+    let path = name.split('/').fold(root, |path, segment| path.join(segment));
+    log(&format!("upload_motec: {name} ({size} bytes), {waiting} sessions waiting"));
+    let uploaded = match upload_motec_file(&path, base, ticket, &name).await? {
+        MotecOutcome::Uploaded => Some(name.clone()),
+        MotecOutcome::AlreadyThere => {
+            log("upload_motec: the platform has it already");
+            Some(name.clone())
+        }
+        MotecOutcome::TooLarge => {
+            log("upload_motec: larger than the platform takes, it stays on this PC");
+            None
+        }
+        MotecOutcome::Quota => {
+            log("upload_motec: the quota on the platform is full, trying again in 6 hours");
+            *state.paused_until.lock().unwrap() = Some(std::time::Instant::now() + MOTEC_RETRY);
+            return Ok(MotecUpload { uploaded: None, waiting, busy: false });
+        }
+        MotecOutcome::Driving => {
+            log("upload_motec: the game drives, the rest goes up later");
+            return Ok(MotecUpload { uploaded: None, waiting, busy: true });
+        }
+    };
+    // A file too large for the platform is recorded too, so the next call takes the next session.
+    motec::record_uploaded(&config, &name, size).map_err(|e| format!("failed: keeping {name} as uploaded: {e}"))?;
+    if uploaded.is_some() {
+        log(&format!("upload_motec -> {name} uploaded"));
+    }
+    Ok(MotecUpload { uploaded, waiting: waiting - 1, busy: false })
+}
+
+/// The `.ld` files of the MoTeC folder (`<car>\<track>\<file>.ld`), named with forward slashes.
+fn motec_files(root: &Path) -> Vec<motec::MotecFile> {
+    let entries = |dir: &Path| fs::read_dir(dir).into_iter().flatten().flatten().collect::<Vec<_>>();
+    let mut files = Vec::new();
+    for car in entries(root).into_iter().filter(|e| e.path().is_dir()) {
+        for track in entries(&car.path()).into_iter().filter(|e| e.path().is_dir()) {
+            for file in entries(&track.path()) {
+                let (car, track, name) = (car.file_name(), track.file_name(), file.file_name());
+                let (Some(car), Some(track), Some(name)) = (car.to_str(), track.to_str(), name.to_str()) else { continue };
+                let Ok(meta) = file.metadata() else { continue };
+                if !meta.is_file() || !name.ends_with(".ld") {
+                    continue;
+                }
+                let modified = meta.modified().ok().and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs());
+                files.push(motec::MotecFile { name: format!("{car}/{track}/{name}"), size: meta.len(), modified });
+            }
+        }
+    }
+    files
+}
+
+/// Gzips `source` into `target` (level 6, as `gzip`; the same bytes every time, so an upload resumes after a
+/// restart); its size.
+fn gzip_file(source: &Path, target: &Path) -> std::io::Result<u64> {
+    use std::io::Write;
+    let mut input = std::io::BufReader::new(fs::File::open(source)?);
+    let mut encoder = flate2::write::GzEncoder::new(std::io::BufWriter::new(fs::File::create(target)?), flate2::Compression::default());
+    std::io::copy(&mut input, &mut encoder)?;
+    encoder.finish()?.flush()?;
+    Ok(fs::metadata(target)?.len())
+}
+
+fn read_chunk(path: &Path, start: u64, len: u64) -> std::io::Result<Vec<u8>> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = fs::File::open(path)?;
+    file.seek(SeekFrom::Start(start))?;
+    let mut chunk = vec![0; len as usize];
+    file.read_exact(&mut chunk)?;
+    Ok(chunk)
+}
+
+/// An error of the platform as the command answers it: its `problem`, or `upload-failed`.
+fn motec_refused(status: reqwest::StatusCode, body: &[u8], what: &str) -> String {
+    let (problem, _) = motec::problem(body);
+    format!("{}: {status} {what}", if problem.is_empty() { "upload-failed" } else { &problem })
+}
+
+async fn upload_motec_file(path: &Path, base: &str, ticket: &str, name: &str) -> Result<MotecOutcome, String> {
+    // Without a crypto provider building the client panics; the updater installs the same one when it runs.
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    }
+    let client = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .read_timeout(Duration::from_secs(60))
+        .build()
+        .map_err(|e| format!("failed: {e}"))?;
+    let url = |step: &str, offset: Option<u64>| motec::endpoint(base, step, ticket, name, offset).ok_or_else(|| "invalid-base".to_string());
+    let failed = |e: reqwest::Error| format!("upload-failed: {e}");
+
+    let response = client.get(url("upload", None)?).send().await.map_err(failed)?;
+    let status = response.status();
+    let body = response.bytes().await.map_err(failed)?;
+    if !status.is_success() {
+        return Err(motec_refused(status, &body, "asking how much the platform has"));
+    }
+    let received: motec::Received = serde_json::from_slice(&body).map_err(|e| format!("upload-failed: {e}"))?;
+    if received.done {
+        return Ok(MotecOutcome::AlreadyThere);
+    }
+
+    let gz = std::env::temp_dir().join("dd-motec-upload.ld.gz");
+    let (source, target) = (path.to_path_buf(), gz.clone());
+    let gzipped = tauri::async_runtime::spawn_blocking(move || gzip_file(&source, &target).and_then(|len| Ok((len, sha256_hex(&target)?)))).await;
+    let result = match gzipped {
+        Ok(Ok((len, sha256))) => {
+            log(&format!("upload_motec: gzipped to {len} bytes, the platform has {}", received.size));
+            send_motec(&client, &url, &gz, len, &sha256, received.size, path).await
+        }
+        Ok(Err(e)) => Err(format!("failed: gzip: {e}")),
+        Err(e) => Err(format!("failed: {e}")),
+    };
+    let _ = fs::remove_file(&gz);
+    result
+}
+
+/// Sends the gzipped file `gz` from `offset` on in chunks, then completes the upload with the `.ldx` next to `ld`.
+async fn send_motec(
+    client: &reqwest::Client,
+    url: &impl Fn(&str, Option<u64>) -> Result<String, String>,
+    gz: &Path,
+    len: u64,
+    sha256: &str,
+    mut offset: u64,
+    ld: &Path,
+) -> Result<MotecOutcome, String> {
+    let failed = |e: reqwest::Error| format!("upload-failed: {e}");
+    let mut conflicts = 0;
+    while let Some((start, size)) = motec::chunk(offset, len) {
+        if live_snapshot().is_some() {
+            return Ok(MotecOutcome::Driving);
+        }
+        let file = gz.to_path_buf();
+        let chunk = tauri::async_runtime::spawn_blocking(move || {
+            std::thread::sleep(MOTEC_PAUSE);
+            read_chunk(&file, start, size)
+        })
+        .await
+        .map_err(|e| format!("failed: {e}"))?
+        .map_err(|e| format!("failed: {e}"))?;
+        let response = client.put(url("upload", Some(start))?).header("content-type", "application/octet-stream").body(chunk).send().await.map_err(failed)?;
+        let status = response.status();
+        let body = response.bytes().await.map_err(failed)?;
+        if status.is_success() {
+            offset = serde_json::from_slice::<motec::Received>(&body).map_err(|e| format!("upload-failed: {e}"))?.size;
+            continue;
+        }
+        match (status.as_u16(), motec::problem(&body)) {
+            // The platform has another size than the app thought (a chunk whose answer got lost): from there on.
+            (409, (problem, Some(size))) if problem == "motec-offset" && conflicts < 3 => {
+                conflicts += 1;
+                log(&format!("upload_motec: the platform has {size} bytes, not {start}"));
+                offset = size;
+            }
+            (413, (problem, _)) if problem == "motec-quota" => return Ok(MotecOutcome::Quota),
+            (413, (problem, _)) if problem == "motec-too-large" => return Ok(MotecOutcome::TooLarge),
+            _ => return Err(motec_refused(status, &body, &format!("at {start} of {len}"))),
+        }
+    }
+    let ldx_path = ld.with_extension("ldx");
+    let ldx = match fs::metadata(&ldx_path) {
+        Ok(meta) if meta.len() <= motec::LDX_MAX => fs::read(&ldx_path).map(|bytes| String::from_utf8_lossy(&bytes).into_owned()).unwrap_or_default(),
+        _ => String::new(),
+    };
+    let complete = serde_json::json!({ "size": len, "sha256": sha256, "ldx": ldx });
+    let response = client.post(url("complete", None)?).header("content-type", "application/json").body(complete.to_string()).send().await.map_err(failed)?;
+    let status = response.status();
+    if !status.is_success() {
+        // On `motec-mismatch` the platform threw its part away: the next call starts this session over.
+        let body = response.bytes().await.map_err(failed)?;
+        return Err(motec_refused(status, &body, "completing"));
+    }
+    Ok(MotecOutcome::Uploaded)
+}
+
 /// A copy of a named shared memory page of another program, if it exists.
 #[cfg(windows)]
 fn read_shared_memory(name: &str, size: usize) -> Option<Vec<u8>> {
@@ -895,6 +1154,7 @@ pub fn run() {
                 .manage(PendingUpdate::default())
         .manage(PackageHashes::default())
         .manage(Laps::default())
+        .manage(MotecUploading::default())
         .setup(|app| {
             // The window is built here instead of by the configuration alone, so that links which open a new
             // window (a stream, a download) go to the browser: the app has no tabs, and without this they did
@@ -918,7 +1178,7 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -1000,5 +1260,32 @@ mod tests {
         assert!(!saved.join("dd_x_1.carfinalstatewithconsumable").exists());
         assert!(saved.join("ks_y_2.carfinalstatewithconsumable").is_file());
         fs::remove_dir_all(&user).unwrap();
+    }
+
+    #[test]
+    fn lists_the_motec_files_by_car_and_track_and_gzips_them_the_same_every_time() {
+        let root = std::env::temp_dir().join(format!("dd-motec-{}", std::process::id()));
+        let track = root.join("BMW M4 GT3 Evo").join("NurburgringTouristenfahrten");
+        fs::create_dir_all(&track).unwrap();
+        let ld = track.join("BMW M4 GT3 Evo_preset_m4gt3_mech_1_NurburgringTouristenfahrten_Sat Oct  3 195443 2026.ld");
+        let data: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+        fs::write(&ld, &data).unwrap();
+        fs::write(ld.with_extension("ldx"), b"<xml/>").unwrap();
+        fs::write(root.join("BMW M4 GT3 Evo").join("stray.ld"), b"").unwrap();
+        let files = motec_files(&root);
+        assert_eq!(files.len(), 1, "only <car>/<track>/<file>.ld");
+        assert_eq!(files[0].name, "BMW M4 GT3 Evo/NurburgringTouristenfahrten/BMW M4 GT3 Evo_preset_m4gt3_mech_1_NurburgringTouristenfahrten_Sat Oct  3 195443 2026.ld");
+        assert_eq!(files[0].size, 300_000);
+        assert!(motec::is_upload_name(&files[0].name));
+
+        let (a, b) = (root.join("a.gz"), root.join("b.gz"));
+        let len = gzip_file(&ld, &a).unwrap();
+        assert_eq!(gzip_file(&ld, &b).unwrap(), len);
+        assert_eq!(sha256_hex(&a).unwrap(), sha256_hex(&b).unwrap(), "a resumed upload sends the same bytes");
+        let mut unpacked = Vec::new();
+        std::io::Read::read_to_end(&mut flate2::read::GzDecoder::new(fs::File::open(&a).unwrap()), &mut unpacked).unwrap();
+        assert_eq!(unpacked, data);
+        assert_eq!(read_chunk(&a, 10, 5).unwrap(), fs::read(&a).unwrap()[10..15]);
+        fs::remove_dir_all(&root).unwrap();
     }
 }

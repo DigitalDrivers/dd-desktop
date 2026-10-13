@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-upload-motec"
+description = "Enables the upload_motec command without any pre-configured scope."
+commands.allow = ["upload_motec"]
+
+[[permission]]
+identifier = "deny-upload-motec"
+description = "Denies the upload_motec command without any pre-configured scope."
+commands.deny = ["upload_motec"]
