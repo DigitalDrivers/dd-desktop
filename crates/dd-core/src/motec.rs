@@ -2,7 +2,8 @@
 //! (Telemetry). The game writes them to `Saved Games\ACE\MoTec\<car>\<track>\<name>.ld` (with an `.ldx` next to
 //! each) and a session is cumulative: every lap writes a new, larger file, and the newest holds all laps. So per
 //! session only the newest `.ld` goes up, gzipped, once the session has ended, and never one older than 30 days.
-//! By hand (the page's "Upload now") a running session goes up too, as long as the car is not driven.
+//! By hand (the page's "Upload now") a running session goes up too, as long as the car is not driven (it may stand
+//! in its pit box, where the game writes the files).
 //! This holds the rules; the shell lists the folder, gzips and talks to the platform
 //! (`/api/telemetry/motec/upload` and `/complete`, plan 2026-10-13-runden-aller-autos-handoff.md section 5).
 
@@ -92,7 +93,7 @@ pub enum Hold {
     NothingWaiting,
     /// Uploads pause for a while after a full quota or a file the platform found broken.
     Paused,
-    /// The game drives live.
+    /// The game drives live; by hand only with the car out of its pit box.
     Driving,
     /// The game runs and wrote a MoTeC file in the last `QUIET_SECS`; only the automatic upload waits for that.
     Quiet,
@@ -132,7 +133,8 @@ impl Hold {
 }
 
 /// Why the oldest of `waiting` sessions may not go up now, None when it may. By hand (`manual`) a running session
-/// goes up too, but nothing goes up while the game drives.
+/// goes up too, but nothing goes up while the car is driven (`driving`: the automatic upload counts live driving,
+/// by hand only the car out of its pit box).
 pub fn hold(files: &[MotecFile], waiting: usize, now: u64, game_running: bool, driving: bool, paused: bool, manual: bool) -> Option<Hold> {
     if waiting == 0 {
         Some(Hold::NothingWaiting)

@@ -132,9 +132,13 @@ session was running (or an earlier call still uploads), and why nothing went up 
 later and pauses uploads for 6 hours (as does a file the platform found broken, `motec-mismatch`); a file too large for the platform (`413 motec-too-large`) is noted as done and stays on the PC. Other refusals
 answer the platform's `problem` (`no-consent`, `invalid-ticket`, `motec-mismatch`, ...) or `upload-failed`.
 With `manual: true` (the page's "Upload now") it does not wait for 10 quiet minutes, so a running session goes up
-too, but nothing goes up while the game drives live. A file must stay unchanged for 2 s and while it is gzipped
-(`writing` otherwise). `motec_status` answers `{ waiting, uploading, driving, gameRunning, lastUpload }` (seconds
-since 1970 or null) without talking to the platform.
+too, and it goes up while the car stands in its pit box (the game writes the files there; the shared memory's
+`is_in_pit_box`), but nothing goes up, and an upload stops, while the car is out of the box. The automatic upload
+sends nothing while the game drives live. A file must stay unchanged for 2 s and while it is gzipped
+(`writing` otherwise). `motec_status` answers `{ waiting, uploading, driving, gameRunning, lastUpload, progress }`
+without talking to the platform: `driving` as for `manual`, `lastUpload` in seconds since 1970 or null, `progress`
+null or `{ session, sessions, sent, total }` while a session goes up (the `session`th of `sessions` in a row, bytes
+of its gzip sent after each chunk, both 0 while it is gzipped).
 
 `update_check` and `update_install` keep the `setup.exe` install up to date. The bundled start page calls them
 before the interface loads; since 0.8.0 the hosted interface may call them too, for a notice while the app

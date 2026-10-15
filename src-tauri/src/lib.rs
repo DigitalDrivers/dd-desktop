@@ -595,6 +595,20 @@ struct MotecUploading {
     paused_until: Mutex<Option<std::time::Instant>>,
     /// The last line the log got about why nothing went up, so it says it once until the reason changes.
     held: Mutex<Option<String>>,
+    /// The session going up, for the page's progress line.
+    progress: Mutex<Option<MotecProgress>>,
+    /// Sessions the calls in a row took so far; a call that takes none ends the run.
+    run_done: std::sync::atomic::AtomicU32,
+}
+
+/// How far the running upload is: the `session`th (from 1) of the `sessions` of this run (the calls in a row that
+/// each take one), and how many bytes of its gzip went up (`sent` after each chunk; both 0 while it is gzipped).
+#[derive(Clone, Copy, Serialize)]
+struct MotecProgress {
+    session: u32,
+    sessions: u32,
+    sent: u64,
+    total: u64,
 }
 
 /// How long uploads pause after a full quota or a file the platform found broken.
@@ -606,22 +620,23 @@ const MOTEC_PAUSE: Duration = Duration::from_secs(1);
 /// How long a MoTeC file must stay as it is before it is gzipped: the game may be writing it.
 const MOTEC_SETTLE: Duration = Duration::from_secs(2);
 
-/// `is_in_pit_box` in the graphics page, from the community header (dSyncro/acevo-shared-memory); not checked in
-/// the game yet, so it only goes into the log next to "driving".
-const IS_IN_PIT_BOX: usize = 3119;
-
-/// Whether the game drives live; then no MoTeC file goes up, also not by hand.
-fn driving() -> bool {
-    live_snapshot().is_some()
+/// Whether the car is driven; then no MoTeC file goes up. The automatic upload counts live driving, by hand
+/// (`manual`) only the car out of its pit box: the game writes its files when the car is back in the box.
+fn driving(manual: bool) -> bool {
+    if manual {
+        read_shared_memory("Local\\acevo_pmf_graphics", evo_memory::GRAPHICS_SIZE).is_some_and(|graphics| evo_memory::on_track(&graphics))
+    } else {
+        live_snapshot().is_some()
+    }
 }
 
 /// Answers a call that sends nothing, and logs why when the reason is another than last time (always once after
 /// the start).
-fn motec_held(state: &MotecUploading, hold: motec::Hold, waiting: u32) -> MotecUpload {
-    let mut line = format!("upload_motec: nothing goes up, {}", hold.reason());
+fn motec_held(state: &MotecUploading, hold: motec::Hold, waiting: u32, manual: bool) -> MotecUpload {
+    let mut line = format!("upload_motec{}: nothing goes up, {}", if manual { " by hand" } else { "" }, hold.reason());
     if hold == motec::Hold::Driving {
-        let pit_box = read_shared_memory("Local\\acevo_pmf_graphics", evo_memory::GRAPHICS_SIZE).map(|graphics| graphics[IS_IN_PIT_BOX]);
-        line.push_str(&format!(" (is_in_pit_box {pit_box:?})"));
+        let pit_box = read_shared_memory("Local\\acevo_pmf_graphics", evo_memory::GRAPHICS_SIZE).map(|graphics| graphics[evo_memory::IS_IN_PIT_BOX]);
+        line.push_str(&format!("{} (is_in_pit_box {pit_box:?})", if manual { " and the car is out of its pit box" } else { "" }));
     }
     let mut last = state.held.lock().unwrap();
     if last.as_deref() != Some(line.as_str()) {
@@ -636,7 +651,8 @@ fn motec_held(state: &MotecUploading, hold: motec::Hold, waiting: u32) -> MotecU
 /// MoTeC consent). The oldest session that ended and is not uploaded yet goes up: its newest `.ld`, gzipped, in
 /// 8 MiB chunks from where the platform is, then its `.ldx`. Nothing while the game drives live, or runs and wrote a MoTeC file in the last
 /// 10 minutes; `manual` (the page's "Upload now") skips the 10 minutes, so a running session goes up
-/// too. Never a file the game is writing: it must stay unchanged for 2 s and while it is gzipped. The app's
+/// too, and goes up while the car stands in its pit box (it stops when the car leaves the box). Never a file the
+/// game is writing: it must stay unchanged for 2 s and while it is gzipped. The app's
 /// config folder keeps what went up and when (`motec-uploaded.json`).
 #[tauri::command]
 async fn upload_motec(app: tauri::AppHandle, state: tauri::State<'_, MotecUploading>, base: String, ticket: String, manual: Option<bool>) -> Result<MotecUpload, String> {
@@ -646,10 +662,17 @@ async fn upload_motec(app: tauri::AppHandle, state: tauri::State<'_, MotecUpload
         log(&format!("upload_motec refused: {base} is not the platform"));
         return Err("invalid-base".to_string());
     }
+    let manual = manual.unwrap_or(false);
     if state.running.swap(true, SeqCst) {
-        return Ok(motec_held(&state, motec::Hold::Running, 0));
+        return Ok(motec_held(&state, motec::Hold::Running, 0, manual));
     }
-    let result = upload_next_motec(&app, &state, &base, &ticket, manual.unwrap_or(false)).await;
+    let result = upload_next_motec(&app, &state, &base, &ticket, manual).await;
+    *state.progress.lock().unwrap() = None;
+    if matches!(&result, Ok(MotecUpload { held: None, .. })) {
+        state.run_done.fetch_add(1, SeqCst);
+    } else {
+        state.run_done.store(0, SeqCst);
+    }
     state.running.store(false, SeqCst);
     if let Err(error) = &result {
         log(&format!("upload_motec failed: {error}"));
@@ -685,15 +708,17 @@ async fn upload_next_motec(app: &tauri::AppHandle, state: &MotecUploading, base:
     let pending = motec::pending(&files, &done, now);
     let waiting = pending.len() as u32;
     let paused = state.paused_until.lock().unwrap().is_some_and(|until| std::time::Instant::now() < until);
-    if let Some(hold) = motec::hold(&files, pending.len(), now, game_running, driving(), paused, manual) {
-        return Ok(motec_held(state, hold, waiting));
+    if let Some(hold) = motec::hold(&files, pending.len(), now, game_running, driving(manual), paused, manual) {
+        return Ok(motec_held(state, hold, waiting, manual));
     }
     let next = pending[0];
     let (name, size) = (next.name.clone(), next.size);
     let path = name.split('/').fold(root, |path, segment| path.join(segment));
     *state.held.lock().unwrap() = None;
     log(&format!("upload_motec{}: {name} ({size} bytes), {waiting} sessions waiting", if manual { " by hand" } else { "" }));
-    let (uploaded, at) = match upload_motec_file(&path, base, ticket, &name, size).await? {
+    let done_in_run = state.run_done.load(std::sync::atomic::Ordering::SeqCst);
+    *state.progress.lock().unwrap() = Some(MotecProgress { session: done_in_run + 1, sessions: done_in_run + waiting, sent: 0, total: 0 });
+    let (uploaded, at) = match upload_motec_file(state, &path, base, ticket, &name, size, manual).await? {
         MotecOutcome::Uploaded => (Some(name.clone()), Some(unix_now())),
         MotecOutcome::AlreadyThere => {
             log("upload_motec: the platform has it already");
@@ -706,10 +731,10 @@ async fn upload_next_motec(app: &tauri::AppHandle, state: &MotecUploading, base:
         MotecOutcome::Quota => {
             log("upload_motec: the quota on the platform is full, trying again in 6 hours");
             *state.paused_until.lock().unwrap() = Some(std::time::Instant::now() + MOTEC_RETRY);
-            return Ok(motec_held(state, motec::Hold::Paused, waiting));
+            return Ok(motec_held(state, motec::Hold::Paused, waiting, manual));
         }
-        MotecOutcome::Driving => return Ok(motec_held(state, motec::Hold::Driving, waiting)),
-        MotecOutcome::Writing => return Ok(motec_held(state, motec::Hold::Writing, waiting)),
+        MotecOutcome::Driving => return Ok(motec_held(state, motec::Hold::Driving, waiting, manual)),
+        MotecOutcome::Writing => return Ok(motec_held(state, motec::Hold::Writing, waiting, manual)),
     };
     // A file too large for the platform is recorded too, so the next call takes the next session.
     motec::record_uploaded(&config, &name, size, at).map_err(|e| format!("failed: keeping {name} as uploaded: {e}"))?;
@@ -727,11 +752,13 @@ struct MotecStatus {
     waiting: u32,
     /// A call of `upload_motec` is uploading.
     uploading: bool,
-    /// The game drives live: nothing goes up, also not by hand.
+    /// The car is out of its pit box in a live session: nothing goes up by hand.
     driving: bool,
     game_running: bool,
     /// When the app last uploaded a session (seconds since 1970), null before the first.
     last_upload: Option<u64>,
+    /// How far the running upload is, null while none goes up (also while a call only looks).
+    progress: Option<MotecProgress>,
 }
 
 /// The state of the MoTeC upload, without talking to the platform.
@@ -744,9 +771,10 @@ async fn motec_status(app: tauri::AppHandle, state: tauri::State<'_, MotecUpload
     Ok(MotecStatus {
         waiting: motec::pending(&files, &done, unix_now()).len() as u32,
         uploading: state.running.load(std::sync::atomic::Ordering::SeqCst),
-        driving: driving(),
+        driving: driving(true),
         game_running,
         last_upload: done.iter().filter_map(|u| u.at).max(),
+        progress: *state.progress.lock().unwrap(),
     })
 }
 
@@ -821,7 +849,7 @@ fn gzip_settled(source: &Path, target: &Path, size: u64) -> std::io::Result<Opti
     Ok(Some((len, sha256_hex(target)?)))
 }
 
-async fn upload_motec_file(path: &Path, base: &str, ticket: &str, name: &str, size: u64) -> Result<MotecOutcome, String> {
+async fn upload_motec_file(state: &MotecUploading, path: &Path, base: &str, ticket: &str, name: &str, size: u64, manual: bool) -> Result<MotecOutcome, String> {
     // Without a crypto provider building the client panics; the updater installs the same one when it runs.
     if rustls::crypto::CryptoProvider::get_default().is_none() {
         let _ = rustls::crypto::ring::default_provider().install_default();
@@ -851,7 +879,7 @@ async fn upload_motec_file(path: &Path, base: &str, ticket: &str, name: &str, si
     let result = match gzipped {
         Ok(Ok(Some((len, sha256)))) => {
             log(&format!("upload_motec: gzipped to {len} bytes, the platform has {}", received.size));
-            send_motec(&client, &url, &gz, len, &sha256, received.size, path).await
+            send_motec(state, &client, &url, &gz, len, &sha256, received.size, path, manual).await
         }
         Ok(Ok(None)) => Ok(MotecOutcome::Writing),
         Ok(Err(e)) => Err(format!("failed: gzip: {e}")),
@@ -861,8 +889,11 @@ async fn upload_motec_file(path: &Path, base: &str, ticket: &str, name: &str, si
     result
 }
 
-/// Sends the gzipped file `gz` from `offset` on in chunks, then completes the upload with the `.ldx` next to `ld`.
+/// Sends the gzipped file `gz` from `offset` on in chunks, then completes the upload with the `.ldx` next to `ld`;
+/// stops when the car is driven (`manual`: see `driving`).
+#[allow(clippy::too_many_arguments)]
 async fn send_motec(
+    state: &MotecUploading,
     client: &reqwest::Client,
     url: &impl Fn(&str, Option<u64>) -> Result<String, String>,
     gz: &Path,
@@ -870,11 +901,18 @@ async fn send_motec(
     sha256: &str,
     mut offset: u64,
     ld: &Path,
+    manual: bool,
 ) -> Result<MotecOutcome, String> {
     let failed = |e: reqwest::Error| format!("upload-failed: {e}");
     let mut conflicts = 0;
+    let sent = |offset: u64| {
+        if let Some(progress) = state.progress.lock().unwrap().as_mut() {
+            (progress.sent, progress.total) = (offset.min(len), len);
+        }
+    };
+    sent(offset);
     while let Some((start, size)) = motec::chunk(offset, len) {
-        if driving() {
+        if driving(manual) {
             return Ok(MotecOutcome::Driving);
         }
         let file = gz.to_path_buf();
@@ -890,6 +928,7 @@ async fn send_motec(
         let body = response.bytes().await.map_err(failed)?;
         if status.is_success() {
             offset = serde_json::from_slice::<motec::Received>(&body).map_err(|e| format!("upload-failed: {e}"))?.size;
+            sent(offset);
             continue;
         }
         match (status.as_u16(), motec::problem(&body)) {

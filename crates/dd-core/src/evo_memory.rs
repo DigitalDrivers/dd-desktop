@@ -19,6 +19,10 @@ const IS_ONLINE: usize = 86;
 const SLOTS: usize = 60;
 /// `ACEVO_STATUS`: 2 = live driving
 const LIVE: i32 = 2;
+/// `is_in_pit_box` (graphics), from the community header dSyncro/acevo-shared-memory (research
+/// 2026-10-05-club-build/telemetry-core.md). Checked in the game on 2026-10-15 (Joe's app log): 1 while the car
+/// stands in its pit box (14:58:36Z, 15:03:36Z), 0 on track (15:07:36Z); the status stays live in the box.
+pub const IS_IN_PIT_BOX: usize = 3119;
 
 /// A car the game knows about, by the id the server's log uses for it (`<a>-<b>` in hex).
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -58,6 +62,12 @@ pub(crate) fn text_at(page: &[u8], at: usize, len: usize) -> String {
 /// The id the server's log writes for a car: both halves as 16 hex digits, joined by a dash.
 pub fn car_id(a: u64, b: u64) -> String {
     format!("{a:016x}-{b:016x}")
+}
+
+/// Whether the car is driven: the game drives live and the car is out of its pit box. The game writes its MoTeC
+/// files when the car is back in the box, so an upload by hand may run there.
+pub fn on_track(graphics: &[u8]) -> bool {
+    graphics.len() >= GRAPHICS_SIZE && i32::from_le_bytes(graphics[STATUS..STATUS + 4].try_into().unwrap()) == LIVE && graphics[IS_IN_PIT_BOX] == 0
 }
 
 /// Reads the pages; None unless the game is driving live (menus, replays and pauses show nothing).
@@ -130,5 +140,18 @@ mod tests {
         assert!(read(&graphics[..100], &statics).is_none());
         graphics[STATUS] = 3;
         assert!(read(&graphics, &statics).is_none());
+    }
+
+    #[test]
+    fn the_car_is_on_track_only_live_and_out_of_its_pit_box() {
+        let (mut graphics, _) = pages();
+        assert!(on_track(&graphics), "live, out of the box");
+        graphics[IS_IN_PIT_BOX] = 1;
+        assert!(!on_track(&graphics), "live, in the box: the status stays live there");
+        graphics[IS_IN_PIT_BOX] = 0;
+        graphics[STATUS] = 3;
+        assert!(!on_track(&graphics), "paused");
+        graphics[STATUS..STATUS + 4].copy_from_slice(&LIVE.to_le_bytes());
+        assert!(!on_track(&graphics[..IS_IN_PIT_BOX]), "a page too short");
     }
 }
