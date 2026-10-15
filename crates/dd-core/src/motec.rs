@@ -2,6 +2,7 @@
 //! (Telemetry). The game writes them to `Saved Games\ACE\MoTec\<car>\<track>\<name>.ld` (with an `.ldx` next to
 //! each) and a session is cumulative: every lap writes a new, larger file, and the newest holds all laps. So per
 //! session only the newest `.ld` goes up, gzipped, once the session has ended, and never one older than 30 days.
+//! By hand (the page's "Upload now") a running session goes up too, as long as the car is not driven.
 //! This holds the rules; the shell lists the folder, gzips and talks to the platform
 //! (`/api/telemetry/motec/upload` and `/complete`, plan 2026-10-13-runden-aller-autos-handoff.md section 5).
 
@@ -82,6 +83,70 @@ pub fn busy(files: &[MotecFile], now: u64, game_running: bool) -> bool {
     game_running && files.iter().any(|f| now.saturating_sub(f.modified) < QUIET_SECS)
 }
 
+/// Why a call of the upload sends nothing, for the page and the app log.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hold {
+    /// The call before still uploads.
+    Running,
+    /// Every session is uploaded.
+    NothingWaiting,
+    /// Uploads pause for a while after a full quota or a file the platform found broken.
+    Paused,
+    /// The game drives live.
+    Driving,
+    /// The game runs and wrote a MoTeC file in the last `QUIET_SECS`; only the automatic upload waits for that.
+    Quiet,
+    /// The file changed while the app looked at it: the game is writing it.
+    Writing,
+}
+
+impl Hold {
+    /// Its name in the command's answer.
+    pub fn code(self) -> &'static str {
+        match self {
+            Hold::Running => "running",
+            Hold::NothingWaiting => "nothing-waiting",
+            Hold::Paused => "paused",
+            Hold::Driving => "driving",
+            Hold::Quiet => "quiet",
+            Hold::Writing => "writing",
+        }
+    }
+
+    /// What the app log says.
+    pub fn reason(self) -> &'static str {
+        match self {
+            Hold::Running => "the call before still uploads",
+            Hold::NothingWaiting => "every session is uploaded",
+            Hold::Paused => "paused after a full quota or a broken file",
+            Hold::Driving => "the game drives live",
+            Hold::Quiet => "the game wrote a MoTeC file in the last 10 minutes",
+            Hold::Writing => "the game is still writing the file",
+        }
+    }
+
+    /// Whether the page should try again soon: not when nothing is to do, or not for hours.
+    pub fn busy(self) -> bool {
+        !matches!(self, Hold::NothingWaiting | Hold::Paused)
+    }
+}
+
+/// Why the oldest of `waiting` sessions may not go up now, None when it may. By hand (`manual`) a running session
+/// goes up too, but nothing goes up while the game drives.
+pub fn hold(files: &[MotecFile], waiting: usize, now: u64, game_running: bool, driving: bool, paused: bool, manual: bool) -> Option<Hold> {
+    if waiting == 0 {
+        Some(Hold::NothingWaiting)
+    } else if paused {
+        Some(Hold::Paused)
+    } else if driving {
+        Some(Hold::Driving)
+    } else if !manual && busy(files, now, game_running) {
+        Some(Hold::Quiet)
+    } else {
+        None
+    }
+}
+
 /// The newest file of every session still to upload, the oldest first: not uploaded yet (`uploaded`), more than a
 /// header, a name the platform takes, and written in the last `MAX_AGE_SECS`.
 pub fn pending<'a>(files: &'a [MotecFile], uploaded: &[Uploaded], now: u64) -> Vec<&'a MotecFile> {
@@ -95,11 +160,14 @@ pub fn pending<'a>(files: &'a [MotecFile], uploaded: &[Uploaded], now: u64) -> V
     out
 }
 
-/// A file the app uploaded (or the platform had already), by name and size.
+/// A file the app uploaded (or the platform had already), by name and size, and when it went up (seconds since
+/// 1970); older records, and files the app did not send itself, have no time.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Uploaded {
     pub name: String,
     pub size: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub at: Option<u64>,
 }
 
 /// What the app uploaded from this PC; nothing when the record is missing or unreadable (the platform then answers
@@ -108,10 +176,10 @@ pub fn uploaded(dir: &Path) -> Vec<Uploaded> {
     fs::read(dir.join(LEDGER)).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
 }
 
-pub fn record_uploaded(dir: &Path, name: &str, size: u64) -> io::Result<()> {
+pub fn record_uploaded(dir: &Path, name: &str, size: u64, at: Option<u64>) -> io::Result<()> {
     let mut all = uploaded(dir);
     if !all.iter().any(|u| u.name == name && u.size == size) {
-        all.push(Uploaded { name: name.to_string(), size });
+        all.push(Uploaded { name: name.to_string(), size, at });
     }
     fs::create_dir_all(dir)?;
     fs::write(dir.join(LEDGER), serde_json::to_vec(&all).map_err(io::Error::other)?)
@@ -251,7 +319,7 @@ mod tests {
         let second = pending(&files, &[], NEWEST)[1].clone();
         assert_eq!(second.name, "Porsche 911 GT2 RS MR/NurburgringTouristenfahrten/Porsche 911 GT2 RS MR_preset_dd_porsche_gt2rs_mr_stage2_NurburgringTouristenfahrten_Mon Oct 12 214228 2026.ld");
         // uploaded ones are left out, by name and size
-        let done = [Uploaded { name: second.name.clone(), size: second.size }, Uploaded { name: files[3].name.clone(), size: 1 }];
+        let done = [Uploaded { name: second.name.clone(), size: second.size, at: None }, Uploaded { name: files[3].name.clone(), size: 1, at: None }];
         assert_eq!(pending(&files, &done, NEWEST).len(), 6);
         // a session whose newest file is older than 30 days is never uploaded: the M4 GT3's goes first
         assert_eq!(pending(&files, &[], 1791053683 + MAX_AGE_SECS).len(), 7);
@@ -275,6 +343,44 @@ mod tests {
         assert!(!busy(&[], NEWEST, true));
     }
 
+    /// The listing as it was when the file written at `until` was the newest.
+    fn listing_until(until: u64) -> Vec<MotecFile> {
+        listing().into_iter().filter(|f| f.modified <= until).collect()
+    }
+
+    /// When stage 3's two files were written (23:24:42 and 23:32:10).
+    const STAGE3: [u64; 2] = [1791843882, 1791844330];
+
+    #[test]
+    fn by_hand_the_newest_file_of_a_running_session_goes_up_but_not_while_driving() {
+        // stage 3 runs: the game wrote its second file a minute ago
+        let files = listing_until(STAGE3[1]);
+        let now = STAGE3[1] + 60;
+        assert!(busy(&files, now, true));
+        let waiting = pending(&files, &[], now);
+        assert_eq!(times(&[waiting[waiting.len() - 1]]), ["Mon Oct 12 233210 2026"], "the newest file of the running session, not 23:24:42");
+        assert_eq!(hold(&files, waiting.len(), now, true, false, false, false), Some(Hold::Quiet), "the automatic upload waits");
+        assert_eq!(hold(&files, waiting.len(), now, true, false, false, true), None, "by hand it goes up");
+        assert_eq!(hold(&files, waiting.len(), now, true, true, false, true), Some(Hold::Driving));
+        // ten quiet minutes later the automatic upload takes it too
+        assert_eq!(hold(&files, waiting.len(), STAGE3[1] + QUIET_SECS, true, false, false, false), None);
+    }
+
+    #[test]
+    fn says_why_nothing_goes_up_in_this_order() {
+        let files = listing();
+        let now = NEWEST;
+        assert_eq!(hold(&files, 0, now, true, true, true, false), Some(Hold::NothingWaiting));
+        assert_eq!(hold(&files, 1, now, true, true, true, false), Some(Hold::Paused));
+        assert_eq!(hold(&files, 1, now, true, true, false, false), Some(Hold::Driving));
+        assert_eq!(hold(&files, 1, now, true, false, false, false), Some(Hold::Quiet));
+        assert_eq!(hold(&files, 1, now, false, false, false, false), None, "the game is closed");
+        assert_eq!(hold(&files, 1, now, true, false, true, true), Some(Hold::Paused), "by hand too");
+        let all = [Hold::Running, Hold::NothingWaiting, Hold::Paused, Hold::Driving, Hold::Quiet, Hold::Writing];
+        assert_eq!(all.map(Hold::code), ["running", "nothing-waiting", "paused", "driving", "quiet", "writing"]);
+        assert_eq!(all.map(Hold::busy), [true, false, false, true, true, true]);
+    }
+
     #[test]
     fn takes_only_names_the_platform_takes() {
         assert!(is_upload_name("Porsche 911 GT2 RS MR/NurburgringTouristenfahrten/Porsche 911 GT2 RS MR_preset_dd_porsche_gt2rs_mr_base_NurburgringTouristenfahrten_Mon Oct 12 204344 2026.ld"));
@@ -291,15 +397,18 @@ mod tests {
     fn keeps_what_it_uploaded() {
         let dir = std::env::temp_dir().join(format!("dd-motec-{}", std::process::id())).join("config");
         assert!(uploaded(&dir).is_empty());
-        record_uploaded(&dir, "a/b/c.ld", 70_000).unwrap();
-        record_uploaded(&dir, "a/b/c.ld", 70_000).unwrap();
-        record_uploaded(&dir, "a/b/d.ld", 80_000).unwrap();
-        assert_eq!(uploaded(&dir), [Uploaded { name: "a/b/c.ld".into(), size: 70_000 }, Uploaded { name: "a/b/d.ld".into(), size: 80_000 }]);
-        assert_eq!(fs::read_to_string(dir.join(LEDGER)).unwrap(), r#"[{"name":"a/b/c.ld","size":70000},{"name":"a/b/d.ld","size":80000}]"#);
+        record_uploaded(&dir, "a/b/c.ld", 70_000, None).unwrap();
+        record_uploaded(&dir, "a/b/c.ld", 70_000, Some(1)).unwrap();
+        record_uploaded(&dir, "a/b/d.ld", 80_000, Some(1791902548)).unwrap();
+        assert_eq!(uploaded(&dir), [Uploaded { name: "a/b/c.ld".into(), size: 70_000, at: None }, Uploaded { name: "a/b/d.ld".into(), size: 80_000, at: Some(1791902548) }]);
+        assert_eq!(fs::read_to_string(dir.join(LEDGER)).unwrap(), r#"[{"name":"a/b/c.ld","size":70000},{"name":"a/b/d.ld","size":80000,"at":1791902548}]"#);
+        // a record of 0.23.0, without times, still reads
+        fs::write(dir.join(LEDGER), br#"[{"name":"a/b/c.ld","size":70000}]"#).unwrap();
+        assert_eq!(uploaded(&dir), [Uploaded { name: "a/b/c.ld".into(), size: 70_000, at: None }]);
         // an unreadable record counts as empty, and is replaced by the next one
         fs::write(dir.join(LEDGER), b"{").unwrap();
         assert!(uploaded(&dir).is_empty());
-        record_uploaded(&dir, "a/b/c.ld", 70_000).unwrap();
+        record_uploaded(&dir, "a/b/c.ld", 70_000, None).unwrap();
         assert_eq!(uploaded(&dir).len(), 1);
         fs::remove_dir_all(dir.parent().unwrap()).unwrap();
     }

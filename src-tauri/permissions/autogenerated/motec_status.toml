@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-motec-status"
+description = "Enables the motec_status command without any pre-configured scope."
+commands.allow = ["motec_status"]
+
+[[permission]]
+identifier = "deny-motec-status"
+description = "Denies the motec_status command without any pre-configured scope."
+commands.deny = ["motec_status"]

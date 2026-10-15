@@ -10,4 +10,5 @@ pub mod links;
 pub mod motec;
 pub mod settings;
 pub mod setups;
+pub mod stamp;
 pub mod steam;

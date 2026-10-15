@@ -88,7 +88,7 @@ asks for them.
 | Part | What |
 | --- | --- |
 | `src/` | Bundled start page: checks that the platform is reachable, then opens it. Offline it shows a system check. |
-| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `remove_setups`, `update_check`, `update_install`, `update_at_start`, `launch_ac_evo`, `car_status`, `install_car`, `fix_game_start`, `live_snapshot`, `take_laps` and `upload_motec`. |
+| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `remove_setups`, `update_check`, `update_install`, `update_at_start`, `launch_ac_evo`, `car_status`, `install_car`, `fix_game_start`, `live_snapshot`, `take_laps`, `upload_motec` and `motec_status`. |
 | `src-tauri/capabilities/` | Which page may call which command. The hosted interface only gets the commands listed in `platform.json`; `dev-localhost.json` is enabled for development builds only. |
 | `crates/dd-core/` | Platform-independent logic (locating Assetto Corsa EVO and the Steam account, car setups, the club's car packages and their saved cars), unit-tested on any machine. |
 
@@ -126,10 +126,15 @@ hosted interface may listen to events (`core:event:allow-listen`, `allow-unliste
 page got from `POST /api/telemetry/motec/ticket`, and uploads at most one MoTeC session per call: it asks
 `GET /api/telemetry/motec/upload` how much the platform has, sends the rest with `PUT .../upload?offset=` (8 MiB
 each, a `409` names the size to go on from), then `POST .../complete` with the gzip's size, SHA-256 and the `.ldx`.
-It answers `{ uploaded, waiting, busy }`: the name uploaded or null, the sessions still to upload, and whether a
-session was running (or an earlier call still uploads). A full quota (`413 motec-quota`) leaves the session for
+It answers `{ uploaded, waiting, busy, held }`: the name uploaded or null, the sessions still to upload, whether a
+session was running (or an earlier call still uploads), and why nothing went up (`running`, `nothing-waiting`,
+`paused`, `driving`, `quiet`, `writing`) or null. A full quota (`413 motec-quota`) leaves the session for
 later and pauses uploads for 6 hours (as does a file the platform found broken, `motec-mismatch`); a file too large for the platform (`413 motec-too-large`) is noted as done and stays on the PC. Other refusals
 answer the platform's `problem` (`no-consent`, `invalid-ticket`, `motec-mismatch`, ...) or `upload-failed`.
+With `manual: true` (the page's "Upload now") it does not wait for 10 quiet minutes, so a running session goes up
+too, but nothing goes up while the game drives live. A file must stay unchanged for 2 s and while it is gzipped
+(`writing` otherwise). `motec_status` answers `{ waiting, uploading, driving, gameRunning, lastUpload }` (seconds
+since 1970 or null) without talking to the platform.
 
 `update_check` and `update_install` keep the `setup.exe` install up to date. The bundled start page calls them
 before the interface loads; since 0.8.0 the hosted interface may call them too, for a notice while the app
