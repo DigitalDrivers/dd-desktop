@@ -68,6 +68,19 @@ driver can check what the app does on their PC.
   header (under 64 KB) are never uploaded. What went up is noted in `motec-uploaded.json` in the app's config
   folder (`%APPDATA%\club.digitaldrivers.desktop`), so nothing goes up twice. The app only reads the folder: it
   changes or deletes nothing in it. Nothing of it is read while the switch is off.
+- Only if you switch on the race engineer in the app ("Evaluate laps on this PC", since 0.25.0): the app reads the
+  shared memory as for lap summaries whenever the game runs (also without the platform's consent) and keeps a list of
+  your finished laps in `engineer\laps.jsonl` in its config folder (`%APPDATA%\club.digitaldrivers.desktop`): the
+  time each lap ended on this PC's clock, the lap time, valid, pit, car, preset, track and layout. Every 5 minutes,
+  never while you drive, it reads the MoTeC sessions that ended (the newest `.ld` of each, as for the upload) and the
+  game's logs (`Saved Games\ACE\Logs`, for the moment each file's data ends), cuts your laps out of them and
+  evaluates them corner by corner against your best lap of that car, preset, track and layout. It keeps the reports
+  and the curves (speed, pedals, steering, gear every 5 m) in `engineer\sessions`, the track's corner map in
+  `engineer\maps`, your reference laps in `engineer\refs` and what it evaluated in `engineer\evaluated.json`;
+  sessions older than 30 days go (except those of your reference laps), and all of it stays below 200 MB.
+  "Forget everything" deletes the whole `engineer` folder. Nothing of it leaves the PC: only when you ask the AI
+  engineer on the platform, and agreed to the AI evaluation there, the page sends the computed numbers of a session
+  (never the curves). The MoTeC folder and the logs are only read.
 - When you join one of our servers, the app starts Assetto Corsa EVO through Steam (`steam://run/3058630`); the
   page has put the server's join string on the clipboard, which the game's server list takes.
 - A link the platform opens in a new window (a stream, a download) goes to your default browser; the app has no
@@ -81,16 +94,16 @@ driver can check what the app does on their PC.
 - It writes a log to `%TEMP%\dd-desktop.log`.
 
 Nothing else is read, and nothing is uploaded by the shell itself, except the MoTeC sessions above when the page
-asks for them.
+asks for them. The race engineer uploads nothing.
 
 ## How it works
 
 | Part | What |
 | --- | --- |
 | `src/` | Bundled start page: checks that the platform is reachable, then opens it. Offline it shows a system check. |
-| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `remove_setups`, `update_check`, `update_install`, `update_at_start`, `launch_ac_evo`, `car_status`, `install_car`, `fix_game_start`, `live_snapshot`, `take_laps`, `upload_motec` and `motec_status`. |
+| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `remove_setups`, `update_check`, `update_install`, `update_at_start`, `launch_ac_evo`, `car_status`, `install_car`, `fix_game_start`, `live_snapshot`, `take_laps`, `upload_motec`, `motec_status` and the race engineer's `engineer_status`, `engineer_enable`, `engineer_sessions`, `engineer_session`, `engineer_traces`, `engineer_evaluate` and `engineer_forget`. |
 | `src-tauri/capabilities/` | Which page may call which command. The hosted interface only gets the commands listed in `platform.json`; `dev-localhost.json` is enabled for development builds only. |
-| `crates/dd-core/` | Platform-independent logic (locating Assetto Corsa EVO and the Steam account, car setups, the club's car packages and their saved cars), unit-tested on any machine. |
+| `crates/dd-core/` | Platform-independent logic (locating Assetto Corsa EVO and the Steam account, car setups, the club's car packages and their saved cars, the race engineer), unit-tested on any machine. |
 
 Commands must be declared in `src-tauri/build.rs` and allowed per origin in a capability file. A hosted page
 cannot call anything that is not listed for its origin.
@@ -139,6 +152,21 @@ sends nothing while the game drives live. A file must stay unchanged for 2 s and
 without talking to the platform: `driving` as for `manual`, `lastUpload` in seconds since 1970 or null, `progress`
 null or `{ session, sessions, sent, total }` while a session goes up (the `session`th of `sessions` in a row, bytes
 of its gzip sent after each chunk, both 0 while it is gzipped).
+
+The race engineer (since 0.25.0, `crates/dd-core/src/engineer`): `engineer_enable` (`{ on }`) is its switch on
+this PC and answers whether it is on; `engineer_status` answers `{ enabled, laps, sessions, evaluating,
+lastEvaluated }` (laps in its list, stored sessions, seconds since 1970 or null). `engineer_sessions` lists the
+stored sessions, the newest first (`{ id, car, carName, preset, track, layout, startedAt, endedAt, laps, bestLapMs }`),
+`engineer_session` (`{ id }`) answers a session's report and `engineer_traces` (`{ id }`) its curves, null for an id
+it does not have; the shapes are the contract with the platform (`EngineerSession`, `EngineerTrace`,
+`crates/dd-core/tests/fixtures/example-session.json`). `engineer_evaluate` evaluates the sessions that ended now and
+answers `{ evaluated, held }` (`held`: `running` or `driving`, else null); the app also does it every 5 minutes
+while the switch is on and the game does not drive, and sends the event `engineer-evaluated` (`{ id, laps }`) after
+each session. `engineer_forget` deletes everything of the engineer. A MoTeC file's data ends at the car's last lap
+completion, which the game's log names to the millisecond (`evOnLapCompleted`), not at the time in its header (the
+game writes the file when the car is back in its box, up to minutes later); the laps of the app's list give the lap
+windows in it. `DD_MOTEC_FIXTURE=<a .ld> cargo test -p dd-core --test engineer -- --ignored` checks the evaluation
+against Joe's laps of 2026-10-04.
 
 `update_check` and `update_install` keep the `setup.exe` install up to date. The bundled start page calls them
 before the interface loads; since 0.8.0 the hosted interface may call them too, for a notice while the app
