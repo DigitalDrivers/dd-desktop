@@ -190,6 +190,10 @@ npm run build        # release build with installer (needs TAURI_SIGNING_PRIVATE
 cargo test           # all Rust tests; `cargo test -p dd-core` also runs on Linux and WSL
 ```
 
+A development build shows `http://localhost:3000` unless `DD_PLATFORM_URL` names another platform, and its window
+also keeps the start page from Tauri's dev server (`devUrl`, else `http://127.0.0.1:1430`); a release build takes
+neither.
+
 ## Releases
 
 A release is a tag `v<version>` with the version of `tauri.conf.json` (also in `Cargo.toml`, `package.json`

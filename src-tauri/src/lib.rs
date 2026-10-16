@@ -21,8 +21,23 @@ use serde::Serialize;
 use tauri::{Emitter, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
-/// Address of the hosted interface. `DD_PLATFORM_URL` overrides it for development.
-const DEFAULT_PLATFORM_URL: &str = "https://digitaldrivers.club";
+/// Address of the hosted interface: the platform for a release build, a platform on this PC for a development
+/// build (`npm run dev`). `DD_PLATFORM_URL` overrides it.
+const DEFAULT_PLATFORM_URL: &str = if cfg!(debug_assertions) { "http://localhost:3000" } else { "https://digitaldrivers.club" };
+
+/// The platform this app shows; every place that needs it asks here.
+fn platform() -> String {
+    std::env::var("DD_PLATFORM_URL").unwrap_or_else(|_| DEFAULT_PLATFORM_URL.to_string())
+}
+
+/// Where Tauri's dev server serves the bundled start page in a development build (`npm run dev`): the `devUrl` the
+/// CLI hands the app, else its built-in server's default address. None in a release build.
+fn dev_server(app: &tauri::AppHandle) -> Option<String> {
+    if !cfg!(debug_assertions) {
+        return None;
+    }
+    Some(app.config().build.dev_url.as_ref().map_or_else(|| "http://127.0.0.1:1430".to_string(), |url| url.to_string()))
+}
 
 /// Appends a line to `dd-desktop.log` in the system temp folder, with the time in UTC. Drivers can send this file
 /// to support.
@@ -879,7 +894,7 @@ fn motec_held(state: &MotecUploading, hold: motec::Hold, waiting: u32, manual: b
 #[tauri::command]
 async fn upload_motec(app: tauri::AppHandle, state: tauri::State<'_, MotecUploading>, base: String, ticket: String, manual: Option<bool>) -> Result<MotecUpload, String> {
     use std::sync::atomic::Ordering::SeqCst;
-    let platform = std::env::var("DD_PLATFORM_URL").unwrap_or_else(|_| DEFAULT_PLATFORM_URL.to_string());
+    let platform = platform();
     if base.trim_end_matches('/') != platform.trim_end_matches('/') {
         log(&format!("upload_motec refused: {base} is not the platform"));
         return Err("invalid-base".to_string());
@@ -1218,7 +1233,7 @@ fn read_shared_memory(_name: &str, _size: usize) -> Option<Vec<u8>> {
 
 #[tauri::command]
 fn platform_url() -> String {
-    let url = std::env::var("DD_PLATFORM_URL").unwrap_or_else(|_| DEFAULT_PLATFORM_URL.to_string());
+    let url = platform();
     log(&format!("platform_url -> {url}"));
     url
 }
@@ -1529,13 +1544,17 @@ pub fn run() {
             // The window itself stays on the platform and Steam's sign-in; any other page goes to the browser.
             let config = app.config().app.windows.first().cloned().ok_or("no window in tauri.conf.json")?;
             let platform = platform_url();
+            let dev_server = dev_server(app.handle());
+            if let Some(dev_server) = &dev_server {
+                log(&format!("development build: the start page comes from {dev_server}"));
+            }
             tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?
                 .on_new_window(|url, _features| {
                     open_in_browser(url.as_str());
                     tauri::webview::NewWindowResponse::Deny
                 })
                 .on_navigation(move |url| {
-                    if links::stays_in_app(url.as_str(), &platform) {
+                    if links::stays_in_app(url.as_str(), &platform, dev_server.as_deref()) {
                         return true;
                     }
                     log(&format!("navigation kept out of the window: {url}"));
