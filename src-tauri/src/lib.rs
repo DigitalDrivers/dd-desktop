@@ -8,6 +8,7 @@ use std::time::Duration;
 use std::sync::Mutex;
 use std::time::SystemTime;
 
+use dd_core::engineer::{self, laps::LocalLap, store::SessionHead, EngineerSession, EngineerTrace};
 use dd_core::evo_memory::{self, LiveSnapshot};
 use dd_core::garage;
 use dd_core::laps::{self, LapRecorder, LapSummary};
@@ -492,10 +493,12 @@ fn live_snapshot() -> Option<LiveSnapshot> {
     evo_memory::read(&graphics, &statics)
 }
 
-/// Laps finished since the page last took them, and whether the sampler runs.
+/// Laps finished since the page last took them, whether the sampler runs, and whether the page takes laps (it asks
+/// only with the driver's consent on the platform; until then no lap is kept for it).
 #[derive(Default)]
 struct Laps {
     started: std::sync::atomic::AtomicBool,
+    platform: std::sync::atomic::AtomicBool,
     finished: Mutex<Vec<LapSummary>>,
 }
 
@@ -503,14 +506,22 @@ struct Laps {
 const LAPS_KEPT: usize = 200;
 
 /// The laps of every car finished since the last call, from AC EVO's shared memory. The first call starts
-/// the sampler, so nothing is read for a driver whose page never asks (the platform asks only with consent).
+/// the sampler, so nothing is read for a driver whose page never asks (the platform asks only with consent) and who
+/// did not switch on the race engineer.
 #[tauri::command]
 fn take_laps(app: tauri::AppHandle, state: tauri::State<'_, Laps>) -> Vec<LapSummary> {
-    if !state.started.swap(true, std::sync::atomic::Ordering::SeqCst) {
-        log("take_laps: sampling AC EVO's shared memory every 100 ms");
+    state.platform.store(true, std::sync::atomic::Ordering::SeqCst);
+    start_sampler(&app, "take_laps");
+    std::mem::take(&mut *state.finished.lock().unwrap())
+}
+
+/// Starts the lap sampler once: for the platform's lap summaries (`take_laps`) or for the race engineer.
+fn start_sampler(app: &tauri::AppHandle, by: &str) {
+    if !app.state::<Laps>().started.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        log(&format!("{by}: sampling AC EVO's shared memory every 100 ms"));
+        let app = app.clone();
         std::thread::spawn(move || sample_laps(app));
     }
-    std::mem::take(&mut *state.finished.lock().unwrap())
 }
 
 /// Samples the pages ten times a second for good; while the game is not running they are missing and skipped.
@@ -546,13 +557,222 @@ fn sample_laps(app: tauri::AppHandle) {
             "lap: {} ({display_name}, {:?}, version {:?}, setup {:?}) at {} {}, {} ms, valid {}, pit {}, brake bias {}, balance {} deg; first sample raw: pressure {:?}, core temp {:?}, ride height {:?}",
             lap.car, lap.preset, lap.package_version, lap.setup_name, lap.track, lap.layout, lap.lap_time_ms, lap.valid, lap.pit, lap.brake_bias, lap.balance_deg, lap.first.pressure, lap.first.core_temp, lap.first.ride_height
         ));
+        if engineer_on(&app) {
+            engineer_record(&app, &lap);
+        }
         let state = app.state::<Laps>();
+        if !state.platform.load(std::sync::atomic::Ordering::SeqCst) {
+            continue;
+        }
         let mut finished = state.finished.lock().unwrap();
         if finished.len() >= LAPS_KEPT {
             finished.remove(0);
         }
         finished.push(lap);
     }
+}
+
+/// The race engineer's folder in the app's config folder.
+fn engineer_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
+    app.path().app_config_dir().ok().map(|dir| dir.join(engineer::store::DIR))
+}
+
+/// Whether the driver switched on the race engineer on this PC.
+fn engineer_on(app: &tauri::AppHandle) -> bool {
+    app.path().app_config_dir().is_ok_and(|dir| settings::engineer(&dir))
+}
+
+/// Milliseconds since 1970.
+fn unix_now_ms() -> i64 {
+    SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+}
+
+/// The race engineer's state: whether it evaluates, and the lap it appended last (read from the list once).
+#[derive(Default)]
+struct Engineer {
+    evaluating: std::sync::atomic::AtomicBool,
+    last_lap: Mutex<Option<Option<LocalLap>>>,
+}
+
+/// Appends a finished lap, with the clock of this moment, to the engineer's lap list.
+fn engineer_record(app: &tauri::AppHandle, lap: &LapSummary) {
+    let Some(dir) = engineer_dir(app) else { return };
+    let state = app.state::<Engineer>();
+    let mut last = state.last_lap.lock().unwrap();
+    let previous = last.get_or_insert_with(|| engineer::laps::load(&dir).pop());
+    let Some(entry) = engineer::laps::entry(previous.as_ref(), lap, unix_now_ms()) else { return };
+    match engineer::laps::append(&dir, &entry) {
+        Ok(()) => *previous = Some(entry),
+        Err(error) => log(&format!("engineer: keeping the lap failed: {error}")),
+    }
+}
+
+/// What `engineer_status` answers.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EngineerStatus {
+    enabled: bool,
+    /// Laps in the engineer's lap list
+    laps: u32,
+    /// Stored sessions
+    sessions: u32,
+    evaluating: bool,
+    /// When the app last evaluated a session, seconds since 1970, null before the first
+    last_evaluated: Option<u64>,
+}
+
+#[tauri::command]
+fn engineer_status(app: tauri::AppHandle, state: tauri::State<'_, Engineer>) -> Result<EngineerStatus, String> {
+    let dir = engineer_dir(&app).ok_or("failed")?;
+    let (laps, sessions, last_evaluated) = engineer::store::counts(&dir);
+    Ok(EngineerStatus { enabled: engineer_on(&app), laps, sessions, evaluating: state.evaluating.load(std::sync::atomic::Ordering::SeqCst), last_evaluated })
+}
+
+/// The race engineer's switch on this PC ("Evaluate laps on this PC"). On, the lap sampler runs whenever the game
+/// runs, without the platform's consent (nothing leaves the PC), and the engineer keeps its lap list. Answers
+/// whether it is on.
+#[tauri::command]
+fn engineer_enable(app: tauri::AppHandle, on: bool) -> Result<bool, String> {
+    let config = app.path().app_config_dir().map_err(|_| "failed")?;
+    settings::set_engineer(&config, on).map_err(|error| {
+        log(&format!("engineer_enable failed: {error}"));
+        "failed".to_string()
+    })?;
+    log(&format!("engineer_enable -> {on}"));
+    if on {
+        start_sampler(&app, "engineer_enable");
+    }
+    Ok(on)
+}
+
+/// The stored sessions, the newest first.
+#[tauri::command]
+fn engineer_sessions(app: tauri::AppHandle) -> Result<Vec<SessionHead>, String> {
+    Ok(engineer::store::heads(&engineer_dir(&app).ok_or("failed")?))
+}
+
+/// A stored session's report; null when there is none of that id.
+#[tauri::command]
+fn engineer_session(app: tauri::AppHandle, id: String) -> Result<Option<EngineerSession>, String> {
+    Ok(engineer::store::session(&engineer_dir(&app).ok_or("failed")?, &id))
+}
+
+/// A stored session's curves (every 5 m of each lap); null when there are none of that id.
+#[tauri::command]
+fn engineer_traces(app: tauri::AppHandle, id: String) -> Result<Option<Vec<EngineerTrace>>, String> {
+    Ok(engineer::store::traces(&engineer_dir(&app).ok_or("failed")?, &id))
+}
+
+/// What `engineer_evaluate` did: how many sessions it evaluated, and why it evaluated none (`running`: an
+/// evaluation runs; `driving`: the car is out of its pit box) or null.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EngineerEvaluation {
+    evaluated: u32,
+    held: Option<&'static str>,
+}
+
+/// The event `engineer-evaluated` after each session.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EngineerEvaluated {
+    id: String,
+    laps: usize,
+}
+
+/// Evaluates the MoTeC sessions that ended and are not evaluated yet, now.
+#[tauri::command]
+async fn engineer_evaluate(app: tauri::AppHandle) -> Result<EngineerEvaluation, String> {
+    tauri::async_runtime::spawn_blocking(move || evaluate_sessions(&app, true)).await.map_err(|_| "failed".to_string())?
+}
+
+/// Deletes everything of the race engineer on this PC (lap list, sessions, corner maps, references); the switch
+/// stays as it is.
+#[tauri::command]
+fn engineer_forget(app: tauri::AppHandle, state: tauri::State<'_, Engineer>) -> Result<(), String> {
+    engineer::store::forget(&engineer_dir(&app).ok_or("failed")?).map_err(|error| {
+        log(&format!("engineer_forget failed: {error}"));
+        "failed".to_string()
+    })?;
+    *state.last_lap.lock().unwrap() = None;
+    log("engineer_forget -> deleted");
+    Ok(())
+}
+
+/// How often the app evaluates ended sessions by itself while the switch is on.
+const ENGINEER_EVERY: Duration = Duration::from_secs(5 * 60);
+
+/// Evaluates ended sessions every 5 minutes, while the switch is on and the game is not driving.
+fn engineer_loop(app: tauri::AppHandle) {
+    loop {
+        std::thread::sleep(ENGINEER_EVERY);
+        if engineer_on(&app) {
+            if let Err(error) = evaluate_sessions(&app, false) {
+                log(&format!("engineer: evaluating failed: {error}"));
+            }
+        }
+    }
+}
+
+/// The game's logs (`Logs\log-*.txt`) written at or after `modified` (seconds since 1970), the oldest first: the
+/// first of them is the game run that wrote a file of that time. At most three.
+fn game_logs_since(app: &tauri::AppHandle, modified: u64) -> Vec<String> {
+    let Some(logs) = find_ac_evo_user_dir(app).map(|dir| dir.join("Logs")) else { return Vec::new() };
+    let mut found: Vec<(SystemTime, PathBuf)> = fs::read_dir(logs)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with("log-"))
+        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
+        .filter(|(at, _)| at.duration_since(SystemTime::UNIX_EPOCH).is_ok_and(|d| d.as_secs() >= modified))
+        .collect();
+    found.sort();
+    found.into_iter().take(3).filter_map(|(_, path)| fs::read(path).ok()).map(|bytes| String::from_utf8_lossy(&bytes).into_owned()).collect()
+}
+
+/// Evaluates every MoTeC session that ended and is not evaluated as it is; never while the game drives (`manual`:
+/// the car out of its pit box, else live driving). Each session is noted as evaluated, also one whose file does not
+/// read, so a broken file is not read every 5 minutes; the page gets `engineer-evaluated` for each.
+fn evaluate_sessions(app: &tauri::AppHandle, manual: bool) -> Result<EngineerEvaluation, String> {
+    use std::sync::atomic::Ordering::SeqCst;
+    let state = app.state::<Engineer>();
+    if driving(manual) {
+        return Ok(EngineerEvaluation { evaluated: 0, held: Some("driving") });
+    }
+    if state.evaluating.swap(true, SeqCst) {
+        return Ok(EngineerEvaluation { evaluated: 0, held: Some("running") });
+    }
+    let result = (|| -> Result<EngineerEvaluation, String> {
+        let dir = engineer_dir(app).ok_or("failed: config folder")?;
+        let root = find_ac_evo_user_dir(app).ok_or("ac-evo-not-found")?.join(motec::MOTEC_DIR);
+        let files = motec_files(&root);
+        let evaluated = engineer::sessions::evaluated(&dir);
+        let ready: Vec<motec::MotecFile> = engineer::sessions::ready(&files, &evaluated, unix_now(), ac_evo_running()).into_iter().cloned().collect();
+        let laps = engineer::laps::load(&dir);
+        let version = app.package_info().version.to_string();
+        let mut done = 0;
+        for file in ready {
+            if driving(manual) {
+                break;
+            }
+            let logs = game_logs_since(app, file.modified);
+            let logs: Vec<&str> = logs.iter().map(String::as_str).collect();
+            let input = engineer::evaluate::Input { name: &file.name, modified_ms: file.modified as i64 * 1000, logs: &logs, laps: &laps, app_version: &version, now_ms: unix_now_ms() };
+            let path = file.name.split('/').fold(root.clone(), |path, segment| path.join(segment));
+            match fs::File::open(&path).and_then(|mut ld| engineer::evaluate::run(&dir, &mut std::io::BufReader::new(&mut ld), &input)) {
+                Ok(outcome) => {
+                    log(&format!("engineer: {} evaluated as {} ({} laps, clock from the game's log: {}){}", file.name, outcome.id, outcome.laps, outcome.from_log, if outcome.dropped.is_empty() { String::new() } else { format!("; not evaluated: {}", outcome.dropped.join("; ")) }));
+                    let _ = app.emit("engineer-evaluated", EngineerEvaluated { id: outcome.id, laps: outcome.laps });
+                    done += 1;
+                }
+                Err(error) => log(&format!("engineer: {} does not read: {error}", file.name)),
+            }
+            engineer::sessions::record_evaluated(&dir, &file, unix_now()).map_err(|e| format!("failed: {e}"))?;
+        }
+        Ok(EngineerEvaluation { evaluated: done, held: None })
+    })();
+    state.evaluating.store(false, SeqCst);
+    result
 }
 
 /// The newest of AC EVO's logs (`Saved Games\ACE\Logs\log-*.txt`, next to the setups), as text. The game may be
@@ -1292,7 +1512,15 @@ pub fn run() {
         .manage(PackageHashes::default())
         .manage(Laps::default())
         .manage(MotecUploading::default())
+        .manage(Engineer::default())
         .setup(|app| {
+            // The race engineer keeps its lap list whenever the game runs while its switch is on, and evaluates
+            // ended sessions every 5 minutes.
+            if engineer_on(app.handle()) {
+                start_sampler(app.handle(), "engineer");
+            }
+            let handle = app.handle().clone();
+            std::thread::spawn(move || engineer_loop(handle));
             // The window is built here instead of by the configuration alone, so that links which open a new
             // window (a stream, a download) go to the browser: the app has no tabs, and without this they did
             // nothing at all.
@@ -1315,7 +1543,7 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status, engineer_status, engineer_enable, engineer_sessions, engineer_session, engineer_traces, engineer_evaluate, engineer_forget])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

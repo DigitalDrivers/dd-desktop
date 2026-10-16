@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-engineer-enable"
+description = "Enables the engineer_enable command without any pre-configured scope."
+commands.allow = ["engineer_enable"]
+
+[[permission]]
+identifier = "deny-engineer-enable"
+description = "Denies the engineer_enable command without any pre-configured scope."
+commands.deny = ["engineer_enable"]

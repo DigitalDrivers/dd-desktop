@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-engineer-session"
+description = "Enables the engineer_session command without any pre-configured scope."
+commands.allow = ["engineer_session"]
+
+[[permission]]
+identifier = "deny-engineer-session"
+description = "Denies the engineer_session command without any pre-configured scope."
+commands.deny = ["engineer_session"]

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-engineer-forget"
+description = "Enables the engineer_forget command without any pre-configured scope."
+commands.allow = ["engineer_forget"]
+
+[[permission]]
+identifier = "deny-engineer-forget"
+description = "Denies the engineer_forget command without any pre-configured scope."
+commands.deny = ["engineer_forget"]
