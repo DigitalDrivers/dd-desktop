@@ -156,7 +156,8 @@ fn corner(g: &Grid, map: &Map, fit: &Fit, c: usize) -> CornerMeasure {
 /// fitted onto `map` by `fit`.
 pub fn measure(g: &Grid, kappa: &[f64], data: &Data, start: f64, end: f64, map: &Map, fit: &Fit) -> LapMeasures {
     let wheels = |f: &dyn Fn(usize) -> f64| -> [f64; 4] { std::array::from_fn(|w| round(f(w), 2)) };
-    let series_max = |s: &super::ld::Series| s.values[s.range(start, end)].iter().fold(f64::NEG_INFINITY, |m, v| m.max(*v as f64));
+    // 0 for a channel the file does not have, so the report never holds an infinity (JSON has none)
+    let series_max = |s: &super::ld::Series| s.values[s.range(start, end)].iter().map(|v| *v as f64).reduce(f64::max).unwrap_or(0.0);
     let fuel_range = data.fuel.range(start, end);
     let used: f64 = fuel_range.clone().skip(1).map(|i| (data.fuel.values[i - 1] - data.fuel.values[i]).max(0.0) as f64).sum();
     // brakes: the hottest disc's time above 700 °C, the front's share of the torque while braking, fade at full pedal

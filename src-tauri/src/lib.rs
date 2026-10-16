@@ -533,6 +533,8 @@ fn sample_laps(app: tauri::AppHandle) {
         let Some(graphics) = read_shared_memory("Local\\acevo_pmf_graphics", evo_memory::GRAPHICS_SIZE) else { continue };
         let Some(statics) = read_shared_memory("Local\\acevo_pmf_static", evo_memory::STATIC_SIZE) else { continue };
         let Some(mut lap) = recorder.sample(&graphics, &physics, &statics) else { continue };
+        // the moment the lap settled, before the game's log is read: the engineer cuts the lap out of the MoTeC file by it
+        let ended_ms = unix_now_ms();
         // The pages give the car's display name; which car it is, the game's log says. Laps of every car are kept
         // (since 0.23.0); only the club's cars have a package version.
         let display_name = std::mem::take(&mut lap.car);
@@ -558,7 +560,7 @@ fn sample_laps(app: tauri::AppHandle) {
             lap.car, lap.preset, lap.package_version, lap.setup_name, lap.track, lap.layout, lap.lap_time_ms, lap.valid, lap.pit, lap.brake_bias, lap.balance_deg, lap.first.pressure, lap.first.core_temp, lap.first.ride_height
         ));
         if engineer_on(&app) {
-            engineer_record(&app, &lap);
+            engineer_record(&app, &lap, ended_ms);
         }
         let state = app.state::<Laps>();
         if !state.platform.load(std::sync::atomic::Ordering::SeqCst) {
@@ -594,13 +596,13 @@ struct Engineer {
     last_lap: Mutex<Option<Option<LocalLap>>>,
 }
 
-/// Appends a finished lap, with the clock of this moment, to the engineer's lap list.
-fn engineer_record(app: &tauri::AppHandle, lap: &LapSummary) {
+/// Appends a finished lap that settled at `ended_ms` (unix ms) to the engineer's lap list.
+fn engineer_record(app: &tauri::AppHandle, lap: &LapSummary, ended_ms: i64) {
     let Some(dir) = engineer_dir(app) else { return };
     let state = app.state::<Engineer>();
     let mut last = state.last_lap.lock().unwrap();
     let previous = last.get_or_insert_with(|| engineer::laps::load(&dir).pop());
-    let Some(entry) = engineer::laps::entry(previous.as_ref(), lap, unix_now_ms()) else { return };
+    let Some(entry) = engineer::laps::entry(previous.as_ref(), lap, ended_ms) else { return };
     match engineer::laps::append(&dir, &entry) {
         Ok(()) => *previous = Some(entry),
         Err(error) => log(&format!("engineer: keeping the lap failed: {error}")),

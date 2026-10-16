@@ -69,6 +69,19 @@ pub fn id_car(car: &str) -> String {
     car.chars().map(|c| if c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-') { c } else { '_' }).collect::<String>().replace("..", "__")
 }
 
+/// The id of a session: `<start in unix seconds>-<car>`, or the id of a stored session of the car that started at
+/// most 2 s apart. Every file of a session gives the same start within 15 ms (see [`super::clock`]), but that can
+/// still fall on either side of a second.
+pub fn session_id(dir: &Path, start_ms: i64, car: &str) -> String {
+    let secs = start_ms.div_euclid(1000);
+    let car = id_car(car);
+    stored(dir)
+        .into_iter()
+        .map(|(id, start, _)| (id, start / 1000))
+        .find(|(id, start)| (start - secs).abs() <= 2 && id.split_once('-').is_some_and(|(_, c)| c == car))
+        .map_or_else(|| format!("{secs}-{car}"), |(id, _)| id)
+}
+
 fn session_path(dir: &Path, id: &str, suffix: &str) -> PathBuf {
     dir.join(SESSIONS).join(format!("{id}{suffix}"))
 }
@@ -258,6 +271,10 @@ mod tests {
         assert_eq!(listed.iter().map(|h| (h.id.as_str(), h.laps)).collect::<Vec<_>>(), [("1791999999-dd_x", 2), ("1791062547-dd_x", 1)]);
         assert_eq!(listed[0].best_lap_ms, new.laps[0].lap_time_ms);
         assert_eq!(counts(&dir), (0, 2, None));
+        // a later file of the session whose start falls on the next second keeps the session's id
+        assert_eq!(session_id(&dir, 1_791_062_548_004, "dd_x"), old.id);
+        assert_eq!(session_id(&dir, 1_791_062_550_004, "dd_x"), "1791062550-dd_x");
+        assert_eq!(session_id(&dir, 1_791_062_548_004, "dd_y"), "1791062548-dd_y");
         // retention keeps the reference's session, deletes the other old one
         let refs = Refs { map_version: 1, reference: Some(RefLap { session_id: old.id.clone(), lap_id: format!("{}#1", old.id), lap_time_ms: 1, measures: serde_json::from_str(REF_MEASURES).unwrap() }), best_segments_s: vec![] };
         save_refs(&dir, &refs_key("dd_x", None, "T", "L"), &refs).unwrap();

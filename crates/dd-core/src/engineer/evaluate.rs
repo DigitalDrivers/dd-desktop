@@ -70,7 +70,7 @@ pub fn run<R: Read + Seek>(dir: &Path, r: &mut R, input: &Input) -> io::Result<O
     let car = first.map_or_else(|| id_car(&parts.car_name), |lap| lap.car.clone());
     let preset = first.map_or(parts.preset.clone(), |lap| lap.preset.clone());
     let (track, layout) = first.map_or((parts.track_folder.clone(), String::new()), |lap| (lap.track.clone(), lap.layout.clone()));
-    let id = format!("{}-{}", clock.start_ms.div_euclid(1000), id_car(&car));
+    let id = store::session_id(dir, clock.start_ms, &car);
     let mut dropped = Vec::new();
 
     // cut the laps out and check them
@@ -247,6 +247,20 @@ mod tests {
         let map = corners::load(&dir, "Test Ring", "GP").unwrap();
         evaluate(&dir, &Drive { late: Some(2), lock: false }, 0);
         assert_eq!(corners::load(&dir, "Test Ring", "GP").unwrap(), map);
+        store::forget(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_file_without_brake_temperatures_still_gives_a_report_that_reads_back() {
+        let dir = temp("four");
+        let (_, log, laps, modified_ms, _) = session(&Drive { late: None, lock: false }, 0);
+        let mut chans = testkit::session(&Drive { late: None, lock: false }).chans;
+        chans.retain(|c| !c.name.starts_with("BRAKE_TEMP_") && c.name != "FUEL");
+        let bytes = testkit::write_ld("04/10/2026", "23:40:23", &chans);
+        let input = Input { name: NAME, modified_ms, logs: &[&log], laps: &laps, app_version: "0.25.0", now_ms: modified_ms };
+        let outcome = run(&dir, &mut Cursor::new(bytes), &input).unwrap();
+        let s = store::session(&dir, &outcome.id).expect("the stored report reads");
+        assert_eq!((s.laps.len(), s.laps[0].brakes.temp_max, s.laps[0].brakes.seconds_above700, s.laps[0].fuel.used_l), (2, [0.0; 4], 0.0, 0.0));
         store::forget(&dir).unwrap();
     }
 
