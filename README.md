@@ -73,7 +73,8 @@ driver can check what the app does on their PC.
   your finished laps in `engineer\laps.jsonl` in its config folder (`%APPDATA%\club.digitaldrivers.desktop`): the
   time each lap ended on this PC's clock, the lap time, valid, pit, car, preset, track and layout. Every 5 minutes,
   never while you drive, it reads the MoTeC sessions that ended (the newest `.ld` of each, as for the upload) and the
-  game's logs (`Saved Games\ACE\Logs`, for the moment each file's data ends), cuts your laps out of them and
+  game's logs (`Saved Games\ACE\Logs`, for the moment each file's data ends, and for the laps of sessions driven
+  while the switch was off), cuts your laps out of them and
   evaluates them corner by corner against your best lap of that car, preset, track and layout. It keeps the reports
   and the curves (speed, pedals, steering, gear every 5 m) in `engineer\sessions`, the track's corner map in
   `engineer\maps`, your reference laps in `engineer\refs` and what it evaluated in `engineer\evaluated.json`;

@@ -30,7 +30,7 @@ pub fn utc_offset(written_local: i64, modified_unix: i64) -> i64 {
 }
 
 /// The local time (ms since 1970, read as UTC) of a log line `[2026-10-15 22:57:02.935] ...`.
-fn line_time(line: &str) -> Option<i64> {
+pub(crate) fn line_time(line: &str) -> Option<i64> {
     let stamp = line.strip_prefix('[')?.get(..23)?;
     let num = |a: usize, b: usize| stamp.get(a..b)?.parse::<i64>().ok();
     let (year, month, day) = (num(0, 4)?, num(5, 7)?, num(8, 10)?);
@@ -57,6 +57,8 @@ pub struct FileClock {
     pub offset_s: i64,
     /// Whether the end came from the game's log (otherwise from the header)
     pub from_log: bool,
+    /// Which of the logs it came from
+    pub log: Option<usize>,
 }
 
 /// The clock of a file written at `written_local` (the header) and `modified_ms` (unix ms) with `duration` seconds
@@ -64,10 +66,10 @@ pub struct FileClock {
 pub fn file_clock(written_local: i64, modified_ms: i64, duration: f64, logs: &[&str]) -> FileClock {
     let offset_s = utc_offset(written_local, modified_ms.div_euclid(1000));
     let until = written_local * 1000 + 999;
-    let end_local = logs.iter().find_map(|log| last_lap_completion(log, until));
+    let found = logs.iter().enumerate().find_map(|(i, log)| last_lap_completion(log, until).map(|t| (i, t)));
     let duration_ms = (duration * 1000.0).round() as i64;
-    let end_ms = end_local.map_or(written_local * 1000, |t| t) - offset_s * 1000;
-    FileClock { start_ms: end_ms - duration_ms, offset_s, from_log: end_local.is_some() }
+    let end_ms = found.map_or(written_local * 1000, |(_, t)| t) - offset_s * 1000;
+    FileClock { start_ms: end_ms - duration_ms, offset_s, from_log: found.is_some(), log: found.map(|(i, _)| i) }
 }
 
 /// ISO 8601 of a moment in the PC's local time: `2026-10-04T23:22:27+02:00`.
@@ -124,7 +126,7 @@ mod tests {
         let old = "[2026-10-15 17:15:27.000] [physics] [info] Lap test evOnLapCompleted 1 completed\n";
         assert!(!file_clock(local(time), (modified * 1000.0) as i64, 711.75, &[old]).from_log);
         // the first log that has one counts
-        assert!(file_clock(local(time), (modified * 1000.0) as i64, 711.75, &["", LOG]).from_log);
+        assert_eq!(file_clock(local(time), (modified * 1000.0) as i64, 711.75, &["", LOG]).log, Some(1));
     }
 
     #[test]

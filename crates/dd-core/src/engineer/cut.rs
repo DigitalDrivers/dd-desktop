@@ -102,7 +102,8 @@ pub fn windows<'a>(laps: &'a [LocalLap], parts: &NameParts, start_ms: i64, durat
         .filter(|lap| lap.preset.is_none() || parts.preset.is_none() || lap.preset == parts.preset)
         .filter(|lap| {
             let (a, b) = ((lap.start_ms() - start_ms) as f64 / 1000.0, (lap.end_ms - start_ms) as f64 / 1000.0);
-            a >= 0.0 && b <= duration
+            // a lap from the game's log may end at the data's last millisecond
+            a >= -0.01 && b <= duration + 0.01
         })
         .collect();
     found.sort_by_key(|lap| lap.end_ms);
@@ -255,7 +256,7 @@ mod tests {
         assert_eq!(windows(&laps, &parts(), start_ms, session.duration).len(), 1);
         assert!(windows(&laps, &parts(), start_ms + (session.duration * 1000.0) as i64, session.duration).is_empty());
         let mut early = laps[0].clone();
-        early.lap_time_ms = early.end_ms - start_ms + 1;
+        early.lap_time_ms = early.end_ms - start_ms + 1000;
         assert!(windows(&[early], &parts(), start_ms, session.duration).is_empty());
     }
 

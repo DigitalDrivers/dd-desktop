@@ -6,13 +6,14 @@
 use std::io::{self, Read, Seek};
 use std::path::Path;
 
-use super::clock::{file_clock, iso_local};
+use super::clock::{file_clock, iso_local, FileClock};
 use super::corners::{self, curvature, detect, fit, LapShape, Map};
 use super::cut::{grid, windows, Data, Grid};
 use super::laps::LocalLap;
 use super::ld::Ld;
 use super::measure::{measure, report, trace, LapMeasures, CLUB_TARGET_PSI};
-use super::sessions::name_parts;
+use super::gamelog;
+use super::sessions::{name_parts, NameParts};
 use super::store::{self, id_car, refs_key, RefLap, Refs};
 use super::{CornerMap, EngineerSession, Reference, TimingNote};
 use crate::laps::is_club_car;
@@ -41,6 +42,8 @@ pub struct Outcome {
     pub dropped: Vec<String>,
     /// Whether the file's clock came from the game's log
     pub from_log: bool,
+    /// Whether the laps came from the game's log (the app's list had none in the file)
+    pub laps_from_log: bool,
 }
 
 fn invalid(what: &str) -> io::Error {
@@ -65,7 +68,11 @@ pub fn run<R: Read + Seek>(dir: &Path, r: &mut R, input: &Input) -> io::Result<O
     let written = ld.written_local().ok_or_else(|| invalid("the file's header names no time"))?;
     let parts = name_parts(input.name).ok_or_else(|| invalid("not <car>/<track>/<file>.ld"))?;
     let clock = file_clock(written, input.modified_ms, duration, input.logs);
-    let found = windows(input.laps, &parts, clock.start_ms, duration);
+    let listed = windows(input.laps, &parts, clock.start_ms, duration);
+    // without laps of the app's list (driven before its switch existed, or with it off), the game's log names them
+    let logged = if listed.is_empty() { laps_from_log(&parts, &clock, duration, clock.log.map(|i| input.logs[i])) } else { Vec::new() };
+    let from_log = !logged.is_empty();
+    let found = if from_log { windows(&logged, &parts, clock.start_ms, duration) } else { listed };
     let first = found.first().map(|w| w.lap);
     let car = first.map_or_else(|| id_car(&parts.car_name), |lap| lap.car.clone());
     let preset = first.map_or(parts.preset.clone(), |lap| lap.preset.clone());
@@ -155,7 +162,7 @@ pub fn run<R: Read + Seek>(dir: &Path, r: &mut R, input: &Input) -> io::Result<O
         app_version: input.app_version.to_string(),
         reference: reference.map(|r| Reference { session_id: r.session_id.clone(), lap_id: r.lap_id.clone(), lap_time_ms: r.lap_time_ms }),
         corners: map.as_ref().map_or(CornerMap { version: 0, frozen: false, corners: Vec::new() }, Map::contract),
-        timing_note: if touristenfahrten || laps.is_empty() { TimingNote::PartialWindow } else { TimingNote::FullLap },
+        timing_note: if touristenfahrten || laps.is_empty() || from_log { TimingNote::PartialWindow } else { TimingNote::FullLap },
         laps,
     };
     store::save_session(dir, &session, &traces)?;
@@ -166,7 +173,37 @@ pub fn run<R: Read + Seek>(dir: &Path, r: &mut R, input: &Input) -> io::Result<O
         store::save_refs(dir, &key, &refs)?;
     }
     store::apply_retention(dir, input.now_ms)?;
-    Ok(Outcome { id, laps: session.laps.len(), dropped, from_log: clock.from_log })
+    Ok(Outcome { id, laps: session.laps.len(), dropped, from_log: clock.from_log, laps_from_log: from_log })
+}
+
+/// The laps the game's log names in the file (see [`gamelog`]), as the app's lap list would have them: the car and
+/// preset it selected last (of the file's preset), its track, the lap time as the time between the log's lines.
+/// The log says nothing about a lap's validity or the pit lane: every such lap counts as valid, none as a pit lap.
+fn laps_from_log(parts: &NameParts, clock: &FileClock, duration: f64, log: Option<&str>) -> Vec<LocalLap> {
+    let Some(log) = log else { return Vec::new() };
+    let offset = clock.offset_s * 1000;
+    let from = clock.start_ms + offset;
+    let to = from + (duration * 1000.0).round() as i64;
+    let found = gamelog::laps(log, from, to);
+    let Some(first) = found.first() else { return Vec::new() };
+    let (car, preset) = gamelog::car(log, to, parts.preset.as_deref()).map_or_else(|| (id_car(&parts.car_name), parts.preset.clone()), |(car, preset)| (car, Some(preset)));
+    let (track, layout) = gamelog::track(log, to)
+        .and_then(|track| parts.track_folder.strip_prefix(track.as_str()).map(|layout| (track.clone(), layout.trim().to_string())))
+        .unwrap_or_else(|| (parts.track_folder.clone(), String::new()));
+    found
+        .iter()
+        .map(|lap| LocalLap {
+            end_ms: lap.end - offset,
+            lap_time_ms: lap.end - lap.start,
+            valid: true,
+            pit: false,
+            car: car.clone(),
+            preset: preset.clone(),
+            track: track.clone(),
+            layout: layout.clone(),
+            session_start_ms: first.start - offset,
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -261,6 +298,74 @@ mod tests {
         let outcome = run(&dir, &mut Cursor::new(bytes), &input).unwrap();
         let s = store::session(&dir, &outcome.id).expect("the stored report reads");
         assert_eq!((s.laps.len(), s.laps[0].brakes.temp_max, s.laps[0].brakes.seconds_above700, s.laps[0].fuel.used_l), (2, [0.0; 4], 0.0, 0.0));
+        store::forget(&dir).unwrap();
+    }
+
+    /// `[2026-10-04 hh:mm:ss.mmm]` of a local time in ms.
+    fn stamp(local_ms: i64) -> String {
+        let secs = local_ms / 1000;
+        format!("[2026-10-04 {:02}:{:02}:{:02}.{:03}]", secs % 86_400 / 3600, secs % 3600 / 60, secs % 60, local_ms % 1000)
+    }
+
+    /// The session's file cut after the second timed lap (the game ends a file's data at a lap completion), its
+    /// local start in ms, and the log lines' prefix with the car and track.
+    fn cut_session() -> (testkit::Session, Vec<u8>, i64, i64) {
+        let mut s = testkit::session(&Drive { late: Some(2), lock: false });
+        let end = s.laps[1].1;
+        for c in &mut s.chans {
+            c.values.truncate((end * c.rate as f64) as usize + 1);
+        }
+        let duration = s.chans[0].values.len() as f64 / 60.0;
+        let written_local = days_from_civil(2026, 10, 4) * 86_400 + 23 * 3600 + 40 * 60 + 23;
+        let start_local_ms = (written_local - 30) * 1000 - (duration * 1000.0).round() as i64;
+        let bytes = testkit::write_ld("04/10/2026", "23:40:23", &s.chans);
+        (s, bytes, start_local_ms, (written_local - 7200) * 1000 + 400)
+    }
+
+    const SELECTED: &str = "[2026-10-04 23:00:00.000] [gameplay] [info] ACEVO-2629 onSetPlayerCurrentCarCommand: Set new car 4422f4ed-904e-8717-71fa-e328d8e09daa content\\cars\\dd_test_car\\presets\\preset_dd_test_car_stage1.mechanicalcarpreset\n[2026-10-04 23:00:01.000] [physics] [info] Creating physics track: TestRing\n";
+
+    #[test]
+    fn without_the_lap_list_takes_the_laps_between_lap_completions_from_the_game_s_log() {
+        let dir = temp("log");
+        let (s, bytes, start, modified_ms) = cut_session();
+        let at = |t: f64| start + (t * 1000.0).round() as i64;
+        let completed = |t: f64, n: u32| format!("{} [physics] [info] Lap test evOnLapCompleted {n} completed\n", stamp(at(t)));
+        let end = s.chans[0].values.len() as f64 / 60.0;
+        let log = format!("{SELECTED}{}{}{}", completed(s.laps[0].0, 1), completed(s.laps[0].1, 2), completed(end, 3));
+        let input = Input { name: NAME, modified_ms, logs: &[&log], laps: &[], app_version: "0.25.0", now_ms: modified_ms };
+        let outcome = run(&dir, &mut Cursor::new(bytes), &input).unwrap();
+        // the first stretch, from the file's start, holds the car standing in its box
+        assert!(outcome.laps_from_log && outcome.laps == 2, "{outcome:?}");
+        assert!(outcome.dropped.len() == 1 && outcome.dropped[0].starts_with("lap 1: the car stands still"), "{:?}", outcome.dropped);
+        let session = store::session(&dir, &outcome.id).unwrap();
+        assert_eq!((session.car.as_str(), session.track.as_str(), session.layout.as_str(), session.timing_note), ("dd_test_car", "TestRing", "GP", TimingNote::PartialWindow));
+        let times: Vec<i64> = session.laps.iter().map(|l| l.lap_time_ms.unwrap()).collect();
+        let want = [s.laps[0].1 - s.laps[0].0, end - s.laps[1].0].map(|t| (t * 1000.0).round() as i64);
+        assert!(times.iter().zip(want).all(|(a, b)| (a - b).abs() <= 1), "{times:?} against {want:?}");
+        assert!(session.laps.iter().all(|l| l.valid && !l.pit) && session.laps[0].corners[2].dt_s.unwrap() > 0.2);
+        store::forget(&dir).unwrap();
+    }
+
+    #[test]
+    fn without_the_lap_list_takes_touristenfahrten_laps_from_split_to_split() {
+        let dir = temp("splits");
+        let (s, bytes, start, modified_ms) = cut_session();
+        let at = |t: f64| stamp(start + (t * 1000.0).round() as i64);
+        let end = s.chans[0].values.len() as f64 / 60.0;
+        let mut log = SELECTED.to_string();
+        for (a, b) in s.laps {
+            log += &format!("{} [gameplay] [info] Received split: isStart true, isEnd false, index 0 \n", at(a));
+            log += &format!("{} [gameplay] [info] Received split: isStart false, isEnd true, index 1 \n", at(b - 0.5));
+        }
+        log += &format!("{} [physics] [info] Lap test evOnLapCompleted 3 completed\n", at(end));
+        let input = Input { name: NAME, modified_ms, logs: &[&log], laps: &[], app_version: "0.25.0", now_ms: modified_ms };
+        let outcome = run(&dir, &mut Cursor::new(bytes), &input).unwrap();
+        assert!(outcome.laps_from_log && outcome.laps == 2 && outcome.dropped.is_empty(), "{outcome:?}");
+        // with laps of the list in the file, the log's are not used
+        let (_, log2, laps, _, _) = session(&Drive { late: None, lock: false }, 0);
+        let (bytes, ..) = session(&Drive { late: None, lock: false }, 0);
+        let listed = Input { name: NAME, modified_ms, logs: &[&log2], laps: &laps, app_version: "0.25.0", now_ms: modified_ms };
+        assert!(!run(&dir, &mut Cursor::new(bytes), &listed).unwrap().laps_from_log);
         store::forget(&dir).unwrap();
     }
 
