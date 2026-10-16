@@ -14,10 +14,12 @@
 pub mod clock;
 pub mod corners;
 pub mod cut;
+pub mod evaluate;
 pub mod laps;
 pub mod ld;
 pub mod measure;
 pub mod sessions;
+pub mod store;
 #[cfg(test)]
 pub(crate) mod testkit;
 

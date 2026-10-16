@@ -1,0 +1,145 @@
+{
+  "id": "1791062547-dd_bmw_m3_e46_rennsport",
+  "car": "dd_bmw_m3_e46_rennsport",
+  "preset": "preset_dd_bmw_m3_e46_rennsport_unl3",
+  "carName": "BMW M3 E46 CSL GT3 Rennsport",
+  "track": "Nurburgring",
+  "layout": "Touristenfahrten",
+  "startedAt": "2026-10-04T23:22:27+02:00",
+  "endedAt": "2026-10-04T23:39:16+02:00",
+  "appVersion": "0.25.0",
+  "reference": { "sessionId": "1791062547-dd_bmw_m3_e46_rennsport", "lapId": "1791062547-dd_bmw_m3_e46_rennsport#2", "lapTimeMs": 368283 },
+  "corners": {
+    "version": 1,
+    "frozen": false,
+    "corners": [
+      { "n": 1, "startM": 0.0, "endM": 412.5, "apexM": 236.0, "direction": "L", "radiusM": 118.0 },
+      { "n": 2, "startM": 412.5, "endM": 18930.0, "apexM": 671.0, "direction": "R", "radiusM": 95.0 }
+    ]
+  },
+  "laps": [
+    {
+      "id": "1791062547-dd_bmw_m3_e46_rennsport#1",
+      "n": 1,
+      "lapTimeMs": 375780,
+      "valid": true,
+      "pit": false,
+      "distanceM": 18937.0,
+      "topSpeedKmh": 362.1,
+      "theoreticalBestMs": 366950,
+      "fuel": { "startL": 28.15, "usedL": 20.52 },
+      "tyres": {
+        "pressureStart": [23.55, 23.76, 23.42, 23.81],
+        "pressureAvg": [26.67, 26.72, 26.4, 26.54],
+        "pressureEnd": [27.33, 27.36, 26.86, 27.05],
+        "surfaceTempAvg": [86.4, 86.2, 87.9, 86.8],
+        "airTempAvg": [97.2, 97.9, 96.1, 95.4],
+        "targetPsi": { "min": 26.5, "max": 27.5 }
+      },
+      "brakes": { "tempMax": [896.0, 892.0, 432.0, 431.0], "secondsAbove700": 39.4, "frontShare": 0.689 },
+      "balance": [
+        { "band": "60-120", "relative": -0.06, "samples": 1918 },
+        { "band": "120-180", "relative": 0.007, "samples": 3965 },
+        { "band": "180-240", "relative": -0.089, "samples": 1913 },
+        { "band": "240+", "relative": null, "samples": 0 }
+      ],
+      "traction": [
+        { "gear": 1, "spinShare": 0.016, "samples": 2250 },
+        { "gear": 2, "spinShare": 0.012, "samples": 3292 }
+      ],
+      "corners": [
+        {
+          "n": 1,
+          "dtS": 0.029,
+          "entryKmh": 152.3,
+          "brake": { "pointM": 151.2, "vsRefM": -9.4, "peak": 98.6, "releaseM": 219.7 },
+          "minSpeed": { "kmh": 118.4, "atM": 236.0, "vsRefKmh": -4.1, "gear": 3 },
+          "coastS": 0.12,
+          "throttle": { "pickupM": 251.0, "fullM": 318.0, "vsRefM": 12.0 },
+          "exitKmh": 171.2,
+          "latGMax": 2.12,
+          "balance": { "entry": 0.18, "mid": 0.04, "exit": -0.02 },
+          "lockS": [0.12, 0.05, 0.0, 0.0],
+          "spinS": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+          "n": 2,
+          "dtS": 7.468,
+          "entryKmh": 171.2,
+          "brake": { "pointM": null, "vsRefM": null, "peak": 0.0, "releaseM": null },
+          "minSpeed": { "kmh": 152.7, "atM": 671.0, "vsRefKmh": 0.4, "gear": 4 },
+          "coastS": 0.0,
+          "throttle": { "pickupM": 688.0, "fullM": null, "vsRefM": -1.0 },
+          "exitKmh": 152.3,
+          "latGMax": 2.31,
+          "balance": { "entry": null, "mid": 0.01, "exit": 0.02 },
+          "lockS": [0.0, 0.0, 0.0, 0.0],
+          "spinS": [0.0, 0.0, 0.15, 0.12]
+        }
+      ],
+      "findings": ["brake_earlier", "throttle_later", "min_speed_lower", "lock_front", "spin_rear", "understeer_entry", "brake_hot"]
+    },
+    {
+      "id": "1791062547-dd_bmw_m3_e46_rennsport#2",
+      "n": 2,
+      "lapTimeMs": 368283,
+      "valid": true,
+      "pit": false,
+      "distanceM": 18930.0,
+      "topSpeedKmh": 368.7,
+      "theoreticalBestMs": 366950,
+      "fuel": { "startL": 60.61, "usedL": 21.56 },
+      "tyres": {
+        "pressureStart": [23.2, 23.21, 23.17, 23.19],
+        "pressureAvg": [26.76, 26.86, 26.7, 26.67],
+        "pressureEnd": [27.81, 27.74, 27.67, 27.55],
+        "surfaceTempAvg": [86.9, 87.1, 88.0, 87.2],
+        "airTempAvg": [99.6, 100.4, 98.8, 97.7],
+        "targetPsi": { "min": 26.5, "max": 27.5 }
+      },
+      "brakes": { "tempMax": [843.0, 859.0, 424.0, 426.0], "secondsAbove700": 46.5, "frontShare": 0.688 },
+      "balance": [
+        { "band": "60-120", "relative": 0.0, "samples": 1676 },
+        { "band": "120-180", "relative": 0.0, "samples": 3986 },
+        { "band": "180-240", "relative": 0.0, "samples": 2107 },
+        { "band": "240+", "relative": 0.0, "samples": 554 }
+      ],
+      "traction": [
+        { "gear": 1, "spinShare": 0.025, "samples": 2047 },
+        { "gear": 2, "spinShare": 0.027, "samples": 3116 }
+      ],
+      "corners": [
+        {
+          "n": 1,
+          "dtS": 0.0,
+          "entryKmh": 150.9,
+          "brake": { "pointM": 160.6, "vsRefM": 0.0, "peak": 99.1, "releaseM": 221.3 },
+          "minSpeed": { "kmh": 122.5, "atM": 233.0, "vsRefKmh": 0.0, "gear": 3 },
+          "coastS": 0.0,
+          "throttle": { "pickupM": 239.0, "fullM": 301.0, "vsRefM": 0.0 },
+          "exitKmh": 174.8,
+          "latGMax": 2.2,
+          "balance": { "entry": 0.0, "mid": 0.0, "exit": 0.0 },
+          "lockS": [0.0, 0.0, 0.0, 0.0],
+          "spinS": [0.0, 0.0, 0.0, 0.0]
+        },
+        {
+          "n": 2,
+          "dtS": 0.0,
+          "entryKmh": 174.8,
+          "brake": { "pointM": null, "vsRefM": null, "peak": 0.0, "releaseM": null },
+          "minSpeed": { "kmh": 152.3, "atM": 672.0, "vsRefKmh": 0.0, "gear": 4 },
+          "coastS": 0.0,
+          "throttle": { "pickupM": 689.0, "fullM": null, "vsRefM": 0.0 },
+          "exitKmh": 150.9,
+          "latGMax": 2.35,
+          "balance": { "entry": null, "mid": 0.0, "exit": 0.0 },
+          "lockS": [0.0, 0.0, 0.0, 0.0],
+          "spinS": [0.0, 0.0, 0.0, 0.0]
+        }
+      ],
+      "findings": ["pressure_high", "brake_hot"]
+    }
+  ],
+  "timingNote": "partial-window"
+}
