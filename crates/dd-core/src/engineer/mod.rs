@@ -12,9 +12,11 @@
 //! order FL FR RL RR.
 
 pub mod clock;
+pub mod corners;
 pub mod cut;
 pub mod laps;
 pub mod ld;
+pub mod measure;
 pub mod sessions;
 #[cfg(test)]
 pub(crate) mod testkit;
@@ -145,7 +147,7 @@ pub struct TargetPsi {
 #[serde(rename_all = "camelCase")]
 pub struct Brakes {
     pub temp_max: [f64; 4],
-    /// Seconds any disc was above 700 °C
+    /// Seconds above 700 °C of the disc that spent the most there
     pub seconds_above700: f64,
     /// The front axle's share of the brake torque over the braking samples
     pub front_share: f64,
@@ -284,8 +286,8 @@ pub struct EngineerTrace {
     pub gear: Vec<i32>,
 }
 
-/// `value` rounded to `decimals` places, so the reports stay small and readable.
+/// `value` rounded to `decimals` places, so the reports stay small and readable (and never `-0`).
 pub(crate) fn round(value: f64, decimals: i32) -> f64 {
     let f = 10f64.powi(decimals);
-    (value * f).round() / f
+    (value * f).round() / f + 0.0
 }

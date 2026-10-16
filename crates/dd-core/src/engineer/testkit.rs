@@ -71,7 +71,7 @@ pub enum Piece {
     Arc(f64, f64, bool),
 }
 
-/// The test track: four corners of known radius, 3,019 m. The arcs' centres (m from the start) are in
+/// The test track: four corners of known radius, 2,784 m. The arcs' centres (m from the start) are in
 /// [`ARC_CENTRES`].
 pub const TRACK: [Piece; 8] = [
     Piece::Straight(600.0),
@@ -227,8 +227,8 @@ pub fn session(drive: &Drive) -> Session {
     for (w, wheel) in ["LF", "RF", "LR", "RR"].iter().enumerate() {
         let front = w < 2;
         let name = |prefix: &str| -> &'static str { Box::leak(format!("{prefix}{wheel}").into_boxed_str()) };
-        // pressures rise from 24 to 27.5 psi over the first 3,000 m, then stay
-        chans.push(Chan { name: name("TYRE_PRESS_"), unit: "psi", rate: 20, values: sample(20, &|i, _| 24.0 + 3.5 * (s_of(i) / 3000.0).min(1.0) + 0.1 * w as f64), i16_dec: Some(2) });
+        // pressures rise from 24 to 27.5 psi over the first 2,000 m, then stay
+        chans.push(Chan { name: name("TYRE_PRESS_"), unit: "psi", rate: 20, values: sample(20, &|i, _| 24.0 + 3.5 * (s_of(i) / 2000.0).min(1.0) + 0.1 * w as f64), i16_dec: Some(2) });
         chans.push(chan(name("TYRE_TAIR_"), "C", 20, sample(20, &|_, _| 95.0)));
         for side in ["L_SURF_TEMP_", "C_SURF_TEMP_", "R_SURF_TEMP_"] {
             chans.push(chan(name(side), "C", 60, sample(60, &|_, _| if side == "C_SURF_TEMP_" { 88.0 } else { 85.0 })));
