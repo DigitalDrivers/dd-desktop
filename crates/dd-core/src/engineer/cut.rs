@@ -165,10 +165,16 @@ pub fn mean(series: &Series, a: f64, b: f64) -> f64 {
 
 /// The lap of window [start, end] on the distance grid, or why it is not a lap.
 pub fn grid(data: &Data, start: f64, end: f64) -> Result<Grid, String> {
+    grid_in(data, start, end, true)
+}
+
+/// [`grid`] of a window that may hold a standing car (a Touristenfahrten loop through the parking lot, in which
+/// the timed lap is still to be found): `must_move` false.
+pub fn grid_in(data: &Data, start: f64, end: f64, must_move: bool) -> Result<Grid, String> {
     let speed = &data.speed;
     // standing: SPEED below 1 m/s for more than 2 s in a row
     let mut still_since: Option<f64> = None;
-    for i in speed.range(start, end) {
+    for i in speed.range(start, end).filter(|_| must_move) {
         let t = i as f64 / speed.rate;
         if (speed.values[i] as f64) < STAND_MS {
             let since = *still_since.get_or_insert(t);

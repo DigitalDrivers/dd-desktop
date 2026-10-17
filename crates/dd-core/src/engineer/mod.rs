@@ -11,6 +11,7 @@
 //! in seconds unless the name says ms, pressures in psi, temperatures in °C, pedals in % (0 to 100), wheels in the
 //! order FL FR RL RR.
 
+pub mod beacons;
 pub mod clock;
 pub mod corners;
 pub mod cut;
@@ -67,6 +68,19 @@ pub enum TimingNote {
     PartialWindow,
 }
 
+/// Where a lap's boundaries and time come from: the app's lap list (the game's timing), the game's log, the
+/// `.ldx` beacons (both the timing line to the millisecond), or the telemetry (the timed lap found on the corner
+/// map inside a Touristenfahrten loop, to about 0.1 s).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TimeSource {
+    #[default]
+    App,
+    Log,
+    Beacon,
+    Telemetry,
+}
+
 /// The track's corners T1…Tn from the lap's start. Each corner owns the segment from the middle of the straight
 /// before it to the middle of the straight after it, so the segments tile the lap.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -117,6 +131,9 @@ pub struct EngineerLap {
     pub traction: Vec<GearTraction>,
     pub corners: Vec<CornerResult>,
     pub findings: Vec<Finding>,
+    /// Missing in reports of app 0.25.0: the app's lap list
+    #[serde(default)]
+    pub time_source: TimeSource,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

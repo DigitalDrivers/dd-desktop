@@ -175,6 +175,15 @@ pub struct Session {
     pub chans: Vec<Chan>,
     pub duration: f64,
     pub laps: [(f64, f64); 2],
+    /// The file time at each `STEP` metres of the drive
+    times: Vec<f64>,
+}
+
+impl Session {
+    /// The file time at `m` metres of the drive (0 = the start of the out lap).
+    pub fn at_m(&self, m: f64) -> f64 {
+        STAND + self.times[((m / STEP).round() as usize).min(self.times.len() - 1)]
+    }
 }
 
 pub fn session(drive: &Drive) -> Session {
@@ -238,7 +247,7 @@ pub fn session(drive: &Drive) -> Session {
         chans.push(chan(name("WHEEL_SR_"), "..", 100, sample(100, &|i, _| if front && locking(i) { -0.2 } else { 0.0 })));
     }
     chans.push(chan("ABS", "..", 20, sample(20, &|_, _| 0.0)));
-    Session { chans, duration, laps }
+    Session { chans, duration, laps, times: t }
 }
 
 /// The local lap list of the two timed laps when the file starts at `start_ms` (unix ms).

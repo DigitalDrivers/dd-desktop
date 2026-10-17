@@ -1,7 +1,8 @@
 //! The app's own lap list for the engineer, `<config>/engineer/laps.jsonl`: the shell turns the shared memory into
 //! laps ([`crate::laps::LapRecorder`]) and, while the local switch is on, appends each finished lap with the PC's
-//! clock at the moment it settled. The MoTeC files have no lap times and no usable lap lines (the `.ldx` beacons
-//! are not the timing lines on Touristenfahrten), so these are the laps the engineer cuts out of them.
+//! clock at the moment it settled. The MoTeC files have no lap times, and the `.ldx` beacons next to them are the
+//! lap completions only (on Touristenfahrten at the pit exit, not the timed lap: [`super::beacons`]), so these are
+//! the laps the engineer cuts out of them first.
 
 use std::fs;
 use std::io::{self, Write};

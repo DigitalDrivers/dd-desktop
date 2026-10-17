@@ -16,7 +16,7 @@ const CONTRACT: [(&str, &[&str]); 17] = [
     ("reference", &["sessionId", "lapId", "lapTimeMs"]),
     ("corners", &["version", "frozen", "corners"]),
     ("corners.corners[]", &["n", "startM", "endM", "apexM", "direction", "radiusM"]),
-    ("laps[]", &["id", "n", "lapTimeMs", "valid", "pit", "distanceM", "topSpeedKmh", "theoreticalBestMs", "fuel", "tyres", "brakes", "balance", "traction", "corners", "findings"]),
+    ("laps[]", &["id", "n", "lapTimeMs", "valid", "pit", "distanceM", "topSpeedKmh", "theoreticalBestMs", "fuel", "tyres", "brakes", "balance", "traction", "corners", "findings", "timeSource"]),
     ("laps[].fuel", &["startL", "usedL"]),
     ("laps[].tyres", &["pressureStart", "pressureAvg", "pressureEnd", "surfaceTempAvg", "airTempAvg", "targetPsi"]),
     ("laps[].tyres.targetPsi", &["min", "max"]),
@@ -71,6 +71,7 @@ fn the_example_session_round_trips_and_has_exactly_the_contract_s_fields() {
     }
     // the enums as the contract spells them
     assert_eq!(written["timingNote"], "partial-window");
+    assert_eq!(written["laps"][0]["timeSource"], "app");
     assert_eq!(written["corners"]["corners"][0]["direction"], "L");
     let bands: Vec<&Value> = at(&written, "laps[].balance[]").into_iter().map(|b| &b["band"]).collect();
     assert_eq!(bands[..4], [&Value::from("60-120"), &Value::from("120-180"), &Value::from("180-240"), &Value::from("240+")]);
@@ -119,8 +120,10 @@ fn evaluates_joe_s_laps_of_2026_10_04_as_the_hand_analysis_measured_them() {
         modified_ms,
         logs: &[log],
         laps: &laps,
+        ldx: None,
         app_version: "0.25.0",
         now_ms: modified_ms,
+        keep_days: Some(30),
     };
     let started = std::time::Instant::now();
     let outcome = run(&dir, &mut std::fs::File::open(&path).unwrap(), &input).unwrap();
@@ -161,4 +164,33 @@ fn evaluates_joe_s_laps_of_2026_10_04_as_the_hand_analysis_measured_them() {
     let dts: f64 = s.laps[0].corners.iter().filter_map(|c| c.dt_s).sum();
     assert!((dts - 7.497).abs() < 0.1, "{dts}");
     store::forget(&dir).unwrap();
+}
+
+/// Runs with `DD_BEACON_FIXTURE=<the newest .ld of a session, its .ldx next to it> DD_ENGINEER_DIR=<a copy of the
+/// app's engineer folder> cargo test -p dd-core --test engineer -- --ignored --nocapture beacons`: the session is
+/// evaluated from the file's beacons alone (no lap list, no log) into the copy, and its laps are printed next to
+/// the laps the copy already holds of that session.
+#[test]
+#[ignore]
+fn evaluates_a_real_session_from_its_beacons_alone() {
+    let path = std::env::var("DD_BEACON_FIXTURE").expect("DD_BEACON_FIXTURE");
+    let dir = std::path::PathBuf::from(std::env::var("DD_ENGINEER_DIR").expect("DD_ENGINEER_DIR"));
+    let ldx = std::fs::read_to_string(std::path::Path::new(&path).with_extension("ldx")).ok();
+    let modified_ms = std::fs::metadata(&path).unwrap().modified().unwrap().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+    let parts: Vec<&str> = path.rsplit(['/', '\\']).take(3).collect();
+    let name = format!("{}/{}/{}", parts[2], parts[1], parts[0]);
+    let before: Vec<(String, Vec<Option<i64>>)> = store::heads(&dir).iter().map(|h| (h.id.clone(), store::session(&dir, &h.id).unwrap().laps.iter().map(|l| l.lap_time_ms).collect())).collect();
+    let input = Input { name: &name, modified_ms, logs: &[], laps: &[], ldx: ldx.as_deref(), app_version: "0.25.0", now_ms: modified_ms, keep_days: None };
+    let started = std::time::Instant::now();
+    let outcome = run(&dir, &mut std::fs::File::open(&path).unwrap(), &input).unwrap();
+    println!("{outcome:?} in {:?}", started.elapsed());
+    let s = store::session(&dir, &outcome.id).unwrap();
+    println!("session {} {} {:?} {} {} {} to {}, map v{} with {} corners, reference {:?}", s.id, s.car, s.preset, s.track, s.layout, s.started_at, s.ended_at, s.corners.version, s.corners.corners.len(), s.reference.as_ref().map(|r| (&r.session_id, r.lap_time_ms)));
+    for l in &s.laps {
+        let loss: f64 = l.corners.iter().filter_map(|c| c.dt_s).sum();
+        println!("lap {} {:?} {:?} ms, {} m, top {} km/h, loss {loss:.2} s, findings {:?}", l.n, l.time_source, l.lap_time_ms, l.distance_m, l.top_speed_kmh, l.findings);
+    }
+    if let Some((_, laps)) = before.iter().find(|(id, _)| *id == outcome.id) {
+        println!("the copy held these laps of the session: {laps:?}");
+    }
 }

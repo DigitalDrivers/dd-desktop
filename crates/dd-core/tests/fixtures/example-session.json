@@ -77,7 +77,8 @@
           "spinS": [0.0, 0.0, 0.15, 0.12]
         }
       ],
-      "findings": ["brake_earlier", "throttle_later", "min_speed_lower", "lock_front", "spin_rear", "understeer_entry", "brake_hot"]
+      "findings": ["brake_earlier", "throttle_later", "min_speed_lower", "lock_front", "spin_rear", "understeer_entry", "brake_hot"],
+      "timeSource": "app"
     },
     {
       "id": "1791062547-dd_bmw_m3_e46_rennsport#2",
@@ -138,7 +139,8 @@
           "spinS": [0.0, 0.0, 0.0, 0.0]
         }
       ],
-      "findings": ["pressure_high", "brake_hot"]
+      "findings": ["pressure_high", "brake_hot"],
+      "timeSource": "app"
     }
   ],
   "timingNote": "partial-window"

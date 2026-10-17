@@ -1,8 +1,9 @@
 //! What the engineer keeps in `<config>/engineer`: the lap list (`laps.jsonl`), what it evaluated
 //! (`evaluated.json`), the corner maps (`maps/`), per car, preset, track and layout the reference lap's numbers
 //! and the best segment times (`refs/`), and per session its report and curves (`sessions/<id>.json` and
-//! `<id>.traces.json`). Sessions of the last 30 days stay, a reference lap's session for good; above 200 MB the
-//! oldest go first. Forgetting deletes all of it.
+//! `<id>.traces.json`). Sessions stay as long as the driver chose (30 days until they do, or for ever), a
+//! reference lap's session for good, one without laps 7 days; above 200 MB the oldest go first. A session can be
+//! deleted on its own; forgetting deletes all of it.
 
 use std::fs;
 use std::io;
@@ -18,7 +19,9 @@ use super::{laps, sessions, EngineerSession, EngineerTrace};
 pub const DIR: &str = "engineer";
 const SESSIONS: &str = "sessions";
 const REFS: &str = "refs";
-const KEEP_MS: i64 = 30 * 24 * 60 * 60 * 1000;
+const DAY_MS: i64 = 24 * 60 * 60 * 1000;
+/// A session without laps stays this long: the laps may still come from the beacons or the log once more.
+const KEEP_EMPTY_MS: i64 = 7 * DAY_MS;
 const CAP_BYTES: u64 = 200 * 1024 * 1024;
 
 /// The reference lap of a car, preset, track and layout: the driver's best valid lap on this map version.
@@ -152,18 +155,21 @@ pub fn heads(dir: &Path) -> Vec<SessionHead> {
         .collect()
 }
 
-/// The sessions to delete: older than 30 days, then the oldest while all together are above 200 MB; never one in
-/// `keep` (the reference laps' sessions). `sessions` are (id, start in unix ms, bytes).
-pub fn retention(sessions: &[(String, i64, u64)], keep: &[String], now_ms: i64) -> Vec<String> {
-    let mut by_age: Vec<&(String, i64, u64)> = sessions.iter().collect();
+/// The sessions to delete: older than `keep_days` (None: never for that), one without laps older than 7 days, then
+/// the oldest while all together are above 200 MB; never one in `keep` (the reference laps' sessions). `sessions`
+/// are (id, start in unix ms, bytes, whether it has laps).
+pub fn retention(sessions: &[(String, i64, u64, bool)], keep: &[String], now_ms: i64, keep_days: Option<u32>) -> Vec<String> {
+    let mut by_age: Vec<&(String, i64, u64, bool)> = sessions.iter().collect();
     by_age.sort_by_key(|s| (s.1, s.0.clone()));
     let mut total: u64 = sessions.iter().map(|s| s.2).sum();
     let mut out = Vec::new();
-    for (id, start, bytes) in by_age {
+    for (id, start, bytes, has_laps) in by_age {
         if keep.contains(id) {
             continue;
         }
-        if now_ms - start > KEEP_MS || total > CAP_BYTES {
+        let age = now_ms - start;
+        let old = keep_days.is_some_and(|days| age > days as i64 * DAY_MS) || (!has_laps && age > KEEP_EMPTY_MS);
+        if old || total > CAP_BYTES {
             out.push(id.clone());
             total -= bytes;
         }
@@ -171,8 +177,22 @@ pub fn retention(sessions: &[(String, i64, u64)], keep: &[String], now_ms: i64) 
     out
 }
 
+/// Deletes a session's report and curves; nothing when there is none of that id. The references stay.
+pub fn forget_session(dir: &Path, id: &str) -> io::Result<()> {
+    if !is_session_id(id) {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a session id"));
+    }
+    for suffix in [".json", ".traces.json"] {
+        match fs::remove_file(session_path(dir, id, suffix)) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 /// Deletes what [`retention`] says; the ids deleted.
-pub fn apply_retention(dir: &Path, now_ms: i64) -> io::Result<Vec<String>> {
+pub fn apply_retention(dir: &Path, now_ms: i64, keep_days: Option<u32>) -> io::Result<Vec<String>> {
     let keep: Vec<String> = fs::read_dir(dir.join(REFS))
         .into_iter()
         .flatten()
@@ -181,14 +201,16 @@ pub fn apply_retention(dir: &Path, now_ms: i64) -> io::Result<Vec<String>> {
         .filter_map(|bytes| serde_json::from_slice::<Refs>(&bytes).ok())
         .filter_map(|refs| refs.reference.map(|r| r.session_id))
         .collect();
-    let gone = retention(&stored(dir), &keep, now_ms);
+    let sessions: Vec<(String, i64, u64, bool)> = stored(dir)
+        .into_iter()
+        .map(|(id, start, bytes)| {
+            let has_laps = session(dir, &id).is_some_and(|s| !s.laps.is_empty());
+            (id, start, bytes, has_laps)
+        })
+        .collect();
+    let gone = retention(&sessions, &keep, now_ms, keep_days);
     for id in &gone {
-        for suffix in [".json", ".traces.json"] {
-            match fs::remove_file(session_path(dir, id, suffix)) {
-                Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
-                _ => {}
-            }
-        }
+        forget_session(dir, id)?;
     }
     Ok(gone)
 }
@@ -216,17 +238,22 @@ mod tests {
     const MB: u64 = 1024 * 1024;
 
     #[test]
-    fn keeps_30_days_and_200_mb_and_every_reference_session() {
+    fn keeps_the_chosen_days_and_200_mb_and_every_reference_session() {
         let now = 100 * DAY;
-        let s = |id: &str, age_days: i64, mb: u64| (id.to_string(), now - age_days * DAY, mb * MB);
+        let s = |id: &str, age_days: i64, mb: u64| (id.to_string(), now - age_days * DAY, mb * MB, true);
         let all = [s("a", 40, 1), s("b", 31, 1), s("c", 29, 1), s("d", 1, 1)];
-        assert_eq!(retention(&all, &[], now), ["a", "b"]);
-        assert_eq!(retention(&all, &["a".to_string()], now), ["b"], "a reference lap's session stays for good");
-        // above 200 MB the oldest go first, until it fits
+        assert_eq!(retention(&all, &[], now, Some(30)), ["a", "b"]);
+        assert_eq!(retention(&all, &["a".to_string()], now, Some(30)), ["b"], "a reference lap's session stays for good");
+        assert_eq!(retention(&all, &[], now, Some(90)), Vec::<String>::new());
+        assert_eq!(retention(&all, &[], now, None), Vec::<String>::new(), "for ever");
+        // above 200 MB the oldest go first, until it fits, whatever the days
         let big = [s("a", 5, 120), s("b", 4, 50), s("c", 3, 60), s("d", 2, 10)];
-        assert_eq!(retention(&big, &[], now), ["a"]);
-        assert_eq!(retention(&big, &["a".to_string()], now), ["b"]);
-        assert!(retention(&[s("a", 0, 10)], &[], now).is_empty());
+        assert_eq!(retention(&big, &[], now, None), ["a"]);
+        assert_eq!(retention(&big, &["a".to_string()], now, Some(30)), ["b"]);
+        assert!(retention(&[s("a", 0, 10)], &[], now, Some(30)).is_empty());
+        // a session without laps goes after 7 days, whatever the days
+        let empty = |id: &str, age_days: i64| (id.to_string(), now - age_days * DAY, MB, false);
+        assert_eq!(retention(&[empty("a", 8), empty("b", 6)], &[], now, None), ["a"]);
     }
 
     #[test]
@@ -279,8 +306,13 @@ mod tests {
         let refs = Refs { map_version: 1, reference: Some(RefLap { session_id: old.id.clone(), lap_id: format!("{}#1", old.id), lap_time_ms: 1, measures: serde_json::from_str(REF_MEASURES).unwrap() }), best_segments_s: vec![] };
         save_refs(&dir, &refs_key("dd_x", None, "T", "L"), &refs).unwrap();
         assert_eq!(load_refs(&dir, "dd_x____T__L"), Some(refs));
-        assert!(apply_retention(&dir, 1_791_999_999_000 + 31 * DAY).unwrap() == ["1791999999-dd_x"]);
+        assert!(apply_retention(&dir, 1_791_999_999_000 + 31 * DAY, Some(30)).unwrap() == ["1791999999-dd_x"]);
         assert_eq!(counts(&dir).1, 1);
+        // one session on its own; a wrong id is refused, a missing one is nothing
+        save_session(&dir, &new, &[]).unwrap();
+        forget_session(&dir, &new.id).unwrap();
+        assert!(super::session(&dir, &new.id).is_none() && super::session(&dir, &old.id).is_some());
+        assert!(forget_session(&dir, "../x").is_err() && forget_session(&dir, &new.id).is_ok());
         forget(&dir).unwrap();
         assert!(!dir.exists());
         forget(&dir).unwrap();

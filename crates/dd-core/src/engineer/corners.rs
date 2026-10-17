@@ -216,9 +216,16 @@ fn matches<'a>(found: &'a [Detected], map: &'a Map, to_map: &dyn Fn(f64) -> f64)
 /// Puts a lap's corners on the map: the whole-metre shift within ±300 m that matches most corners (the smallest
 /// one of equals), then a least-squares line through the matched turn-in and turn-out points that lie within 15 m.
 pub fn fit(found: &[Detected], map: &Map) -> Fit {
+    fit_within(found, map, -SHIFT_M, SHIFT_M)
+}
+
+/// [`fit`] with the shift searched from `lo` to `hi` metres: a Touristenfahrten loop from the pit exit lies
+/// hundreds of metres before the map's start.
+pub fn fit_within(found: &[Detected], map: &Map, lo: i32, hi: i32) -> Fit {
+    let mut shifts: Vec<i32> = (lo..=hi).collect();
+    shifts.sort_by_key(|s| (s.abs(), *s));
     let mut best = (0usize, 0i32);
-    for shift in 0..=2 * SHIFT_M {
-        let shift = if shift % 2 == 0 { shift / 2 } else { -(shift + 1) / 2 };
+    for shift in shifts {
         let count = matches(found, map, &|m| m + shift as f64).len();
         if count > best.0 {
             best = (count, shift);

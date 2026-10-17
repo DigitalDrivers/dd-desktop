@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::corners::{Fit, Map, KAPPA};
 use super::cut::{mean, Data, Grid};
-use super::{round, Band, BandBalance, Brakes, CornerBalance, CornerBrake, CornerResult, CornerThrottle, EngineerLap, EngineerTrace, Finding, Fuel, GearTraction, MinSpeed, TargetPsi, Tyres};
+use super::{round, Band, BandBalance, Brakes, CornerBalance, CornerBrake, CornerResult, CornerThrottle, EngineerLap, EngineerTrace, Finding, Fuel, GearTraction, MinSpeed, TargetPsi, TimeSource, Tyres};
 use super::laps::LocalLap;
 
 /// A pedal counts as pressed above this (%).
@@ -259,7 +259,8 @@ fn diff(own: Option<f64>, reference: Option<f64>) -> Option<f64> {
 
 /// The report of a lap: its numbers against the reference's (when there is one on the same map), the theoretical
 /// best, the club car's pressure window (`target`) and the findings.
-pub fn report(id: &str, n: u32, lap: &LocalLap, m: &LapMeasures, reference: Option<&LapMeasures>, theoretical_best_ms: Option<i64>, target: Option<TargetPsi>) -> EngineerLap {
+#[allow(clippy::too_many_arguments)]
+pub fn report(id: &str, n: u32, lap: &LocalLap, source: TimeSource, m: &LapMeasures, reference: Option<&LapMeasures>, theoretical_best_ms: Option<i64>, target: Option<TargetPsi>) -> EngineerLap {
     let reference = reference.filter(|r| r.corners.len() == m.corners.len());
     let mut findings = Vec::new();
     let corners: Vec<CornerResult> = m
@@ -321,6 +322,7 @@ pub fn report(id: &str, n: u32, lap: &LocalLap, m: &LapMeasures, reference: Opti
         lap_time_ms: Some(lap.lap_time_ms),
         valid: lap.valid,
         pit: lap.pit,
+        time_source: source,
         distance_m: m.distance_m,
         top_speed_kmh: m.top_speed_kmh,
         theoretical_best_ms: reference.and(theoretical_best_ms),
@@ -376,7 +378,7 @@ mod tests {
     fn a_later_braking_point_shows_its_time_in_that_corner_only() {
         let lab = lab(Drive { late: Some(2), lock: false });
         let (map, [one, two]) = measured(&lab);
-        let r = report("s#2", 2, &lap(1, &lab), &two, Some(&one), None, None);
+        let r = report("s#2", 2, &lap(1, &lab), TimeSource::App, &two, Some(&one), None, None);
         let dts: Vec<f64> = r.corners.iter().map(|c| c.dt_s.unwrap()).collect();
         // corner 3 (the hairpin) is braked for harder and later: faster there, equal elsewhere (within what the
         // 20 Hz yaw rate allows: it places a turn-in to ±1.5 m, 0.02 s at 75 m/s)
@@ -452,7 +454,7 @@ mod tests {
     fn finds_locking_and_compares_with_the_reference() {
         let lab = lab(Drive { late: Some(2), lock: true });
         let (_, [one, two]) = measured(&lab);
-        let r = report("s#2", 2, &lap(1, &lab), &two, Some(&one), Some(400_000), Some(CLUB_TARGET_PSI));
+        let r = report("s#2", 2, &lap(1, &lab), TimeSource::App, &two, Some(&one), Some(400_000), Some(CLUB_TARGET_PSI));
         let hairpin = &r.corners[2];
         assert!(hairpin.lock_s[0] > 0.5 && hairpin.lock_s[1] > 0.5 && hairpin.lock_s[2] == 0.0, "{:?}", hairpin.lock_s);
         assert!(r.findings.contains(&Finding::LockFront));
@@ -463,7 +465,7 @@ mod tests {
         assert!(r.balance.iter().take(3).all(|b| b.relative.is_some_and(|x| x.abs() < 0.01)), "{:?}", r.balance);
         assert_eq!(r.balance[3].relative, None, "no corner above 240 km/h");
         // without a reference: no comparisons, no theoretical best
-        let alone = report("s#1", 1, &lap(0, &lab), &one, None, Some(400_000), None);
+        let alone = report("s#1", 1, &lap(0, &lab), TimeSource::App, &one, None, Some(400_000), None);
         assert!(alone.corners.iter().all(|c| c.dt_s.is_none() && c.brake.vs_ref_m.is_none() && c.balance.entry.is_none()));
         assert_eq!((alone.theoretical_best_ms, alone.tyres.target_psi.clone()), (None, None));
         assert!(alone.findings.iter().all(|f| matches!(f, Finding::CoastLong | Finding::LockFront | Finding::LockRear | Finding::SpinRear | Finding::BrakeHot | Finding::BrakeFade)));
@@ -483,7 +485,7 @@ mod tests {
         hot.corners[1].min_kmh -= 5.0;
         hot.corners[1].exit_kmh -= 4.0;
         hot.corners[0].peak = 70.0;
-        let r = report("s#1", 1, &lap(0, &lab), &hot, Some(&one), None, None);
+        let r = report("s#1", 1, &lap(0, &lab), TimeSource::App, &hot, Some(&one), None, None);
         for f in [Finding::BrakeHot, Finding::BrakeFade, Finding::FuelHeavy, Finding::CoastLong, Finding::UndersteerEntry, Finding::OversteerExit, Finding::MinSpeedLower, Finding::ExitSlower, Finding::BrakeSofter] {
             assert!(r.findings.contains(&f), "{f:?} in {:?}", r.findings);
         }

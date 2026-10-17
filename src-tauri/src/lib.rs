@@ -636,13 +636,40 @@ struct EngineerStatus {
     evaluating: bool,
     /// When the app last evaluated a session, seconds since 1970, null before the first
     last_evaluated: Option<u64>,
+    /// How many days sessions stay, null for ever
+    keep_days: Option<u32>,
 }
 
 #[tauri::command]
 fn engineer_status(app: tauri::AppHandle, state: tauri::State<'_, Engineer>) -> Result<EngineerStatus, String> {
     let dir = engineer_dir(&app).ok_or("failed")?;
+    let config = app.path().app_config_dir().map_err(|_| "failed")?;
     let (laps, sessions, last_evaluated) = engineer::store::counts(&dir);
-    Ok(EngineerStatus { enabled: engineer_on(&app), laps, sessions, evaluating: state.evaluating.load(std::sync::atomic::Ordering::SeqCst), last_evaluated })
+    Ok(EngineerStatus { enabled: engineer_on(&app), laps, sessions, evaluating: state.evaluating.load(std::sync::atomic::Ordering::SeqCst), last_evaluated, keep_days: settings::engineer_keep_days(&config) })
+}
+
+/// How long the race engineer keeps its sessions on this PC ("Keep sessions"): `days` 30, 90, 365 or null for
+/// ever. Answers what it is now. A reference lap's session stays whatever the days, and the 200 MB cap stays.
+#[tauri::command]
+fn engineer_keep(app: tauri::AppHandle, days: Option<u32>) -> Result<Option<u32>, String> {
+    let config = app.path().app_config_dir().map_err(|_| "failed")?;
+    settings::set_engineer_keep_days(&config, days).map_err(|error| {
+        log(&format!("engineer_keep failed: {error}"));
+        "failed".to_string()
+    })?;
+    log(&format!("engineer_keep -> {days:?}"));
+    Ok(settings::engineer_keep_days(&config))
+}
+
+/// Deletes one stored session (its report and curves); the references stay.
+#[tauri::command]
+fn engineer_forget_session(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    engineer::store::forget_session(&engineer_dir(&app).ok_or("failed")?, &id).map_err(|error| {
+        log(&format!("engineer_forget_session {id} failed: {error}"));
+        "failed".to_string()
+    })?;
+    log(&format!("engineer_forget_session {id} -> deleted"));
+    Ok(())
 }
 
 /// The race engineer's switch on this PC ("Evaluate laps on this PC"). On, the lap sampler runs whenever the game
@@ -767,6 +794,7 @@ fn evaluate_sessions(app: &tauri::AppHandle, manual: bool) -> Result<EngineerEva
         let ready: Vec<motec::MotecFile> = engineer::sessions::ready(&files, &evaluated, unix_now(), ac_evo_running()).into_iter().cloned().collect();
         let laps = engineer::laps::load(&dir);
         let version = app.package_info().version.to_string();
+        let keep_days = app.path().app_config_dir().map_or(Some(settings::ENGINEER_KEEP_DAYS), |config| settings::engineer_keep_days(&config));
         let mut done = 0;
         for file in ready {
             if driving(manual) {
@@ -774,11 +802,14 @@ fn evaluate_sessions(app: &tauri::AppHandle, manual: bool) -> Result<EngineerEva
             }
             let logs = game_logs_since(app, file.modified);
             let logs: Vec<&str> = logs.iter().map(String::as_str).collect();
-            let input = engineer::evaluate::Input { name: &file.name, modified_ms: file.modified as i64 * 1000, logs: &logs, laps: &laps, app_version: &version, now_ms: unix_now_ms() };
             let path = file.name.split('/').fold(root.clone(), |path, segment| path.join(segment));
+            // the beacons the game writes next to the file
+            let ldx = fs::read_to_string(path.with_extension("ldx")).ok();
+            let input = engineer::evaluate::Input { name: &file.name, modified_ms: file.modified as i64 * 1000, logs: &logs, laps: &laps, ldx: ldx.as_deref(), app_version: &version, now_ms: unix_now_ms(), keep_days };
             match fs::File::open(&path).and_then(|mut ld| engineer::evaluate::run(&dir, &mut std::io::BufReader::new(&mut ld), &input)) {
                 Ok(outcome) => {
-                    log(&format!("engineer: {} evaluated as {} ({} laps, clock from the game's log: {}){}", file.name, outcome.id, outcome.laps, outcome.from_log, if outcome.dropped.is_empty() { String::new() } else { format!("; not evaluated: {}", outcome.dropped.join("; ")) }));
+                    let laps_from = if outcome.laps_from_beacons { "the beacons" } else if outcome.laps_from_log { "the game's log" } else { "the lap list" };
+                    log(&format!("engineer: {} evaluated as {} ({} laps from {laps_from}, clock from the game's log: {}){}", file.name, outcome.id, outcome.laps, outcome.from_log, if outcome.dropped.is_empty() { String::new() } else { format!("; not evaluated: {}", outcome.dropped.join("; ")) }));
                     let _ = app.emit("engineer-evaluated", EngineerEvaluated { id: outcome.id, laps: outcome.laps });
                     done += 1;
                 }
@@ -1564,7 +1595,7 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status, engineer_status, engineer_enable, engineer_sessions, engineer_session, engineer_traces, engineer_evaluate, engineer_forget])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status, engineer_status, engineer_enable, engineer_sessions, engineer_session, engineer_traces, engineer_evaluate, engineer_forget, engineer_forget_session, engineer_keep])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
