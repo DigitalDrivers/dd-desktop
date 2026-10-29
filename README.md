@@ -81,9 +81,13 @@ driver can check what the app does on their PC.
   `engineer\maps`, your reference laps in `engineer\refs` and what it evaluated in `engineer\evaluated.json`;
   sessions go after the days you chose ("Keep sessions": 30 days until you choose, or for ever; those of your
   reference laps stay, one without laps goes after 7 days), all of it stays below 200 MB, and you can delete a
-  session on its own. "Forget everything" deletes the whole `engineer` folder. Nothing of it leaves the PC: only when you ask the AI
-  engineer on the platform, and agreed to the AI evaluation there, the page sends the computed numbers of a session
-  (never the curves). The MoTeC folder and the logs are only read.
+  session on its own. Since 0.26.0 it also keeps a digest of each evaluated session for the coach (about 1 KB: best
+  lap, theoretical best, spread, coasting, lock-ups, wheelspin, pressures, the costliest corners) in
+  `engineer\digests.jsonl`, for ever, whatever the days you chose, and in `engineer\coach.json` when you last opened
+  the coach. "Forget everything" deletes the whole `engineer` folder. Nothing of it leaves the PC: only when you ask
+  the AI engineer on the platform, and agreed to the AI evaluation there, the page sends the computed numbers of a
+  session (never the curves), and only with your consent to the coach on the platform the page uploads the digests.
+  The MoTeC folder and the logs are only read.
 - When you join one of our servers, the app starts Assetto Corsa EVO through Steam (`steam://run/3058630`); the
   page has put the server's join string on the clipboard, which the game's server list takes.
 - A link the platform opens in a new window (a stream, a download) goes to your default browser; the app has no
@@ -97,14 +101,14 @@ driver can check what the app does on their PC.
 - It writes a log to `%TEMP%\dd-desktop.log`.
 
 Nothing else is read, and nothing is uploaded by the shell itself, except the MoTeC sessions above when the page
-asks for them. The race engineer uploads nothing.
+asks for them. The race engineer uploads nothing; the coach's digests go up only through the page, with your consent.
 
 ## How it works
 
 | Part | What |
 | --- | --- |
 | `src/` | Bundled start page: checks that the platform is reachable, then opens it. Offline it shows a system check. |
-| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `remove_setups`, `update_check`, `update_install`, `update_at_start`, `launch_ac_evo`, `car_status`, `install_car`, `fix_game_start`, `live_snapshot`, `take_laps`, `upload_motec`, `motec_status` and the race engineer's `engineer_status`, `engineer_enable`, `engineer_sessions`, `engineer_session`, `engineer_traces`, `engineer_evaluate`, `engineer_forget`, `engineer_forget_session` and `engineer_keep`. |
+| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `remove_setups`, `update_check`, `update_install`, `update_at_start`, `launch_ac_evo`, `car_status`, `install_car`, `fix_game_start`, `live_snapshot`, `take_laps`, `upload_motec`, `motec_status` and the race engineer's `engineer_status`, `engineer_enable`, `engineer_sessions`, `engineer_session`, `engineer_traces`, `engineer_evaluate`, `engineer_forget`, `engineer_forget_session`, `engineer_keep`, and the coach's `engineer_profile`, `engineer_seen`, `engineer_digests` and `engineer_digests_sent`. |
 | `src-tauri/capabilities/` | Which page may call which command. The hosted interface only gets the commands listed in `platform.json`; `dev-localhost.json` is enabled for development builds only. |
 | `crates/dd-core/` | Platform-independent logic (locating Assetto Corsa EVO and the Steam account, car setups, the club's car packages and their saved cars, the race engineer), unit-tested on any machine. |
 
@@ -167,7 +171,12 @@ it does not have; the shapes are the contract with the platform (`EngineerSessio
 answers `{ evaluated, held }` (`held`: `running` or `driving`, else null); the app also does it every 5 minutes
 while the switch is on and the game does not drive, and sends the event `engineer-evaluated` (`{ id, laps }`) after
 each session. `engineer_forget_session` (`{ id }`) deletes one session, `engineer_forget` everything of the
-engineer. A MoTeC file's data ends at the car's last lap
+engineer. The coach (since 0.26.0, `digest.rs`, `profile.rs`; the contract is
+`research/2026-10-21-renningenieur-coach/contract-coach.ts` in the workspace, its example
+`crates/dd-core/tests/fixtures/example-profile.json`): `engineer_profile` answers the `CoachProfile` computed from
+the digests, `engineer_seen` notes that the driver opened the coach (`unseen` counts the sessions evaluated since),
+`engineer_digests` answers `{ digests }`, those not yet uploaded, the oldest first, at most 50, and
+`engineer_digests_sent` (`{ ids }`) marks them as uploaded. A MoTeC file's data ends at the car's last lap
 completion, which the game's log names to the millisecond (`evOnLapCompleted`), not at the time in its header (the
 game writes the file when the car is back in its box, up to minutes later); the laps of the app's list give the lap
 windows in it, else the game's log, else the beacons of the `.ldx` next to the file (each a lap completion; on

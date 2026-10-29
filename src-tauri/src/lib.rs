@@ -8,7 +8,7 @@ use std::time::Duration;
 use std::sync::Mutex;
 use std::time::SystemTime;
 
-use dd_core::engineer::{self, laps::LocalLap, store::SessionHead, EngineerSession, EngineerTrace};
+use dd_core::engineer::{self, digest::CoachDigestsPending, laps::LocalLap, profile::CoachProfile, store::SessionHead, EngineerSession, EngineerTrace};
 use dd_core::evo_memory::{self, LiveSnapshot};
 use dd_core::garage;
 use dd_core::laps::{self, LapRecorder, LapSummary};
@@ -743,11 +743,59 @@ fn engineer_forget(app: tauri::AppHandle, state: tauri::State<'_, Engineer>) -> 
     Ok(())
 }
 
+/// The coach's profile of the driver, from the digests of the sessions on this PC. The first call after an update
+/// to 0.26.0 makes the digests of the stored sessions.
+#[tauri::command]
+async fn engineer_profile(app: tauri::AppHandle) -> Result<CoachProfile, String> {
+    let dir = engineer_dir(&app).ok_or("failed")?;
+    tauri::async_runtime::spawn_blocking(move || engineer::profile::profile(&dir, unix_now_ms())).await.map_err(|_| "failed".to_string())?.map_err(|error| {
+        log(&format!("engineer_profile failed: {error}"));
+        "failed".to_string()
+    })
+}
+
+/// The driver opened the coach: the sessions evaluated until now are no longer new.
+#[tauri::command]
+fn engineer_seen(app: tauri::AppHandle) -> Result<(), String> {
+    engineer::digest::seen(&engineer_dir(&app).ok_or("failed")?, unix_now_ms()).map_err(|error| {
+        log(&format!("engineer_seen failed: {error}"));
+        "failed".to_string()
+    })
+}
+
+/// The coach's digests not yet uploaded, the oldest first, at most 50 (the page uploads them with the coach consent).
+#[tauri::command]
+async fn engineer_digests(app: tauri::AppHandle) -> Result<CoachDigestsPending, String> {
+    let dir = engineer_dir(&app).ok_or("failed")?;
+    tauri::async_runtime::spawn_blocking(move || engineer::digest::pending(&dir)).await.map_err(|_| "failed".to_string())?.map_err(|error| {
+        log(&format!("engineer_digests failed: {error}"));
+        "failed".to_string()
+    })
+}
+
+/// Marks the coach's digests `ids` as uploaded.
+#[tauri::command]
+fn engineer_digests_sent(app: tauri::AppHandle, ids: Vec<String>) -> Result<(), String> {
+    engineer::digest::mark_sent(&engineer_dir(&app).ok_or("failed")?, &ids).map_err(|error| {
+        log(&format!("engineer_digests_sent failed: {error}"));
+        "failed".to_string()
+    })?;
+    log(&format!("engineer_digests_sent -> {} uploaded", ids.len()));
+    Ok(())
+}
+
 /// How often the app evaluates ended sessions by itself while the switch is on.
 const ENGINEER_EVERY: Duration = Duration::from_secs(5 * 60);
 
 /// Evaluates ended sessions every 5 minutes, while the switch is on and the game is not driving.
 fn engineer_loop(app: tauri::AppHandle) {
+    // the stored data's one-off changes (0.26.0: the old pressure window out, the coach's digests), before the page
+    // asks for them
+    if let Some(dir) = engineer_dir(&app) {
+        if let Err(error) = engineer::store::upgrade(&dir) {
+            log(&format!("engineer: upgrading the stored sessions failed: {error}"));
+        }
+    }
     loop {
         std::thread::sleep(ENGINEER_EVERY);
         if engineer_on(&app) {
@@ -1595,7 +1643,7 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status, engineer_status, engineer_enable, engineer_sessions, engineer_session, engineer_traces, engineer_evaluate, engineer_forget, engineer_forget_session, engineer_keep])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status, engineer_status, engineer_enable, engineer_sessions, engineer_session, engineer_traces, engineer_evaluate, engineer_forget, engineer_forget_session, engineer_keep, engineer_profile, engineer_seen, engineer_digests, engineer_digests_sent])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
