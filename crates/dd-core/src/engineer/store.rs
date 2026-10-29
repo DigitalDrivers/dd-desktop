@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use super::corners::file_key;
 use super::measure::LapMeasures;
-use super::{clock, laps, sessions, EngineerSession, EngineerTrace, Fuel};
+use super::{clock, laps, sessions, EngineerSession, EngineerTrace, Finding, Fuel, TargetPsi};
 
 /// The engineer's folder in the app's config folder.
 pub const DIR: &str = "engineer";
@@ -216,6 +216,71 @@ pub fn forget_session(dir: &Path, id: &str) -> io::Result<()> {
     Ok(())
 }
 
+/// What the engineer did once to the stored data, and when (`coach.json`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoachState {
+    /// [`clear_old_pressures`] ran
+    #[serde(default)]
+    pub pressures_cleared: bool,
+}
+
+const COACH: &str = "coach.json";
+
+pub fn coach_state(dir: &Path) -> CoachState {
+    fs::read(dir.join(COACH)).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or_default()
+}
+
+pub fn save_coach_state(dir: &Path, state: &CoachState) -> io::Result<()> {
+    fs::create_dir_all(dir)?;
+    fs::write(dir.join(COACH), serde_json::to_vec(state).map_err(io::Error::other)?)
+}
+
+/// The window the apps before 0.26.0 judged every club car's pressures by: the slicks' 26.5–27.5 psi, also on the
+/// road tyres of the GT2 RS MR (30 psi) and the Clubsport (29), which got a false pressure_high on nearly every lap.
+const OLD_WINDOW: TargetPsi = TargetPsi { min: 26.5, max: 27.5 };
+
+/// Whether `version` (`0.25.2`) is older than 0.26.0, the first app that judges by the compound fitted.
+fn before_compound_windows(version: &str) -> bool {
+    let parts: Vec<u32> = version.split('.').map(|p| p.parse().unwrap_or(0)).collect();
+    parts < vec![0, 26, 0]
+}
+
+/// Takes the old slick window out of the reports of apps before 0.26.0: the target null and no pressure findings,
+/// as for a compound not known (the sessions cannot be evaluated again: the game's logs that name the compounds are
+/// gone after a few days). Answers how many reports changed.
+pub fn clear_old_pressures(dir: &Path) -> io::Result<usize> {
+    let mut changed = 0;
+    for (id, _, _) in stored(dir) {
+        let Some(mut s) = session(dir, &id) else { continue };
+        if !before_compound_windows(&s.app_version) {
+            continue;
+        }
+        let mut touched = false;
+        for lap in s.laps.iter_mut().filter(|l| l.tyres.target_psi.as_ref() == Some(&OLD_WINDOW)) {
+            lap.tyres.target_psi = None;
+            lap.findings.retain(|f| !matches!(f, Finding::PressureHigh | Finding::PressureLow));
+            touched = true;
+        }
+        if touched {
+            fs::write(session_path(dir, &id, ".json"), serde_json::to_vec(&s).map_err(io::Error::other)?)?;
+            changed += 1;
+        }
+    }
+    Ok(changed)
+}
+
+/// The engineer's one-off changes to the stored data, each once (remembered in `coach.json`).
+pub fn upgrade(dir: &Path) -> io::Result<()> {
+    let mut state = coach_state(dir);
+    if !state.pressures_cleared {
+        clear_old_pressures(dir)?;
+        state.pressures_cleared = true;
+        save_coach_state(dir, &state)?;
+    }
+    Ok(())
+}
+
 /// Deletes what [`retention`] says; the ids deleted.
 pub fn apply_retention(dir: &Path, now_ms: i64, keep_days: Option<u32>) -> io::Result<Vec<String>> {
     let keep: Vec<String> = fs::read_dir(dir.join(REFS))
@@ -340,6 +405,36 @@ mod tests {
         assert!(forget_session(&dir, "../x").is_err() && forget_session(&dir, &new.id).is_ok());
         forget(&dir).unwrap();
         assert!(!dir.exists());
+        forget(&dir).unwrap();
+    }
+
+    #[test]
+    fn clears_the_slick_window_of_reports_before_0_26_once() {
+        let dir = std::env::temp_dir().join(format!("dd-engineer-pressures-{}", std::process::id())).join(DIR);
+        let judged = |id: &str, version: &str, min: f64| {
+            let mut s = session(id, 2);
+            s.app_version = version.into();
+            for lap in &mut s.laps {
+                lap.tyres.target_psi = Some(TargetPsi { min, max: min + 1.0 });
+                lap.findings = vec![Finding::CoastLong, Finding::PressureHigh, Finding::PressureLow];
+            }
+            save_session(&dir, &s, &[]).unwrap();
+            s
+        };
+        let old = judged("1791062547-dd_x", "0.25.2", 26.5);
+        let new = judged("1791062600-dd_x", "0.26.0", 26.5);
+        let other = judged("1791062700-dd_x", "0.25.0", 29.5);
+        upgrade(&dir).unwrap();
+        let cleared = super::session(&dir, &old.id).unwrap();
+        assert!(cleared.laps.iter().all(|l| l.tyres.target_psi.is_none() && l.findings == [Finding::CoastLong]), "{:?}", cleared.laps[0].findings);
+        assert_eq!(cleared.laps[0].corners, old.laps[0].corners);
+        // a slick's window judged by 0.26.0, and a window the old app never wrote, stay
+        assert_eq!(super::session(&dir, &new.id), Some(new));
+        assert_eq!(super::session(&dir, &other.id), Some(other));
+        // once: a report written after it is not touched
+        let late = judged("1791062800-dd_x", "0.25.2", 26.5);
+        upgrade(&dir).unwrap();
+        assert_eq!(super::session(&dir, &late.id), Some(late));
         forget(&dir).unwrap();
     }
 
