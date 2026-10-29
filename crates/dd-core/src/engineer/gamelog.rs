@@ -5,8 +5,8 @@
 //! - on Touristenfahrten the start and end split of a timed lap (`Received split: isStart true, isEnd false` and
 //!   `isStart false, isEnd true`): the lap the game times, while from completion to completion the car always went
 //!   through its pit box (the completion is at the pit exit);
-//! - the car selected (`Set new car <guid> content\cars\<id>\presets\<preset>`) and the track
-//!   (`Creating physics track: <name>`).
+//! - the car selected (`Set new car <guid> content\cars\<id>\presets\<preset>`), the track
+//!   (`Creating physics track: <name>`) and the tyres fitted (`setCompound Tyre: 0 compound name: <short>`).
 //!
 //! The split lines are written about 0.1 s after the moment (on Joe's GP laps of 2026-10-15 the split of the line
 //! comes 109–128 ms after the completion); both ends of a lap move alike, so the lap time stays.
@@ -17,6 +17,7 @@ const COMPLETED: &str = "evOnLapCompleted";
 const START_SPLIT: &str = "Received split: isStart true, isEnd false";
 const END_SPLIT: &str = "Received split: isStart false, isEnd true";
 const TRACK: &str = "Creating physics track: ";
+const COMPOUND: &str = "setCompound Tyre: 0 compound name: ";
 
 /// A lap in local ms (read as UTC).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,6 +71,23 @@ fn until<'a>(log: &'a str, until: i64) -> impl Iterator<Item = &'a str> {
 /// The car (id, preset) the log selected last up to `until`, of `preset` when given.
 pub fn car(log: &str, at: i64, preset: Option<&str>) -> Option<(String, String)> {
     until(log, at).filter_map(crate::laps::current_car).filter(|(_, p)| preset.is_none_or(|preset| p == preset)).last()
+}
+
+/// The tyre compound the log fitted last up to `at` since the car was last selected, by its short name (`TRS`):
+/// the line `setCompound Tyre: 0 compound name: <short>` of the front left wheel (the other three follow it in the
+/// same millisecond; ~/acevo-setups/tools/tlm_sessions.py reads the same line). The game writes it when the session
+/// loads the car, when a setup or a pit stop fits tyres, and on Joe's log of 2026-10-27 for every compound he
+/// stepped through in the setup screen. None when the log names none since the car's selection.
+pub fn compound(log: &str, at: i64) -> Option<String> {
+    let mut found = None;
+    for line in until(log, at) {
+        if crate::laps::current_car(line).is_some() {
+            found = None;
+        } else if let Some((_, name)) = line.split_once(COMPOUND) {
+            found = Some(name.trim()).filter(|name| !name.is_empty());
+        }
+    }
+    found.map(str::to_string)
 }
 
 /// The track the log loaded last up to `until`, as the shared memory names it (`Nurburgring`).
@@ -137,5 +155,38 @@ mod tests {
         assert_eq!(car(GP, ms("17:00:00.000"), None), None);
         assert_eq!(track(GP, at).as_deref(), Some("Nurburgring"));
         assert_eq!(track(TOURIST, at), None);
+    }
+
+    /// Joe's log of 2026-10-27 evening (excerpts): the GT2 RS MR base preset loads on its package default (Cup 2 R),
+    /// he steps through the compounds in the setup screen and loads a setup on Trofeo RS, drives, then selects
+    /// another car, whose session has not loaded yet. The wets are made up: a line of another wheel, and a pit stop.
+    const TYRES: &str = "\
+[2026-10-27 20:54:45.542] [gameplay] [info] ACEVO-2629 onSetPlayerCurrentCarCommand: Set new car 445249e7-a660-95c5-5700-2ccf59e30391 content\\cars\\dd_porsche_gt2rs_mr\\presets\\preset_dd_porsche_gt2rs_mr_base.mechanicalcarpreset\r
+[2026-10-27 20:55:03.737] [physics] [info] setCompound Tyre: 0 compound name: C2R\r
+[2026-10-27 20:55:03.738] [physics] [info] setCompound Tyre: 1 compound name: C2R\r
+[2026-10-27 20:57:11.078] [physics] [info] setCompound Tyre: 0 compound name: TRS\r
+[2026-10-27 20:57:12.080] [physics] [info] setCompound Tyre: 0 compound name: C2\r
+[2026-10-27 20:57:13.316] [physics] [info] setCompound Tyre: 0 compound name: TRS\r
+[2026-10-27 20:57:21.616] [gameface] [info] Load preset DD Nordschleife GT2 RS MR Qualifying v4 \r
+[2026-10-27 20:57:21.632] [physics] [info] setCompound Tyre: 0 compound name: TRS\r
+[2026-10-27 20:57:21.633] [physics] [info] setCompound Tyre: 1 compound name: W\r
+[2026-10-27 21:07:11.778] [physics] [info] Lap test evOnLapCompleted 1 completed\r
+[2026-10-27 21:14:50.000] [physics] [info] setCompound Tyre: 0 compound name: W\r
+[2026-10-27 21:28:52.014] [gameplay] [info] ACEVO-2629 onSetPlayerCurrentCarCommand: Set new car 47c71431-4d51-b21c-0467-7036472f9393 content\\cars\\dd_porsche_gt2rs_mr\\presets\\preset_dd_porsche_gt2rs_mr_stage1.mechanicalcarpreset\r
+";
+
+    #[test]
+    fn names_the_compound_fitted_last_before_a_time_since_the_car_was_selected() {
+        let at = |hms: &str| line_time(&format!("[2026-10-27 {hms}] x")).unwrap();
+        // the front left wheel's line counts (the other wheels' follow it)
+        assert_eq!(compound(TYRES, at("20:56:00.000")).as_deref(), Some("C2R"));
+        assert_eq!(compound(TYRES, at("20:57:12.500")).as_deref(), Some("C2"));
+        assert_eq!(compound(TYRES, at("21:00:00.000")).as_deref(), Some("TRS"));
+        // the line at the very moment counts, the pit stop's wets from then on
+        assert_eq!(compound(TYRES, at("21:14:50.000")).as_deref(), Some("W"));
+        // none before the session loaded the car, none since another car was selected
+        assert_eq!(compound(TYRES, at("20:55:00.000")), None);
+        assert_eq!(compound(TYRES, at("21:30:00.000")), None);
+        assert_eq!(compound(GP, ms("17:12:00.000")), None);
     }
 }
