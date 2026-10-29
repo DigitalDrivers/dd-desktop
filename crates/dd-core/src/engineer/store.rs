@@ -345,8 +345,15 @@ pub fn retention(sessions: &[(String, i64, u64, bool)], keep: &[String], now_ms:
     out
 }
 
-/// Deletes a session's report and curves; nothing when there is none of that id. The references stay.
+/// Deletes a session on the driver's word: its report, curves and the coach's digest of it; nothing when there is
+/// none of that id. The references stay.
 pub fn forget_session(dir: &Path, id: &str) -> io::Result<()> {
+    delete_report(dir, id)?;
+    digest::remove(dir, id)
+}
+
+/// Deletes a session's report and curves; its digest stays (the sessions' retention).
+fn delete_report(dir: &Path, id: &str) -> io::Result<()> {
     if !is_session_id(id) {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a session id"));
     }
@@ -467,7 +474,7 @@ pub fn apply_retention(dir: &Path, now_ms: i64, keep_days: Option<u32>) -> io::R
         .collect();
     let gone = retention(&sessions, &keep, now_ms, keep_days);
     for id in &gone {
-        forget_session(dir, id)?;
+        delete_report(dir, id)?;
     }
     Ok(gone)
 }

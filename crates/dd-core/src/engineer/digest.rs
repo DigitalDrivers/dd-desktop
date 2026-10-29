@@ -307,6 +307,18 @@ pub fn pending(dir: &Path) -> io::Result<CoachDigestsPending> {
     Ok(CoachDigestsPending { digests: load(dir).into_iter().filter(|s| !s.sent).take(PENDING_MAX).map(|s| s.digest).collect() })
 }
 
+/// Deletes the digest of session `id` (the driver deleted the session); nothing when there is none.
+pub fn remove(dir: &Path, id: &str) -> io::Result<()> {
+    let _lock = lock();
+    let mut all = load(dir);
+    let count = all.len();
+    all.retain(|s| s.digest.id != id);
+    if all.len() == count {
+        return Ok(());
+    }
+    save(dir, &all)
+}
+
 /// Marks the digests `ids` as uploaded.
 pub fn mark_sent(dir: &Path, ids: &[String]) -> io::Result<()> {
     let _lock = lock();
@@ -473,6 +485,21 @@ mod tests {
         assert_eq!(gone.len(), 5);
         assert!(store::heads(&dir).is_empty());
         assert_eq!(digests(&dir).len(), 4);
+        store::forget(&dir).unwrap();
+    }
+
+    #[test]
+    fn deleting_a_session_on_its_own_deletes_its_digest() {
+        let dir = temp("forget");
+        let (one, two) = (session("1793100000-dd_x", &[429_000], "p"), session("1793200000-dd_x", &[428_000], "p"));
+        for s in [&one, &two] {
+            store::save_session(&dir, s, &[]).unwrap();
+            record(&dir, s, 10).unwrap();
+        }
+        mark_sent(&dir, std::slice::from_ref(&two.id)).unwrap();
+        store::forget_session(&dir, &one.id).unwrap();
+        let left = load(&dir);
+        assert_eq!(left.iter().map(|s| (s.digest.id.as_str(), s.sent)).collect::<Vec<_>>(), [(two.id.as_str(), true)]);
         store::forget(&dir).unwrap();
     }
 

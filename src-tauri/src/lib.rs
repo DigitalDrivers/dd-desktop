@@ -661,7 +661,7 @@ fn engineer_keep(app: tauri::AppHandle, days: Option<u32>) -> Result<Option<u32>
     Ok(settings::engineer_keep_days(&config))
 }
 
-/// Deletes one stored session (its report and curves); the references stay.
+/// Deletes one stored session (its report, curves and the coach's digest of it); the references stay.
 #[tauri::command]
 fn engineer_forget_session(app: tauri::AppHandle, id: String) -> Result<(), String> {
     engineer::store::forget_session(&engineer_dir(&app).ok_or("failed")?, &id).map_err(|error| {

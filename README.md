@@ -170,7 +170,7 @@ it does not have; the shapes are the contract with the platform (`EngineerSessio
 `crates/dd-core/tests/fixtures/example-session.json`). `engineer_evaluate` evaluates the sessions that ended now and
 answers `{ evaluated, held }` (`held`: `running` or `driving`, else null); the app also does it every 5 minutes
 while the switch is on and the game does not drive, and sends the event `engineer-evaluated` (`{ id, laps }`) after
-each session. `engineer_forget_session` (`{ id }`) deletes one session, `engineer_forget` everything of the
+each session. `engineer_forget_session` (`{ id }`) deletes one session (with its digest), `engineer_forget` everything of the
 engineer. The coach (since 0.26.0, `digest.rs`, `profile.rs`; the contract is
 `research/2026-10-21-renningenieur-coach/contract-coach.ts` in the workspace, its example
 `crates/dd-core/tests/fixtures/example-profile.json`): `engineer_profile` answers the `CoachProfile` computed from
