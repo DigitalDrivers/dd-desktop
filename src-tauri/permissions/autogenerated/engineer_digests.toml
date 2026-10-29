@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-engineer-digests"
+description = "Enables the engineer_digests command without any pre-configured scope."
+commands.allow = ["engineer_digests"]
+
+[[permission]]
+identifier = "deny-engineer-digests"
+description = "Denies the engineer_digests command without any pre-configured scope."
+commands.deny = ["engineer_digests"]

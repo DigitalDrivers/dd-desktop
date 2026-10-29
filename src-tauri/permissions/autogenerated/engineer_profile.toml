@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-engineer-profile"
+description = "Enables the engineer_profile command without any pre-configured scope."
+commands.allow = ["engineer_profile"]
+
+[[permission]]
+identifier = "deny-engineer-profile"
+description = "Denies the engineer_profile command without any pre-configured scope."
+commands.deny = ["engineer_profile"]

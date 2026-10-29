@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-engineer-digests-sent"
+description = "Enables the engineer_digests_sent command without any pre-configured scope."
+commands.allow = ["engineer_digests_sent"]
+
+[[permission]]
+identifier = "deny-engineer-digests-sent"
+description = "Denies the engineer_digests_sent command without any pre-configured scope."
+commands.deny = ["engineer_digests_sent"]
