@@ -685,6 +685,14 @@ fn engineer_enable(app: tauri::AppHandle, on: bool) -> Result<bool, String> {
     log(&format!("engineer_enable -> {on}"));
     if on {
         start_sampler(&app, "engineer_enable");
+        // the sessions of the last 30 days right away, not at the next 5-minute tick: the coach fills while the
+        // driver watches
+        let handle = app.clone();
+        std::thread::spawn(move || {
+            if let Err(error) = evaluate_sessions(&handle, false) {
+                log(&format!("engineer: evaluating after the switch failed: {error}"));
+            }
+        });
     }
     Ok(on)
 }
@@ -722,6 +730,17 @@ struct EngineerEvaluation {
 struct EngineerEvaluated {
     id: String,
     laps: usize,
+}
+
+/// The event `engineer-progress` of a run that evaluates sessions: before each session (`running`, `done` of
+/// `total` behind it) and once the run ended (`running` false, also when the car drove off before the end), so
+/// the page can say what it waits for. A run without a session to evaluate sends nothing.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct EngineerProgress {
+    done: usize,
+    total: usize,
+    running: bool,
 }
 
 /// Evaluates the MoTeC sessions that ended and are not evaluated yet, now.
@@ -824,7 +843,8 @@ fn game_logs_since(app: &tauri::AppHandle, modified: u64) -> Vec<String> {
 
 /// Evaluates every MoTeC session that ended and is not evaluated as it is; never while the game drives (`manual`:
 /// the car out of its pit box, else live driving). Each session is noted as evaluated, also one whose file does not
-/// read, so a broken file is not read every 5 minutes; the page gets `engineer-evaluated` for each.
+/// read, so a broken file is not read every 5 minutes; the page gets `engineer-progress` before each and
+/// `engineer-evaluated` for each.
 fn evaluate_sessions(app: &tauri::AppHandle, manual: bool) -> Result<EngineerEvaluation, String> {
     use std::sync::atomic::Ordering::SeqCst;
     let state = app.state::<Engineer>();
@@ -843,11 +863,14 @@ fn evaluate_sessions(app: &tauri::AppHandle, manual: bool) -> Result<EngineerEva
         let laps = engineer::laps::load(&dir);
         let version = app.package_info().version.to_string();
         let keep_days = app.path().app_config_dir().map_or(Some(settings::ENGINEER_KEEP_DAYS), |config| settings::engineer_keep_days(&config));
+        let total = ready.len();
         let mut done = 0;
+        let mut finished = 0;
         for file in ready {
             if driving(manual) {
                 break;
             }
+            let _ = app.emit("engineer-progress", EngineerProgress { done: finished, total, running: true });
             let logs = game_logs_since(app, file.modified);
             let logs: Vec<&str> = logs.iter().map(String::as_str).collect();
             let path = file.name.split('/').fold(root.clone(), |path, segment| path.join(segment));
@@ -864,6 +887,10 @@ fn evaluate_sessions(app: &tauri::AppHandle, manual: bool) -> Result<EngineerEva
                 Err(error) => log(&format!("engineer: {} does not read: {error}", file.name)),
             }
             engineer::sessions::record_evaluated(&dir, &file, unix_now()).map_err(|e| format!("failed: {e}"))?;
+            finished += 1;
+        }
+        if total > 0 {
+            let _ = app.emit("engineer-progress", EngineerProgress { done: finished, total, running: false });
         }
         Ok(EngineerEvaluation { evaluated: done, held: None })
     })();
