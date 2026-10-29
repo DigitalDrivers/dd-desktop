@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use super::corners::file_key;
 use super::measure::LapMeasures;
-use super::{laps, sessions, EngineerSession, EngineerTrace};
+use super::{clock, laps, sessions, EngineerSession, EngineerTrace, Fuel};
 
 /// The engineer's folder in the app's config folder.
 pub const DIR: &str = "engineer";
@@ -117,6 +117,31 @@ fn stored(dir: &Path) -> Vec<(String, i64, u64)> {
     }
     out
 }
+
+/// A session longer than this (ms) does not exist, so a stored session that started earlier cannot overlap.
+const LONGEST_SESSION_MS: i64 = DAY_MS;
+
+/// The stored sessions of the car of session `id` that started before it and still ran at `start_ms` (unix ms):
+/// overlapping MoTeC files of one drive become sessions of their own and hold the same laps (Joe's Clubsport of
+/// 2026-10-26: one lap in up to six sessions).
+pub fn earlier_overlapping(dir: &Path, id: &str, start_ms: i64) -> Vec<EngineerSession> {
+    let Some((secs, car)) = id.split_once('-') else { return Vec::new() };
+    let secs: i64 = secs.parse().unwrap_or(0);
+    stored(dir)
+        .into_iter()
+        .filter(|(other, start, _)| other.split_once('-').is_some_and(|(s, c)| c == car && s.parse::<i64>().is_ok_and(|s| s < secs)) && start_ms - start <= LONGEST_SESSION_MS)
+        .filter_map(|(other, _, _)| session(dir, &other))
+        .filter(|s| clock::unix_ms(&s.ended_at).is_some_and(|end| end > start_ms))
+        .collect()
+}
+
+/// Whether `session` holds this lap already: the same lap time to the millisecond, start fuel and fuel used within
+/// 0.05 l (the same lap read from two files differs by 0.01 l at most).
+pub fn holds(session: &EngineerSession, lap_time_ms: i64, fuel: &Fuel) -> bool {
+    session.laps.iter().any(|l| l.lap_time_ms == Some(lap_time_ms) && (l.fuel.start_l - fuel.start_l).abs() <= SAME_FUEL_L && (l.fuel.used_l - fuel.used_l).abs() <= SAME_FUEL_L)
+}
+
+const SAME_FUEL_L: f64 = 0.05 + 1e-9;
 
 /// What the page lists of a session.
 #[derive(Debug, Clone, PartialEq, Serialize)]

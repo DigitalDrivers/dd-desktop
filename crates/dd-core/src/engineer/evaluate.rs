@@ -152,6 +152,16 @@ pub fn run<R: Read + Seek>(dir: &Path, r: &mut R, input: &Input) -> io::Result<O
         }
     }
 
+    // a lap a session that started earlier holds already (overlapping files of one drive) counts there only
+    let earlier = store::earlier_overlapping(dir, &id, clock.start_ms);
+    measured.retain(|(c, _, m)| match earlier.iter().find(|s| store::holds(s, c.lap.lap_time_ms, &m.fuel)) {
+        Some(s) => {
+            dropped.push(format!("lap {}: already in session {}", c.n, s.id));
+            false
+        }
+        None => true,
+    });
+
     // the reference and the best segments of this car, preset, track and layout on this map version
     let key = refs_key(&car, preset.as_deref(), &track, &layout);
     let mut refs = store::load_refs(dir, &key).unwrap_or_default();
@@ -345,10 +355,16 @@ mod tests {
     /// A session's file written at 23:40:23 CEST on 2026-10-04, 30 s after the last lap completion the log names,
     /// and the app's lap list for it; `day` moves it by days.
     fn session(drive: &Drive, day: i64) -> (Vec<u8>, String, Vec<LocalLap>, i64, i64) {
+        session_at(drive, day, 0)
+    }
+
+    /// [`session`] written `shift_s` seconds later.
+    fn session_at(drive: &Drive, day: i64, shift_s: i64) -> (Vec<u8>, String, Vec<LocalLap>, i64, i64) {
         let s = testkit::session(drive);
-        let written_local = (days_from_civil(2026, 10, 4 + day) * 86_400) + 23 * 3600 + 40 * 60 + 23;
+        let written_local = (days_from_civil(2026, 10, 4 + day) * 86_400) + 23 * 3600 + 40 * 60 + 23 + shift_s;
         let date = format!("{:02}/10/2026", 4 + day);
-        let bytes = testkit::write_ld(&date, "23:40:23", &s.chans);
+        let time = format!("{:02}:{:02}:{:02}", written_local % 86_400 / 3600, written_local % 3600 / 60, written_local % 60);
+        let bytes = testkit::write_ld(&date, &time, &s.chans);
         let end_local_ms = (written_local - 30) * 1000;
         let modified_ms = (written_local - 7200) * 1000 + 400;
         let start_ms = end_local_ms - 7_200_000 - (s.duration * 1000.0).round() as i64;
@@ -410,6 +426,26 @@ mod tests {
         let map = corners::load(&dir, "Test Ring", "GP").unwrap();
         evaluate(&dir, &Drive { late: Some(2), lock: false }, 0);
         assert_eq!(corners::load(&dir, "Test Ring", "GP").unwrap(), map);
+        store::forget(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_lap_another_session_already_holds_is_evaluated_once() {
+        let dir = temp("twice");
+        let drive = Drive { late: Some(2), lock: false };
+        let (first, _) = evaluate(&dir, &drive, 0);
+        // the same two laps in a file written a minute later (overlapping MoTeC files of 2026-10-26): a session of
+        // its own, without them
+        let (bytes, log, laps, modified_ms, _) = session_at(&drive, 0, 60);
+        let input = Input { name: NAME, modified_ms, logs: &[&log], laps: &laps, app_version: "0.25.0", now_ms: modified_ms, ldx: None, keep_days: Some(30) };
+        let second = run(&dir, &mut Cursor::new(bytes), &input).unwrap();
+        assert_ne!(second.id, first.id);
+        assert_eq!(second.laps, 0, "{second:?}");
+        assert_eq!(second.dropped, [format!("lap 1: already in session {}", first.id), format!("lap 2: already in session {}", first.id)]);
+        // the earlier session keeps them when it is evaluated again
+        assert_eq!(evaluate(&dir, &drive, 0).0.laps, 2);
+        // the same laps a day later are other laps
+        assert_eq!(evaluate(&dir, &drive, 1).0.laps, 2);
         store::forget(&dir).unwrap();
     }
 

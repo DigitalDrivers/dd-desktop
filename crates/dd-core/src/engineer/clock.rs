@@ -81,6 +81,22 @@ pub fn iso_local(unix_ms: i64, offset_s: i64) -> String {
     format!("{}{sign}{:02}:{:02}", stamp.trim_end_matches('Z'), off / 3600, off % 3600 / 60)
 }
 
+/// The moment (unix ms) of an ISO 8601 time with its offset as [`iso_local`] writes it: `2026-10-04T23:22:27+02:00`.
+pub fn unix_ms(iso: &str) -> Option<i64> {
+    let num = |a: usize, b: usize| iso.get(a..b)?.parse::<i64>().ok();
+    if iso.len() != 25 || iso.as_bytes()[10] != b'T' {
+        return None;
+    }
+    let local = days_from_civil(num(0, 4)?, num(5, 7)?, num(8, 10)?) * 86_400 + num(11, 13)? * 3600 + num(14, 16)? * 60 + num(17, 19)?;
+    let offset = num(20, 22)? * 3600 + num(23, 25)? * 60;
+    let offset = match &iso[19..20] {
+        "+" => offset,
+        "-" => -offset,
+        _ => return None,
+    };
+    Some((local - offset) * 1000)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,5 +155,10 @@ mod tests {
         assert_eq!(iso_local(1_792_097_734_511, -5400), "2026-10-15T19:25:34-01:30");
         assert_eq!(line_time("[2026-10-15 22:57:02.935] x"), Some(local("22:57:02") * 1000 + 935));
         assert_eq!(line_time("2026-10-15 22:57:02.935"), None);
+        // and reads them back
+        assert_eq!(unix_ms("2026-10-15T22:55:34+02:00"), Some(1_792_097_734_000));
+        assert_eq!(unix_ms("2026-10-15T19:25:34-01:30"), Some(1_792_097_734_000));
+        assert_eq!(unix_ms(&iso_local(1_793_025_378_000, 3600)), Some(1_793_025_378_000));
+        assert_eq!(unix_ms("2026-10-15 22:55:34"), None);
     }
 }
