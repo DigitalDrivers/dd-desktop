@@ -195,3 +195,29 @@ fn evaluates_a_real_session_from_its_beacons_alone() {
         println!("the copy held these laps of the session: {laps:?}");
     }
 }
+
+/// Runs with `DD_ENGINEER_DIR=<a copy of the app's engineer folder> cargo test -p dd-core --test engineer -- --ignored
+/// --nocapture coach`: the one-off upgrade (the old pressure window out, the digests of the stored sessions) on the
+/// copy, and the coach's profile of it, printed.
+#[test]
+#[ignore]
+fn builds_the_coach_s_profile_from_a_copy_of_the_stored_sessions() {
+    let dir = std::path::PathBuf::from(std::env::var("DD_ENGINEER_DIR").expect("DD_ENGINEER_DIR"));
+    let started = std::time::Instant::now();
+    let p = dd_core::engineer::profile::profile(&dir, 1_793_200_000_000).unwrap();
+    println!("profile in {:?}: {} sessions, {} laps, {} unseen, {} cars", started.elapsed(), p.sessions, p.laps, p.unseen, p.cars.len());
+    for c in &p.cars {
+        let skills: Vec<String> = c.skills.iter().map(|s| format!("{:?} {:?} ({:?}, {:?})", s.key, s.value, s.score, s.trend)).collect();
+        println!("{} {} {}: {} sessions, best {} ms; {}", c.car, c.track, c.layout, c.sessions, c.best_ms, skills.join("; "));
+    }
+    for w in &p.work_items {
+        println!("work item {:?} {} {}: {} against {} ({}), where {:?}", w.metric, w.car, w.layout, w.value, w.best_value, w.best_car, w.r#where);
+    }
+    let headlines: Vec<String> = p.recent.iter().map(|d| serde_json::to_value(&d.headline).unwrap()["code"].as_str().unwrap().to_string()).collect();
+    println!("headlines of the recent: {headlines:?}");
+    let findings: std::collections::BTreeMap<String, usize> = p.recent.iter().flat_map(|d| d.findings.iter()).fold(Default::default(), |mut m, f| {
+        *m.entry(serde_json::to_value(f).unwrap().as_str().unwrap().to_string()).or_default() += 1;
+        m
+    });
+    println!("findings of the recent: {findings:?}");
+}

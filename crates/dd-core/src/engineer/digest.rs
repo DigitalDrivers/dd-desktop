@@ -153,7 +153,8 @@ pub fn digest(s: &EngineerSession, traces: Option<&[EngineerTrace]>) -> Option<C
     let best = *valid.iter().min_by_key(|l| l.lap_time_ms)?;
     let times: Vec<f64> = valid.iter().filter_map(|l| l.lap_time_ms).map(|t| t as f64).collect();
     let mean = times.iter().sum::<f64>() / times.len() as f64;
-    let spread = (times.len() > 1).then(|| (times.iter().map(|t| (t - mean).powi(2)).sum::<f64>() / times.len() as f64).sqrt().round() as i64);
+    // a half to the even ms, as the fixture (Python) rounds: two laps an odd number of ms apart give one
+    let spread = (times.len() > 1).then(|| (times.iter().map(|t| (t - mean).powi(2)).sum::<f64>() / times.len() as f64).sqrt().round_ties_even() as i64);
     let worse = |wheels: [usize; 2], seconds: fn(&super::CornerResult) -> [f64; 4]| wheels.map(|w| best.corners.iter().map(|c| seconds(c)[w]).sum::<f64>()).into_iter().fold(0.0, f64::max);
     let lock_front = worse([0, 1], |c| c.lock_s);
     let lock_rear = worse([2, 3], |c| c.lock_s);
@@ -487,7 +488,7 @@ mod tests {
         assert_eq!(ids(pending(&dir).unwrap()), [s2.id.clone(), s1.id.clone()]);
         assert_eq!(unseen(&dir, &load(&dir)), 2);
         mark_sent(&dir, std::slice::from_ref(&s2.id)).unwrap();
-        assert_eq!(ids(pending(&dir).unwrap()), [s1.id.clone()]);
+        assert_eq!(ids(pending(&dir).unwrap()), std::slice::from_ref(&s1.id));
         seen(&dir, 15).unwrap();
         assert_eq!(unseen(&dir, &load(&dir)), 1, "written at 20, seen at 15");
         // evaluated again: replaced, to upload again, new again

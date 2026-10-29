@@ -21,6 +21,7 @@ pub mod gamelog;
 pub mod laps;
 pub mod ld;
 pub mod measure;
+pub mod profile;
 pub mod sessions;
 pub mod store;
 #[cfg(test)]
