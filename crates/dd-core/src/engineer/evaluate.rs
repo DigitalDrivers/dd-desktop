@@ -1,8 +1,8 @@
 //! Evaluating one MoTeC session: its newest file is read, the laps inside it are cut out and checked (from the
 //! app's lap list, else from the game's log, else from the `.ldx` beacons next to the file), the track's corner map
 //! is made or updated, every lap is measured on it and compared with the reference lap, and the session's report,
-//! curves, map and reference are stored. The shell hands over the open file, its name and modification time, the
-//! game's logs, the `.ldx` and the lap list; this does the rest.
+//! curves, map and reference are stored, with the coach's digest of it ([`super::digest`]). The shell hands over
+//! the open file, its name and modification time, the game's logs, the `.ldx` and the lap list; this does the rest.
 
 use std::io::{self, Read, Seek};
 use std::path::Path;
@@ -15,7 +15,7 @@ use super::ld::Ld;
 use super::measure::{measure, report, target_psi, trace, LapMeasures};
 use super::sessions::{name_parts, same_track, NameParts};
 use super::store::{self, id_car, refs_key, RefLap, Refs};
-use super::{beacons, gamelog, CornerMap, EngineerSession, Reference, TargetPsi, TimeSource, TimingNote};
+use super::{beacons, digest, gamelog, CornerMap, EngineerSession, Reference, TargetPsi, TimeSource, TimingNote};
 
 /// A lap's integrated distance may differ this much from the track's.
 const DISTANCE: f64 = 0.10;
@@ -68,6 +68,7 @@ struct Cut<'a> {
 
 /// Evaluates the session whose newest file `r` is, into `dir` (the engineer's folder).
 pub fn run<R: Read + Seek>(dir: &Path, r: &mut R, input: &Input) -> io::Result<Outcome> {
+    store::upgrade(dir)?;
     let ld = Ld::read(r)?;
     let duration = ld.duration().ok_or_else(|| invalid("the file has no SPEED"))?;
     let written = ld.written_local().ok_or_else(|| invalid("the file's header names no time"))?;
@@ -213,6 +214,7 @@ pub fn run<R: Read + Seek>(dir: &Path, r: &mut R, input: &Input) -> io::Result<O
         laps,
     };
     store::save_session(dir, &session, &traces)?;
+    digest::record(dir, &session, input.now_ms)?;
     if let Some(map) = &map {
         if old.as_ref() != Some(map) {
             corners::save(dir, &track, &layout, map)?;
@@ -424,6 +426,9 @@ mod tests {
         assert!(s.laps.iter().all(|l| l.tyres.target_psi.is_none()));
         assert_eq!(store::traces(&dir, &outcome.id).unwrap().len(), 2);
         assert!(corners::load(&dir, "Test Ring", "GP").is_some());
+        // the coach's digest of the session is written with it
+        let digests = digest::digests(&dir);
+        assert_eq!((digests.len(), digests[0].id.as_str(), digests[0].best_ms, digests[0].valid_laps), (1, outcome.id.as_str(), reference.lap_time_ms, 2));
         store::forget(&dir).unwrap();
     }
 

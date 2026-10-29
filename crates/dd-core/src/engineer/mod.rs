@@ -15,6 +15,7 @@ pub mod beacons;
 pub mod clock;
 pub mod corners;
 pub mod cut;
+pub mod digest;
 pub mod evaluate;
 pub mod gamelog;
 pub mod laps;

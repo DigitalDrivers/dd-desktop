@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use super::corners::file_key;
 use super::measure::{LapMeasures, Spread};
-use super::{clock, laps, sessions, EngineerSession, EngineerTrace, Finding, Fuel, TargetPsi};
+use super::{clock, digest, laps, sessions, EngineerSession, EngineerTrace, Finding, Fuel, TargetPsi};
 
 /// The engineer's folder in the app's config folder.
 pub const DIR: &str = "engineer";
@@ -223,6 +223,13 @@ pub fn holds(session: &EngineerSession, lap_time_ms: i64, fuel: &Fuel) -> bool {
 
 const SAME_FUEL_L: f64 = 0.05 + 1e-9;
 
+/// The stored sessions, the oldest first.
+pub fn all(dir: &Path) -> Vec<EngineerSession> {
+    let mut ids = stored(dir);
+    ids.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)));
+    ids.into_iter().filter_map(|(id, _, _)| session(dir, &id)).collect()
+}
+
 /// What the page lists of a session.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -303,6 +310,12 @@ pub struct CoachState {
     /// [`clear_old_pressures`] ran
     #[serde(default)]
     pub pressures_cleared: bool,
+    /// The digests of the sessions stored before 0.26.0 were made ([`super::digest`])
+    #[serde(default)]
+    pub backfilled: bool,
+    /// When the driver last opened the coach, unix ms (0: never)
+    #[serde(default)]
+    pub seen_ms: i64,
 }
 
 const COACH: &str = "coach.json";
@@ -350,12 +363,19 @@ pub fn clear_old_pressures(dir: &Path) -> io::Result<usize> {
     Ok(changed)
 }
 
-/// The engineer's one-off changes to the stored data, each once (remembered in `coach.json`).
+/// The engineer's one-off changes to the stored data, each once (remembered in `coach.json`): the old pressure
+/// window out, then the digests of the stored sessions.
 pub fn upgrade(dir: &Path) -> io::Result<()> {
+    let _lock = digest::lock();
     let mut state = coach_state(dir);
     if !state.pressures_cleared {
         clear_old_pressures(dir)?;
         state.pressures_cleared = true;
+        save_coach_state(dir, &state)?;
+    }
+    if !state.backfilled {
+        digest::backfill(dir)?;
+        state.backfilled = true;
         save_coach_state(dir, &state)?;
     }
     Ok(())

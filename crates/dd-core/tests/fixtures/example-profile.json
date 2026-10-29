@@ -1,0 +1,4951 @@
+{
+ "version": 1,
+ "generatedAt": "2026-10-27T22:13:05+01:00",
+ "sessions": 51,
+ "laps": 87,
+ "unseen": 1,
+ "cars": [
+  {
+   "car": "dd_vw_golf8_rsi_dahlbaeck",
+   "carName": "VW Golf 8 RSI Dahlbaeck Tribute",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "sessions": 3,
+   "laps": 3,
+   "bestMs": 398409,
+   "bestSessionId": "1792940080-dd_vw_golf8_rsi_dahlbaeck",
+   "bestPreset": "preset_dd_vw_golf8_rsi_dahlbaeck_stage2",
+   "firstBestMs": 398409,
+   "theoreticalBestMs": 398406,
+   "lastAt": "2026-10-27T22:13:05+01:00",
+   "bests": [
+    {
+     "sessionId": "1792940080-dd_vw_golf8_rsi_dahlbaeck",
+     "at": "2026-10-25T15:54:40+01:00",
+     "bestMs": 398409,
+     "theoreticalBestMs": 398406,
+     "preset": "preset_dd_vw_golf8_rsi_dahlbaeck_stage2"
+    },
+    {
+     "sessionId": "1793134596-dd_vw_golf8_rsi_dahlbaeck",
+     "at": "2026-10-27T21:56:36+01:00",
+     "bestMs": 414507,
+     "theoreticalBestMs": 414427,
+     "preset": "preset_dd_vw_golf8_rsi_dahlbaeck_base"
+    },
+    {
+     "sessionId": "1793135585-dd_vw_golf8_rsi_dahlbaeck",
+     "at": "2026-10-27T22:13:05+01:00",
+     "bestMs": 403983,
+     "theoreticalBestMs": 403975,
+     "preset": "preset_dd_vw_golf8_rsi_dahlbaeck_stage1"
+    }
+   ],
+   "skills": [
+    {
+     "key": "coast",
+     "value": 6.77,
+     "unit": "s",
+     "score": 91,
+     "trend": null,
+     "best": 4.85,
+     "worst": 26.16,
+     "history": [
+      26.16,
+      4.85,
+      6.77
+     ]
+    },
+    {
+     "key": "braking",
+     "value": null,
+     "unit": "%",
+     "score": null,
+     "trend": null,
+     "best": null,
+     "worst": null,
+     "history": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "key": "traction",
+     "value": 0.34,
+     "unit": "s",
+     "score": 0,
+     "trend": null,
+     "best": 0.05,
+     "worst": 0.34,
+     "history": [
+      0.05,
+      0.27,
+      0.34
+     ]
+    },
+    {
+     "key": "pace",
+     "value": 0.0,
+     "unit": "%",
+     "score": 100,
+     "trend": null,
+     "best": 0.0,
+     "worst": 0.02,
+     "history": [
+      0.0,
+      0.02,
+      0.0
+     ]
+    },
+    {
+     "key": "consistency",
+     "value": null,
+     "unit": "%",
+     "score": null,
+     "trend": null,
+     "best": null,
+     "worst": null,
+     "history": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "key": "tyres",
+     "value": 0.0,
+     "unit": "%",
+     "score": 100,
+     "trend": null,
+     "best": 0.0,
+     "worst": 0.0,
+     "history": [
+      0.0,
+      0.0,
+      0.0
+     ]
+    }
+   ]
+  },
+  {
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "sessions": 28,
+   "laps": 52,
+   "bestMs": 378531,
+   "bestSessionId": "1792959292-dd_porsche_gt2rs_mr",
+   "bestPreset": "preset_dd_porsche_gt2rs_mr_stage2",
+   "firstBestMs": 415045,
+   "theoreticalBestMs": 373189,
+   "lastAt": "2026-10-27T21:30:20+01:00",
+   "bests": [
+    {
+     "sessionId": "1791753552-dd_porsche_gt2rs_mr",
+     "at": "2026-10-11T23:19:12+02:00",
+     "bestMs": 415045,
+     "theoreticalBestMs": 394613,
+     "preset": "preset_dd_porsche_gt2rs_mr_stage1"
+    },
+    {
+     "sessionId": "1791756631-dd_porsche_gt2rs_mr",
+     "at": "2026-10-12T00:10:31+02:00",
+     "bestMs": 417053,
+     "theoreticalBestMs": 391600,
+     "preset": "preset_dd_porsche_gt2rs_mr_stage2"
+    },
+    {
+     "sessionId": "1791827079-dd_porsche_gt2rs_mr",
+     "at": "2026-10-12T19:44:39+02:00",
+     "bestMs": 412605,
+     "theoreticalBestMs": 393771,
+     "preset": "preset_dd_porsche_gt2rs_mr_stage1"
+    },
+    {
+     "sessionId": "1791835100-dd_porsche_gt2rs_mr",
+     "at": "2026-10-12T21:58:20+02:00",
+     "bestMs": 406572,
+     "theoreticalBestMs": 391600,
+     "preset": "preset_dd_porsche_gt2rs_mr_stage2"
+    },
+    {
+     "sessionId": "1791904623-dd_porsche_gt2rs_mr",
+     "at": "2026-10-13T17:17:03+02:00",
+     "bestMs": 416363,
+     "theoreticalBestMs": 410554,
+     "preset": "preset_dd_porsche_gt2rs_mr_base"
+    },
+    {
+     "sessionId": "1791908080-dd_porsche_gt2rs_mr",
+     "at": "2026-10-13T18:14:40+02:00",
+     "bestMs": 409953,
+     "theoreticalBestMs": 403753,
+     "preset": "preset_dd_porsche_gt2rs_mr_base"
+    },
+    {
+     "sessionId": "1791913760-dd_porsche_gt2rs_mr",
+     "at": "2026-10-13T19:49:20+02:00",
+     "bestMs": 408926,
+     "theoreticalBestMs": 402023,
+     "preset": "preset_dd_porsche_gt2rs_mr_base"
+    },
+    {
+     "sessionId": "1791918919-dd_porsche_gt2rs_mr",
+     "at": "2026-10-13T21:15:19+02:00",
+     "bestMs": 406554,
+     "theoreticalBestMs": 393771,
+     "preset": "preset_dd_porsche_gt2rs_mr_stage1"
+    },
+    {
+     "sessionId": "1791924142-dd_porsche_gt2rs_mr",
+     "at": "2026-10-13T22:42:22+02:00",
+     "bestMs": 402139,
+     "theoreticalBestMs": 393771,
+     "preset": "preset_dd_porsche_gt2rs_mr_stage1"
+    },
+    {
+     "sessionId": "1791929525-dd_porsche_gt2rs_mr",
+     "at": "2026-10-14T00:12:05+02:00",
+     "bestMs": 400266,
+     "theoreticalBestMs": 391600,
+     "preset": "preset_dd_porsche_gt2rs_mr_stage2"
+    },
+    {
+     "sessionId": "1792009110-dd_porsche_gt2rs_mr",
+     "at": "2026-10-14T22:18:30+02:00",
+     "bestMs": 417881,
+     "theoreticalBestMs": 393771,
+     "preset": "preset_dd_porsche_gt2rs_mr_stage1"
+    },
+    {
+     "sessionId": "1792012397-dd_porsche_gt2rs_mr",
+     "at": "2026-10-14T23:13:17+02:00",
+     "bestMs": 405931,
+     "theoreticalBestMs": 391600,
+     "preset": "preset_dd_porsche_gt2rs_mr_stage2"
+    },
+    {
+     "sessionId": "1792097734-dd_porsche_gt2rs_mr",
+     "at": "2026-10-15T22:55:34+02:00",
+     "bestMs": 414464,
+     "theoreticalBestMs": 402023,
+     "preset": "preset_dd_porsche_gt2rs_mr_base"
+    },
+    {
+     "sessionId": "1792099536-dd_porsche_gt2rs_mr",
+     "at": "2026-10-15T23:25:36+02:00",
+     "bestMs": 416151,
+     "theoreticalBestMs": 393771,
+     "preset": "preset_dd_porsche_gt2rs_mr_stage1"
+    },
+    {
+     "sessionId": "1792100963-dd_porsche_gt2rs_mr",
+     "at": "2026-10-15T23:49:23+02:00",
+     "bestMs": 403317,
+     "theoreticalBestMs": 391600,
+     "preset": "preset_dd_porsche_gt2rs_mr_stage2"
+    },
+    {
+     "sessionId": "1792265450-dd_porsche_gt2rs_mr",
+     "at": "2026-10-17T21:30:50+02:00",
+     "bestMs": 410376,
+     "theoreticalBestMs": 400932,
+     "preset": "preset_dd_porsche_gt2rs_mr_base"
+    },
+    {
+     "sessionId": "1792267896-dd_porsche_gt2rs_mr",
+     "at": "2026-10-17T22:11:36+02:00",
+     "bestMs": 403182,
+     "theoreticalBestMs": 393325,
+     "preset": "preset_dd_porsche_gt2rs_mr_stage1"
+    },
+    {
+     "sessionId": "1792697450-dd_porsche_gt2rs_mr",
+     "at": "2026-10-22T21:30:50+02:00",
+     "bestMs": 399510,
+     "theoreticalBestMs": 390644,
+     "preset": "preset_dd_porsche_gt2rs_mr_stage2"
+    },
+    {
+     "sessionId": "1792700870-dd_porsche_gt2rs_mr",
+     "at": "2026-10-22T22:27:50+02:00",
+     "bestMs": 400656,
+     "theoreticalBestMs": 392554,
+     "preset": "preset_dd_porsche_gt2rs_mr_stage1"
+    },
+    {
+     "sessionId": "1792874150-dd_porsche_gt2rs_mr",
+     "at": "2026-10-24T22:35:50+02:00",
+     "bestMs": 398244,
+     "theoreticalBestMs": 393914,
+     "preset": "preset_dd_porsche_gt2rs_mr_base"
+    },
+    {
+     "sessionId": "1792877733-dd_porsche_gt2rs_mr",
+     "at": "2026-10-24T23:35:33+02:00",
+     "bestMs": 393696,
+     "theoreticalBestMs": 390711,
+     "preset": "preset_dd_porsche_gt2rs_mr_base"
+    },
+    {
+     "sessionId": "1792880115-dd_porsche_gt2rs_mr",
+     "at": "2026-10-25T00:15:15+02:00",
+     "bestMs": 387756,
+     "theoreticalBestMs": 384410,
+     "preset": "preset_dd_porsche_gt2rs_mr_stage1"
+    },
+    {
+     "sessionId": "1792882174-dd_porsche_gt2rs_mr",
+     "at": "2026-10-25T00:49:34+02:00",
+     "bestMs": 381945,
+     "theoreticalBestMs": 381150,
+     "preset": "preset_dd_porsche_gt2rs_mr_stage2"
+    },
+    {
+     "sessionId": "1792959292-dd_porsche_gt2rs_mr",
+     "at": "2026-10-25T21:14:52+01:00",
+     "bestMs": 378531,
+     "theoreticalBestMs": 373198,
+     "preset": "preset_dd_porsche_gt2rs_mr_stage2"
+    },
+    {
+     "sessionId": "1793021592-dd_porsche_gt2rs_mr",
+     "at": "2026-10-26T14:33:12+01:00",
+     "bestMs": 385237,
+     "theoreticalBestMs": 373189,
+     "preset": "preset_dd_porsche_gt2rs_mr_stage2"
+    },
+    {
+     "sessionId": "1793032476-dd_porsche_gt2rs_mr",
+     "at": "2026-10-26T17:34:36+01:00",
+     "bestMs": 399315,
+     "theoreticalBestMs": 389885,
+     "preset": "preset_dd_porsche_gt2rs_mr_base"
+    },
+    {
+     "sessionId": "1793131592-dd_porsche_gt2rs_mr",
+     "at": "2026-10-27T21:06:32+01:00",
+     "bestMs": 393861,
+     "theoreticalBestMs": 386906,
+     "preset": "preset_dd_porsche_gt2rs_mr_base"
+    },
+    {
+     "sessionId": "1793133020-dd_porsche_gt2rs_mr",
+     "at": "2026-10-27T21:30:20+01:00",
+     "bestMs": 384777,
+     "theoreticalBestMs": 380848,
+     "preset": "preset_dd_porsche_gt2rs_mr_stage1"
+    }
+   ],
+   "skills": [
+    {
+     "key": "coast",
+     "value": 7.45,
+     "unit": "s",
+     "score": 92,
+     "trend": "better",
+     "best": 5.56,
+     "worst": 30.02,
+     "history": [
+      17.62,
+      21.06,
+      13.18,
+      30.02,
+      23.3,
+      21.04,
+      17.57,
+      16.51,
+      24.36,
+      20.29,
+      19.03,
+      23.35,
+      13.88,
+      22.44,
+      19.57,
+      5.85,
+      10.31,
+      16.34,
+      13.09,
+      8.29,
+      5.56,
+      10.1,
+      16.53,
+      13.61,
+      9.12,
+      6.33,
+      9.02,
+      7.45
+     ]
+    },
+    {
+     "key": "braking",
+     "value": null,
+     "unit": "%",
+     "score": null,
+     "trend": null,
+     "best": null,
+     "worst": null,
+     "history": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "key": "traction",
+     "value": 0.33,
+     "unit": "s",
+     "score": 71,
+     "trend": "worse",
+     "best": 0.03,
+     "worst": 1.08,
+     "history": [
+      0.05,
+      0.45,
+      0.19,
+      0.81,
+      0.23,
+      0.62,
+      0.43,
+      0.24,
+      0.17,
+      0.32,
+      0.09,
+      0.41,
+      0.03,
+      0.23,
+      1.01,
+      0.22,
+      0.53,
+      0.44,
+      0.49,
+      0.15,
+      0.16,
+      0.36,
+      0.34,
+      1.08,
+      0.54,
+      0.17,
+      0.21,
+      0.33
+     ]
+    },
+    {
+     "key": "pace",
+     "value": 1.03,
+     "unit": "%",
+     "score": 87,
+     "trend": "better",
+     "best": 0.21,
+     "worst": 6.5,
+     "history": [
+      5.18,
+      6.5,
+      4.78,
+      3.82,
+      1.41,
+      1.54,
+      1.72,
+      3.25,
+      2.13,
+      2.21,
+      6.12,
+      3.66,
+      3.09,
+      5.68,
+      2.99,
+      2.36,
+      2.51,
+      2.27,
+      2.06,
+      1.1,
+      0.76,
+      0.87,
+      0.21,
+      1.43,
+      3.23,
+      2.42,
+      1.8,
+      1.03
+     ]
+    },
+    {
+     "key": "consistency",
+     "value": 0.82,
+     "unit": "%",
+     "score": 92,
+     "trend": "better",
+     "best": 0.21,
+     "worst": 7.64,
+     "history": [
+      0.7,
+      null,
+      7.64,
+      null,
+      null,
+      0.21,
+      null,
+      0.55,
+      1.25,
+      0.27,
+      null,
+      0.8,
+      null,
+      null,
+      0.45,
+      0.54,
+      null,
+      1.68,
+      null,
+      0.76,
+      null,
+      null,
+      null,
+      0.97,
+      null,
+      null,
+      0.82,
+      null
+     ]
+    },
+    {
+     "key": "tyres",
+     "value": 0.0,
+     "unit": "%",
+     "score": 100,
+     "trend": "flat",
+     "best": 0.0,
+     "worst": 0.0,
+     "history": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ]
+    }
+   ]
+  },
+  {
+   "car": "dd_bmw_m3_e46_rennsport",
+   "carName": "BMW M3 E46 CSL GT3 Rennsport",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "sessions": 3,
+   "laps": 4,
+   "bestMs": 374451,
+   "bestSessionId": "1793051134-dd_bmw_m3_e46_rennsport",
+   "bestPreset": "preset_dd_bmw_m3_e46_rennsport_stage1",
+   "firstBestMs": 386754,
+   "theoreticalBestMs": 372384,
+   "lastAt": "2026-10-26T22:45:34+01:00",
+   "bests": [
+    {
+     "sessionId": "1792530476-dd_bmw_m3_e46_rennsport",
+     "at": "2026-10-20T23:07:56+02:00",
+     "bestMs": 386754,
+     "theoreticalBestMs": 384619,
+     "preset": "preset_dd_bmw_m3_e46_rennsport_stage1"
+    },
+    {
+     "sessionId": "1792972467-dd_bmw_m3_e46_rennsport",
+     "at": "2026-10-26T00:54:27+01:00",
+     "bestMs": 400593,
+     "theoreticalBestMs": 400589,
+     "preset": "preset_dd_bmw_m3_e46_rennsport_base"
+    },
+    {
+     "sessionId": "1793051134-dd_bmw_m3_e46_rennsport",
+     "at": "2026-10-26T22:45:34+01:00",
+     "bestMs": 374451,
+     "theoreticalBestMs": 372384,
+     "preset": "preset_dd_bmw_m3_e46_rennsport_stage1"
+    }
+   ],
+   "skills": [
+    {
+     "key": "coast",
+     "value": 1.79,
+     "unit": "s",
+     "score": 100,
+     "trend": null,
+     "best": 1.79,
+     "worst": 8.72,
+     "history": [
+      3.58,
+      8.72,
+      1.79
+     ]
+    },
+    {
+     "key": "braking",
+     "value": null,
+     "unit": "%",
+     "score": null,
+     "trend": null,
+     "best": null,
+     "worst": null,
+     "history": [
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "key": "traction",
+     "value": 2.54,
+     "unit": "s",
+     "score": 70,
+     "trend": null,
+     "best": 1.57,
+     "worst": 4.79,
+     "history": [
+      4.79,
+      1.57,
+      2.54
+     ]
+    },
+    {
+     "key": "pace",
+     "value": 0.56,
+     "unit": "%",
+     "score": 0,
+     "trend": null,
+     "best": 0.0,
+     "worst": 0.56,
+     "history": [
+      0.56,
+      0.0,
+      0.56
+     ]
+    },
+    {
+     "key": "consistency",
+     "value": 1.55,
+     "unit": "%",
+     "score": null,
+     "trend": null,
+     "best": 1.55,
+     "worst": 1.55,
+     "history": [
+      1.55,
+      null,
+      null
+     ]
+    },
+    {
+     "key": "tyres",
+     "value": 0.0,
+     "unit": "%",
+     "score": 0,
+     "trend": null,
+     "best": 50.0,
+     "worst": 0.0,
+     "history": [
+      50.0,
+      0.0,
+      0.0
+     ]
+    }
+   ]
+  },
+  {
+   "car": "dd_audi_rs6_gt3",
+   "carName": "Audi RS6 GT3",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "sessions": 8,
+   "laps": 11,
+   "bestMs": 384006,
+   "bestSessionId": "1792947142-dd_audi_rs6_gt3",
+   "bestPreset": "preset_dd_audi_rs6_gt3_stage3",
+   "firstBestMs": 396837,
+   "theoreticalBestMs": 379912,
+   "lastAt": "2026-10-26T21:32:00+01:00",
+   "bests": [
+    {
+     "sessionId": "1792440552-dd_audi_rs6_gt3",
+     "at": "2026-10-19T22:09:12+02:00",
+     "bestMs": 396837,
+     "theoreticalBestMs": 396791,
+     "preset": "preset_dd_audi_rs6_gt3_stage3"
+    },
+    {
+     "sessionId": "1792528308-dd_audi_rs6_gt3",
+     "at": "2026-10-20T22:31:48+02:00",
+     "bestMs": 392403,
+     "theoreticalBestMs": 387768,
+     "preset": "preset_dd_audi_rs6_gt3_stage3"
+    },
+    {
+     "sessionId": "1792696538-dd_audi_rs6_gt3",
+     "at": "2026-10-22T21:15:38+02:00",
+     "bestMs": 389508,
+     "theoreticalBestMs": 384539,
+     "preset": "preset_dd_audi_rs6_gt3_stage3"
+    },
+    {
+     "sessionId": "1792947142-dd_audi_rs6_gt3",
+     "at": "2026-10-25T17:52:22+01:00",
+     "bestMs": 384006,
+     "theoreticalBestMs": 379912,
+     "preset": "preset_dd_audi_rs6_gt3_stage3"
+    },
+    {
+     "sessionId": "1792966037-dd_audi_rs6_gt3",
+     "at": "2026-10-25T23:07:17+01:00",
+     "bestMs": 405660,
+     "theoreticalBestMs": 403602,
+     "preset": "preset_dd_audi_rs6_gt3_base"
+    },
+    {
+     "sessionId": "1792968430-dd_audi_rs6_gt3",
+     "at": "2026-10-25T23:47:10+01:00",
+     "bestMs": 402018,
+     "theoreticalBestMs": 399158,
+     "preset": "preset_dd_audi_rs6_gt3_base"
+    },
+    {
+     "sessionId": "1793044629-dd_audi_rs6_gt3",
+     "at": "2026-10-26T20:57:09+01:00",
+     "bestMs": 401058,
+     "theoreticalBestMs": 400936,
+     "preset": "preset_dd_audi_rs6_gt3_stage1"
+    },
+    {
+     "sessionId": "1793046720-dd_audi_rs6_gt3",
+     "at": "2026-10-26T21:32:00+01:00",
+     "bestMs": 395481,
+     "theoreticalBestMs": 395386,
+     "preset": "preset_dd_audi_rs6_gt3_stage2"
+    }
+   ],
+   "skills": [
+    {
+     "key": "coast",
+     "value": 13.25,
+     "unit": "s",
+     "score": 100,
+     "trend": "better",
+     "best": 13.25,
+     "worst": 30.23,
+     "history": [
+      25.07,
+      25.93,
+      25.73,
+      30.23,
+      16.78,
+      24.15,
+      14.05,
+      13.25
+     ]
+    },
+    {
+     "key": "braking",
+     "value": null,
+     "unit": "%",
+     "score": null,
+     "trend": null,
+     "best": null,
+     "worst": null,
+     "history": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "key": "traction",
+     "value": 0.52,
+     "unit": "s",
+     "score": 100,
+     "trend": "better",
+     "best": 0.52,
+     "worst": 1.39,
+     "history": [
+      0.66,
+      1.3,
+      0.63,
+      1.39,
+      0.59,
+      0.77,
+      0.76,
+      0.52
+     ]
+    },
+    {
+     "key": "pace",
+     "value": 0.02,
+     "unit": "%",
+     "score": 99,
+     "trend": "better",
+     "best": 0.01,
+     "worst": 1.29,
+     "history": [
+      0.01,
+      1.2,
+      1.29,
+      1.08,
+      0.51,
+      0.72,
+      0.03,
+      0.02
+     ]
+    },
+    {
+     "key": "consistency",
+     "value": 2.07,
+     "unit": "%",
+     "score": 0,
+     "trend": null,
+     "best": 0.56,
+     "worst": 2.07,
+     "history": [
+      null,
+      0.65,
+      null,
+      0.56,
+      2.07,
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "key": "tyres",
+     "value": 0.0,
+     "unit": "%",
+     "score": 0,
+     "trend": "worse",
+     "best": 100.0,
+     "worst": 0.0,
+     "history": [
+      0.0,
+      0.0,
+      100.0,
+      0.0,
+      50.0,
+      0.0,
+      0.0,
+      0.0
+     ]
+    }
+   ]
+  },
+  {
+   "car": "dd_audi_rs6_v12",
+   "carName": "Audi RS6V12",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "sessions": 4,
+   "laps": 4,
+   "bestMs": 372672,
+   "bestSessionId": "1792973587-dd_audi_rs6_v12",
+   "bestPreset": "preset_dd_audi_rs6_v12_stage2",
+   "firstBestMs": 404667,
+   "theoreticalBestMs": 368755,
+   "lastAt": "2026-10-26T16:56:51+01:00",
+   "bests": [
+    {
+     "sessionId": "1792443525-dd_audi_rs6_v12",
+     "at": "2026-10-19T22:58:45+02:00",
+     "bestMs": 404667,
+     "theoreticalBestMs": 404562,
+     "preset": "preset_dd_audi_rs6_v12_stage1"
+    },
+    {
+     "sessionId": "1792704427-dd_audi_rs6_v12",
+     "at": "2026-10-22T23:27:07+02:00",
+     "bestMs": 394905,
+     "theoreticalBestMs": 393520,
+     "preset": "preset_dd_audi_rs6_v12_stage1"
+    },
+    {
+     "sessionId": "1792973587-dd_audi_rs6_v12",
+     "at": "2026-10-26T01:13:07+01:00",
+     "bestMs": 372672,
+     "theoreticalBestMs": 372601,
+     "preset": "preset_dd_audi_rs6_v12_stage2"
+    },
+    {
+     "sessionId": "1793030211-dd_audi_rs6_v12",
+     "at": "2026-10-26T16:56:51+01:00",
+     "bestMs": 376572,
+     "theoreticalBestMs": 368755,
+     "preset": "preset_dd_audi_rs6_v12_stage2"
+    }
+   ],
+   "skills": [
+    {
+     "key": "coast",
+     "value": 19.21,
+     "unit": "s",
+     "score": 56,
+     "trend": "better",
+     "best": 16.98,
+     "worst": 22.04,
+     "history": [
+      18.31,
+      22.04,
+      16.98,
+      19.21
+     ]
+    },
+    {
+     "key": "braking",
+     "value": null,
+     "unit": "%",
+     "score": null,
+     "trend": null,
+     "best": null,
+     "worst": null,
+     "history": [
+      null,
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "key": "traction",
+     "value": 0.12,
+     "unit": "s",
+     "score": 72,
+     "trend": "better",
+     "best": 0.0,
+     "worst": 0.43,
+     "history": [
+      0.43,
+      0.19,
+      0.0,
+      0.12
+     ]
+    },
+    {
+     "key": "pace",
+     "value": 2.12,
+     "unit": "%",
+     "score": 0,
+     "trend": "worse",
+     "best": 0.02,
+     "worst": 2.12,
+     "history": [
+      0.03,
+      0.35,
+      0.02,
+      2.12
+     ]
+    },
+    {
+     "key": "consistency",
+     "value": null,
+     "unit": "%",
+     "score": null,
+     "trend": null,
+     "best": null,
+     "worst": null,
+     "history": [
+      null,
+      null,
+      null,
+      null
+     ]
+    },
+    {
+     "key": "tyres",
+     "value": 0.0,
+     "unit": "%",
+     "score": 0,
+     "trend": "better",
+     "best": 100.0,
+     "worst": 0.0,
+     "history": [
+      0.0,
+      0.0,
+      100.0,
+      0.0
+     ]
+    }
+   ]
+  },
+  {
+   "car": "dd_bmw_m3_e46_clubsport",
+   "carName": "BMW M3 E46 CSL Clubsport",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "sessions": 2,
+   "laps": 2,
+   "bestMs": 429006,
+   "bestSessionId": "1793025378-dd_bmw_m3_e46_clubsport",
+   "bestPreset": "preset_dd_bmw_m3_e46_clubsport_stage3",
+   "firstBestMs": 429006,
+   "theoreticalBestMs": 423293,
+   "lastAt": "2026-10-26T16:04:48+01:00",
+   "bests": [
+    {
+     "sessionId": "1793025378-dd_bmw_m3_e46_clubsport",
+     "at": "2026-10-26T15:36:18+01:00",
+     "bestMs": 429006,
+     "theoreticalBestMs": 428964,
+     "preset": "preset_dd_bmw_m3_e46_clubsport_stage3"
+    },
+    {
+     "sessionId": "1793027088-dd_bmw_m3_e46_clubsport",
+     "at": "2026-10-26T16:04:48+01:00",
+     "bestMs": 436868,
+     "theoreticalBestMs": 423293,
+     "preset": "preset_dd_bmw_m3_e46_clubsport_stage3"
+    }
+   ],
+   "skills": [
+    {
+     "key": "coast",
+     "value": 12.18,
+     "unit": "s",
+     "score": 0,
+     "trend": null,
+     "best": 12.09,
+     "worst": 12.18,
+     "history": [
+      12.09,
+      12.18
+     ]
+    },
+    {
+     "key": "braking",
+     "value": null,
+     "unit": "%",
+     "score": null,
+     "trend": null,
+     "best": null,
+     "worst": null,
+     "history": [
+      null,
+      null
+     ]
+    },
+    {
+     "key": "traction",
+     "value": 3.72,
+     "unit": "s",
+     "score": 100,
+     "trend": null,
+     "best": 3.72,
+     "worst": 3.95,
+     "history": [
+      3.95,
+      3.72
+     ]
+    },
+    {
+     "key": "pace",
+     "value": 3.21,
+     "unit": "%",
+     "score": 0,
+     "trend": null,
+     "best": 0.01,
+     "worst": 3.21,
+     "history": [
+      0.01,
+      3.21
+     ]
+    },
+    {
+     "key": "consistency",
+     "value": null,
+     "unit": "%",
+     "score": null,
+     "trend": null,
+     "best": null,
+     "worst": null,
+     "history": [
+      null,
+      null
+     ]
+    },
+    {
+     "key": "tyres",
+     "value": 0.0,
+     "unit": "%",
+     "score": 100,
+     "trend": null,
+     "best": 0.0,
+     "worst": 0.0,
+     "history": [
+      0.0,
+      0.0
+     ]
+    }
+   ]
+  },
+  {
+   "car": "dd_bmw_m3_e46_gt3",
+   "carName": "BMW M3 E46 CSL GT3",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "sessions": 1,
+   "laps": 2,
+   "bestMs": 401253,
+   "bestSessionId": "1792970151-dd_bmw_m3_e46_gt3",
+   "bestPreset": "preset_dd_bmw_m3_e46_gt3_base",
+   "firstBestMs": 401253,
+   "theoreticalBestMs": 397687,
+   "lastAt": "2026-10-26T00:15:51+01:00",
+   "bests": [
+    {
+     "sessionId": "1792970151-dd_bmw_m3_e46_gt3",
+     "at": "2026-10-26T00:15:51+01:00",
+     "bestMs": 401253,
+     "theoreticalBestMs": 397687,
+     "preset": "preset_dd_bmw_m3_e46_gt3_base"
+    }
+   ],
+   "skills": [
+    {
+     "key": "coast",
+     "value": 6.89,
+     "unit": "s",
+     "score": null,
+     "trend": null,
+     "best": 6.89,
+     "worst": 6.89,
+     "history": [
+      6.89
+     ]
+    },
+    {
+     "key": "braking",
+     "value": null,
+     "unit": "%",
+     "score": null,
+     "trend": null,
+     "best": null,
+     "worst": null,
+     "history": [
+      null
+     ]
+    },
+    {
+     "key": "traction",
+     "value": 2.94,
+     "unit": "s",
+     "score": null,
+     "trend": null,
+     "best": 2.94,
+     "worst": 2.94,
+     "history": [
+      2.94
+     ]
+    },
+    {
+     "key": "pace",
+     "value": 0.9,
+     "unit": "%",
+     "score": null,
+     "trend": null,
+     "best": 0.9,
+     "worst": 0.9,
+     "history": [
+      0.9
+     ]
+    },
+    {
+     "key": "consistency",
+     "value": 0.3,
+     "unit": "%",
+     "score": null,
+     "trend": null,
+     "best": 0.3,
+     "worst": 0.3,
+     "history": [
+      0.3
+     ]
+    },
+    {
+     "key": "tyres",
+     "value": 0.0,
+     "unit": "%",
+     "score": null,
+     "trend": null,
+     "best": 0.0,
+     "worst": 0.0,
+     "history": [
+      0.0
+     ]
+    }
+   ]
+  },
+  {
+   "car": "dd_bmw_m3_e46_rennsport",
+   "carName": "BMW M3 E46 CSL GT3 Rennsport",
+   "track": "Circuit de Spa Francorchamps",
+   "layout": "GP",
+   "sessions": 1,
+   "laps": 3,
+   "bestMs": 132768,
+   "bestSessionId": "1792251878-dd_bmw_m3_e46_rennsport",
+   "bestPreset": "preset_dd_bmw_m3_e46_rennsport_stage3",
+   "firstBestMs": 132768,
+   "theoreticalBestMs": 130706,
+   "lastAt": "2026-10-17T17:44:38+02:00",
+   "bests": [
+    {
+     "sessionId": "1792251878-dd_bmw_m3_e46_rennsport",
+     "at": "2026-10-17T17:44:38+02:00",
+     "bestMs": 132768,
+     "theoreticalBestMs": 130706,
+     "preset": "preset_dd_bmw_m3_e46_rennsport_stage3"
+    }
+   ],
+   "skills": [
+    {
+     "key": "coast",
+     "value": 2.45,
+     "unit": "s",
+     "score": null,
+     "trend": null,
+     "best": 2.45,
+     "worst": 2.45,
+     "history": [
+      2.45
+     ]
+    },
+    {
+     "key": "braking",
+     "value": null,
+     "unit": "%",
+     "score": null,
+     "trend": null,
+     "best": null,
+     "worst": null,
+     "history": [
+      null
+     ]
+    },
+    {
+     "key": "traction",
+     "value": 0.71,
+     "unit": "s",
+     "score": null,
+     "trend": null,
+     "best": 0.71,
+     "worst": 0.71,
+     "history": [
+      0.71
+     ]
+    },
+    {
+     "key": "pace",
+     "value": 1.58,
+     "unit": "%",
+     "score": null,
+     "trend": null,
+     "best": 1.58,
+     "worst": 1.58,
+     "history": [
+      1.58
+     ]
+    },
+    {
+     "key": "consistency",
+     "value": 0.69,
+     "unit": "%",
+     "score": null,
+     "trend": null,
+     "best": 0.69,
+     "worst": 0.69,
+     "history": [
+      0.69
+     ]
+    },
+    {
+     "key": "tyres",
+     "value": 0.0,
+     "unit": "%",
+     "score": null,
+     "trend": null,
+     "best": 0.0,
+     "worst": 0.0,
+     "history": [
+      0.0
+     ]
+    }
+   ]
+  },
+  {
+   "car": "dd_bmw_m3_e46_gt3",
+   "carName": "BMW M3 E46 CSL GT3",
+   "track": "Nurburgring",
+   "layout": "Gp Strecke",
+   "sessions": 1,
+   "laps": 6,
+   "bestMs": 122430,
+   "bestSessionId": "1792248168-dd_bmw_m3_e46_gt3",
+   "bestPreset": "preset_dd_bmw_m3_e46_gt3_base",
+   "firstBestMs": 122430,
+   "theoreticalBestMs": 120915,
+   "lastAt": "2026-10-17T16:42:48+02:00",
+   "bests": [
+    {
+     "sessionId": "1792248168-dd_bmw_m3_e46_gt3",
+     "at": "2026-10-17T16:42:48+02:00",
+     "bestMs": 122430,
+     "theoreticalBestMs": 120915,
+     "preset": "preset_dd_bmw_m3_e46_gt3_base"
+    }
+   ],
+   "skills": [
+    {
+     "key": "coast",
+     "value": 6.42,
+     "unit": "s",
+     "score": null,
+     "trend": null,
+     "best": 6.42,
+     "worst": 6.42,
+     "history": [
+      6.42
+     ]
+    },
+    {
+     "key": "braking",
+     "value": null,
+     "unit": "%",
+     "score": null,
+     "trend": null,
+     "best": null,
+     "worst": null,
+     "history": [
+      null
+     ]
+    },
+    {
+     "key": "traction",
+     "value": 0.32,
+     "unit": "s",
+     "score": null,
+     "trend": null,
+     "best": 0.32,
+     "worst": 0.32,
+     "history": [
+      0.32
+     ]
+    },
+    {
+     "key": "pace",
+     "value": 1.25,
+     "unit": "%",
+     "score": null,
+     "trend": null,
+     "best": 1.25,
+     "worst": 1.25,
+     "history": [
+      1.25
+     ]
+    },
+    {
+     "key": "consistency",
+     "value": 1.0,
+     "unit": "%",
+     "score": null,
+     "trend": null,
+     "best": 1.0,
+     "worst": 1.0,
+     "history": [
+      1.0
+     ]
+    },
+    {
+     "key": "tyres",
+     "value": 83.3,
+     "unit": "%",
+     "score": null,
+     "trend": null,
+     "best": 83.3,
+     "worst": 83.3,
+     "history": [
+      83.3
+     ]
+    }
+   ]
+  }
+ ],
+ "recent": [
+  {
+   "version": 1,
+   "id": "1793135585-dd_vw_golf8_rsi_dahlbaeck",
+   "car": "dd_vw_golf8_rsi_dahlbaeck",
+   "carName": "VW Golf 8 RSI Dahlbaeck Tribute",
+   "preset": "preset_dd_vw_golf8_rsi_dahlbaeck_stage1",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-27T22:13:05+01:00",
+   "appVersion": "0.25.2",
+   "laps": 2,
+   "validLaps": 1,
+   "bestMs": 403983,
+   "theoreticalBestMs": 403975,
+   "referenceMs": 403983,
+   "pbBeforeMs": null,
+   "spreadMs": null,
+   "coastS": 6.77,
+   "lockFrontS": 1.87,
+   "lockRearS": 0.16,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.34,
+   "pressureEnd": [
+    28.49,
+    27.96,
+    26.04,
+    25.94
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 676.0,
+   "fuelStartL": 17.59,
+   "topKmh": 294.7,
+   "topLosses": [],
+   "coastCorners": [
+    25,
+    22,
+    39
+   ],
+   "lockCorners": [
+    12,
+    33,
+    48
+   ],
+   "spinCorners": [
+    48,
+    52,
+    16
+   ],
+   "findings": [
+    "pressure_high",
+    "pressure_low"
+   ],
+   "headline": {
+    "code": "first_preset",
+    "preset": "preset_dd_vw_golf8_rsi_dahlbaeck_stage1",
+    "bestMs": 398409,
+    "bestPreset": "preset_dd_vw_golf8_rsi_dahlbaeck_stage2"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1793134596-dd_vw_golf8_rsi_dahlbaeck",
+   "car": "dd_vw_golf8_rsi_dahlbaeck",
+   "carName": "VW Golf 8 RSI Dahlbaeck Tribute",
+   "preset": "preset_dd_vw_golf8_rsi_dahlbaeck_base",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-27T21:56:36+01:00",
+   "appVersion": "0.25.2",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 414507,
+   "theoreticalBestMs": 414427,
+   "referenceMs": 414507,
+   "pbBeforeMs": null,
+   "spreadMs": null,
+   "coastS": 4.85,
+   "lockFrontS": 1.3,
+   "lockRearS": 0.18,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.27,
+   "pressureEnd": [
+    28.91,
+    28.63,
+    26.24,
+    26.23
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 591.0,
+   "fuelStartL": 13.63,
+   "topKmh": 273.6,
+   "topLosses": [],
+   "coastCorners": [
+    71,
+    33,
+    36
+   ],
+   "lockCorners": [
+    28,
+    48,
+    39
+   ],
+   "spinCorners": [
+    15,
+    13,
+    58
+   ],
+   "findings": [
+    "pressure_high",
+    "pressure_low"
+   ],
+   "headline": {
+    "code": "first_preset",
+    "preset": "preset_dd_vw_golf8_rsi_dahlbaeck_base",
+    "bestMs": 398409,
+    "bestPreset": "preset_dd_vw_golf8_rsi_dahlbaeck_stage2"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1793133020-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_stage1",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-27T21:30:20+01:00",
+   "appVersion": "0.25.2",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 384777,
+   "theoreticalBestMs": 380848,
+   "referenceMs": 384777,
+   "pbBeforeMs": 387756,
+   "spreadMs": null,
+   "coastS": 7.45,
+   "lockFrontS": 0.92,
+   "lockRearS": 0.1,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.33,
+   "pressureEnd": [
+    28.62,
+    28.17,
+    28.49,
+    28.22
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 439.0,
+   "fuelStartL": 19.42,
+   "topKmh": 300.5,
+   "topLosses": [],
+   "coastCorners": [
+    48,
+    33,
+    6
+   ],
+   "lockCorners": [
+    48,
+    65,
+    32
+   ],
+   "spinCorners": [
+    71,
+    5,
+    6
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "new_best",
+    "deltaMs": -2979,
+    "preset": "preset_dd_porsche_gt2rs_mr_stage1"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1793131592-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_base",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-27T21:06:32+01:00",
+   "appVersion": "0.25.2",
+   "laps": 2,
+   "validLaps": 2,
+   "bestMs": 393861,
+   "theoreticalBestMs": 386906,
+   "referenceMs": 393696,
+   "pbBeforeMs": 393696,
+   "spreadMs": 3210,
+   "coastS": 9.02,
+   "lockFrontS": 0.82,
+   "lockRearS": 0.19,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.21,
+   "pressureEnd": [
+    28.22,
+    27.89,
+    28.22,
+    28.09
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 398.0,
+   "fuelStartL": 18.45,
+   "topKmh": 283.8,
+   "topLosses": [
+    {
+     "n": 63,
+     "dtS": 0.353
+    },
+    {
+     "n": 10,
+     "dtS": 0.312
+    },
+    {
+     "n": 24,
+     "dtS": 0.266
+    },
+    {
+     "n": 45,
+     "dtS": 0.232
+    },
+    {
+     "n": 70,
+     "dtS": 0.203
+    }
+   ],
+   "coastCorners": [
+    19,
+    47,
+    33
+   ],
+   "lockCorners": [
+    65,
+    9,
+    48
+   ],
+   "spinCorners": [
+    24,
+    49,
+    67
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "near_best",
+    "deltaMs": 165,
+    "preset": "preset_dd_porsche_gt2rs_mr_base"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1793051134-dd_bmw_m3_e46_rennsport",
+   "car": "dd_bmw_m3_e46_rennsport",
+   "carName": "BMW M3 E46 CSL GT3 Rennsport",
+   "preset": "preset_dd_bmw_m3_e46_rennsport_stage1",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-26T22:45:34+01:00",
+   "appVersion": "0.25.2",
+   "laps": 2,
+   "validLaps": 1,
+   "bestMs": 374451,
+   "theoreticalBestMs": 372384,
+   "referenceMs": 374451,
+   "pbBeforeMs": 386754,
+   "spreadMs": null,
+   "coastS": 1.79,
+   "lockFrontS": 3.34,
+   "lockRearS": 0.11,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 2.54,
+   "pressureEnd": [
+    28.22,
+    28.01,
+    27.49,
+    27.41
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 593.0,
+   "fuelStartL": 18.42,
+   "topKmh": 317.7,
+   "topLosses": [],
+   "coastCorners": [
+    28,
+    53,
+    19
+   ],
+   "lockCorners": [
+    2,
+    19,
+    48
+   ],
+   "spinCorners": [
+    5,
+    48,
+    3
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "new_best",
+    "deltaMs": -12303,
+    "preset": "preset_dd_bmw_m3_e46_rennsport_stage1"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1793046720-dd_audi_rs6_gt3",
+   "car": "dd_audi_rs6_gt3",
+   "carName": "Audi RS6 GT3",
+   "preset": "preset_dd_audi_rs6_gt3_stage2",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-26T21:32:00+01:00",
+   "appVersion": "0.25.2",
+   "laps": 2,
+   "validLaps": 1,
+   "bestMs": 395481,
+   "theoreticalBestMs": 395386,
+   "referenceMs": 395481,
+   "pbBeforeMs": null,
+   "spreadMs": null,
+   "coastS": 13.25,
+   "lockFrontS": 0.99,
+   "lockRearS": 0.59,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.52,
+   "pressureEnd": [
+    27.72,
+    26.97,
+    27.24,
+    27.14
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 573.0,
+   "fuelStartL": 18.47,
+   "topKmh": 295.4,
+   "topLosses": [],
+   "coastCorners": [
+    13,
+    6,
+    69
+   ],
+   "lockCorners": [
+    65,
+    47,
+    48
+   ],
+   "spinCorners": [
+    33,
+    71,
+    67
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "first_preset",
+    "preset": "preset_dd_audi_rs6_gt3_stage2",
+    "bestMs": 384006,
+    "bestPreset": "preset_dd_audi_rs6_gt3_stage3"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1793044629-dd_audi_rs6_gt3",
+   "car": "dd_audi_rs6_gt3",
+   "carName": "Audi RS6 GT3",
+   "preset": "preset_dd_audi_rs6_gt3_stage1",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-26T20:57:09+01:00",
+   "appVersion": "0.25.2",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 401058,
+   "theoreticalBestMs": 400936,
+   "referenceMs": 401058,
+   "pbBeforeMs": null,
+   "spreadMs": null,
+   "coastS": 14.05,
+   "lockFrontS": 0.86,
+   "lockRearS": 0.26,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.76,
+   "pressureEnd": [
+    27.53,
+    27.42,
+    27.3,
+    27.25
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 516.0,
+   "fuelStartL": 17.52,
+   "topKmh": 287.8,
+   "topLosses": [],
+   "coastCorners": [
+    48,
+    61,
+    33
+   ],
+   "lockCorners": [
+    5,
+    10,
+    6
+   ],
+   "spinCorners": [
+    27,
+    5,
+    10
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "first_preset",
+    "preset": "preset_dd_audi_rs6_gt3_stage1",
+    "bestMs": 384006,
+    "bestPreset": "preset_dd_audi_rs6_gt3_stage3"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1793032476-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_base",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-26T17:34:36+01:00",
+   "appVersion": "0.25.2",
+   "laps": 2,
+   "validLaps": 1,
+   "bestMs": 399315,
+   "theoreticalBestMs": 389885,
+   "referenceMs": 393696,
+   "pbBeforeMs": 393696,
+   "spreadMs": null,
+   "coastS": 6.33,
+   "lockFrontS": 0.41,
+   "lockRearS": 0.14,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.17,
+   "pressureEnd": [
+    28.07,
+    27.8,
+    27.9,
+    27.72
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 416.0,
+   "fuelStartL": 18.47,
+   "topKmh": 283.3,
+   "topLosses": [
+    {
+     "n": 45,
+     "dtS": 0.73
+    },
+    {
+     "n": 17,
+     "dtS": 0.457
+    },
+    {
+     "n": 25,
+     "dtS": 0.445
+    },
+    {
+     "n": 7,
+     "dtS": 0.354
+    },
+    {
+     "n": 47,
+     "dtS": 0.354
+    }
+   ],
+   "coastCorners": [
+    33,
+    48,
+    22
+   ],
+   "lockCorners": [
+    65,
+    39,
+    31
+   ],
+   "spinCorners": [
+    71,
+    67,
+    16
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "off_best",
+    "deltaMs": 5619,
+    "preset": "preset_dd_porsche_gt2rs_mr_base"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1793030211-dd_audi_rs6_v12",
+   "car": "dd_audi_rs6_v12",
+   "carName": "Audi RS6V12",
+   "preset": "preset_dd_audi_rs6_v12_stage2",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-26T16:56:51+01:00",
+   "appVersion": "0.25.2",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 376572,
+   "theoreticalBestMs": 368755,
+   "referenceMs": 372672,
+   "pbBeforeMs": 372672,
+   "spreadMs": null,
+   "coastS": 19.21,
+   "lockFrontS": 1.28,
+   "lockRearS": 0.29,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.12,
+   "pressureEnd": [
+    26.51,
+    26.59,
+    26.62,
+    26.36
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 527.0,
+   "fuelStartL": 21.42,
+   "topKmh": 348.0,
+   "topLosses": [
+    {
+     "n": 47,
+     "dtS": 0.982
+    },
+    {
+     "n": 27,
+     "dtS": 0.939
+    },
+    {
+     "n": 48,
+     "dtS": 0.478
+    },
+    {
+     "n": 69,
+     "dtS": 0.418
+    },
+    {
+     "n": 15,
+     "dtS": 0.392
+    }
+   ],
+   "coastCorners": [
+    47,
+    26,
+    70
+   ],
+   "lockCorners": [
+    65,
+    48,
+    6
+   ],
+   "spinCorners": [
+    54,
+    47,
+    62
+   ],
+   "findings": [
+    "pressure_low"
+   ],
+   "headline": {
+    "code": "off_best",
+    "deltaMs": 3900,
+    "preset": "preset_dd_audi_rs6_v12_stage2"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1793027088-dd_bmw_m3_e46_clubsport",
+   "car": "dd_bmw_m3_e46_clubsport",
+   "carName": "BMW M3 E46 CSL Clubsport",
+   "preset": "preset_dd_bmw_m3_e46_clubsport_stage3",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-26T16:04:48+01:00",
+   "appVersion": "0.25.2",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 436868,
+   "theoreticalBestMs": 423293,
+   "referenceMs": 429006,
+   "pbBeforeMs": 429006,
+   "spreadMs": null,
+   "coastS": 12.18,
+   "lockFrontS": 4.17,
+   "lockRearS": 3.17,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 3.72,
+   "pressureEnd": [
+    30.93,
+    30.37,
+    29.58,
+    29.01
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 734.0,
+   "fuelStartL": 17.6,
+   "topKmh": 283.4,
+   "topLosses": [
+    {
+     "n": 47,
+     "dtS": 8.865
+    },
+    {
+     "n": 68,
+     "dtS": 0.601
+    },
+    {
+     "n": 65,
+     "dtS": 0.445
+    },
+    {
+     "n": 29,
+     "dtS": 0.3
+    },
+    {
+     "n": 70,
+     "dtS": 0.214
+    }
+   ],
+   "coastCorners": [
+    69,
+    48,
+    36
+   ],
+   "lockCorners": [
+    47,
+    2,
+    33
+   ],
+   "spinCorners": [
+    61,
+    47,
+    48
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "off_best",
+    "deltaMs": 7862,
+    "preset": "preset_dd_bmw_m3_e46_clubsport_stage3"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1793025378-dd_bmw_m3_e46_clubsport",
+   "car": "dd_bmw_m3_e46_clubsport",
+   "carName": "BMW M3 E46 CSL Clubsport",
+   "preset": "preset_dd_bmw_m3_e46_clubsport_stage3",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-26T15:36:18+01:00",
+   "appVersion": "0.25.2",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 429006,
+   "theoreticalBestMs": 428964,
+   "referenceMs": 429006,
+   "pbBeforeMs": null,
+   "spreadMs": null,
+   "coastS": 12.09,
+   "lockFrontS": 1.96,
+   "lockRearS": 3.1,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 3.95,
+   "pressureEnd": [
+    30.97,
+    30.43,
+    29.38,
+    29.02
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 678.0,
+   "fuelStartL": 17.59,
+   "topKmh": 280.3,
+   "topLosses": [],
+   "coastCorners": [
+    19,
+    28,
+    39
+   ],
+   "lockCorners": [
+    65,
+    6,
+    16
+   ],
+   "spinCorners": [
+    61,
+    52,
+    47
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "first_car"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1793021592-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_stage2",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-26T14:33:12+01:00",
+   "appVersion": "0.25.2",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 385237,
+   "theoreticalBestMs": 373189,
+   "referenceMs": 378531,
+   "pbBeforeMs": 378531,
+   "spreadMs": null,
+   "coastS": 9.12,
+   "lockFrontS": 0.6,
+   "lockRearS": 0.07,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.54,
+   "pressureEnd": [
+    28.56,
+    28.26,
+    28.4,
+    28.19
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 473.0,
+   "fuelStartL": 20.41,
+   "topKmh": 305.4,
+   "topLosses": [
+    {
+     "n": 45,
+     "dtS": 0.557
+    },
+    {
+     "n": 24,
+     "dtS": 0.519
+    },
+    {
+     "n": 7,
+     "dtS": 0.508
+    },
+    {
+     "n": 48,
+     "dtS": 0.503
+    },
+    {
+     "n": 46,
+     "dtS": 0.336
+    }
+   ],
+   "coastCorners": [
+    47,
+    33,
+    3
+   ],
+   "lockCorners": [
+    65,
+    48,
+    2
+   ],
+   "spinCorners": [
+    48,
+    67,
+    24
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "off_best",
+    "deltaMs": 6706,
+    "preset": "preset_dd_porsche_gt2rs_mr_stage2"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792973587-dd_audi_rs6_v12",
+   "car": "dd_audi_rs6_v12",
+   "carName": "Audi RS6V12",
+   "preset": "preset_dd_audi_rs6_v12_stage2",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-26T01:13:07+01:00",
+   "appVersion": "0.25.2",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 372672,
+   "theoreticalBestMs": 372601,
+   "referenceMs": 372672,
+   "pbBeforeMs": null,
+   "spreadMs": null,
+   "coastS": 16.98,
+   "lockFrontS": 1.68,
+   "lockRearS": 0.42,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.0,
+   "pressureEnd": [
+    27.09,
+    26.82,
+    26.88,
+    26.59
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 1,
+   "brakeMaxC": 551.0,
+   "fuelStartL": 21.44,
+   "topKmh": 349.3,
+   "topLosses": [],
+   "coastCorners": [
+    28,
+    58,
+    22
+   ],
+   "lockCorners": [
+    48,
+    65,
+    6
+   ],
+   "spinCorners": [],
+   "findings": [],
+   "headline": {
+    "code": "first_preset",
+    "preset": "preset_dd_audi_rs6_v12_stage2",
+    "bestMs": 394905,
+    "bestPreset": "preset_dd_audi_rs6_v12_stage1"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792972467-dd_bmw_m3_e46_rennsport",
+   "car": "dd_bmw_m3_e46_rennsport",
+   "carName": "BMW M3 E46 CSL GT3 Rennsport",
+   "preset": "preset_dd_bmw_m3_e46_rennsport_base",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-26T00:54:27+01:00",
+   "appVersion": "0.25.2",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 400593,
+   "theoreticalBestMs": 400589,
+   "referenceMs": 400593,
+   "pbBeforeMs": null,
+   "spreadMs": null,
+   "coastS": 8.72,
+   "lockFrontS": 0.99,
+   "lockRearS": 0.09,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 1.57,
+   "pressureEnd": [
+    27.58,
+    27.42,
+    27.41,
+    27.24
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 568.0,
+   "fuelStartL": 13.59,
+   "topKmh": 283.1,
+   "topLosses": [],
+   "coastCorners": [
+    33,
+    17,
+    28
+   ],
+   "lockCorners": [
+    65,
+    48,
+    6
+   ],
+   "spinCorners": [
+    48,
+    58,
+    65
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "first_preset",
+    "preset": "preset_dd_bmw_m3_e46_rennsport_base",
+    "bestMs": 386754,
+    "bestPreset": "preset_dd_bmw_m3_e46_rennsport_stage1"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792970151-dd_bmw_m3_e46_gt3",
+   "car": "dd_bmw_m3_e46_gt3",
+   "carName": "BMW M3 E46 CSL GT3",
+   "preset": "preset_dd_bmw_m3_e46_gt3_base",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-26T00:15:51+01:00",
+   "appVersion": "0.25.2",
+   "laps": 2,
+   "validLaps": 2,
+   "bestMs": 401253,
+   "theoreticalBestMs": 397687,
+   "referenceMs": 401253,
+   "pbBeforeMs": null,
+   "spreadMs": 1220,
+   "coastS": 6.89,
+   "lockFrontS": 3.59,
+   "lockRearS": 0.63,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 2.94,
+   "pressureEnd": [
+    28.21,
+    27.9,
+    27.94,
+    27.66
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 621.0,
+   "fuelStartL": 11.6,
+   "topKmh": 286.5,
+   "topLosses": [],
+   "coastCorners": [
+    70,
+    22,
+    23
+   ],
+   "lockCorners": [
+    33,
+    65,
+    32
+   ],
+   "spinCorners": [
+    24,
+    48,
+    37
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "first_car"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792968430-dd_audi_rs6_gt3",
+   "car": "dd_audi_rs6_gt3",
+   "carName": "Audi RS6 GT3",
+   "preset": "preset_dd_audi_rs6_gt3_base",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-25T23:47:10+01:00",
+   "appVersion": "0.25.2",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 402018,
+   "theoreticalBestMs": 399158,
+   "referenceMs": 402018,
+   "pbBeforeMs": 405660,
+   "spreadMs": null,
+   "coastS": 24.15,
+   "lockFrontS": 1.01,
+   "lockRearS": 0.51,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.77,
+   "pressureEnd": [
+    28.35,
+    27.9,
+    27.36,
+    27.41
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 508.0,
+   "fuelStartL": 15.61,
+   "topKmh": 269.0,
+   "topLosses": [],
+   "coastCorners": [
+    19,
+    14,
+    48
+   ],
+   "lockCorners": [
+    65,
+    16,
+    28
+   ],
+   "spinCorners": [
+    71,
+    15,
+    37
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "new_best",
+    "deltaMs": -3642,
+    "preset": "preset_dd_audi_rs6_gt3_base"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792966037-dd_audi_rs6_gt3",
+   "car": "dd_audi_rs6_gt3",
+   "carName": "Audi RS6 GT3",
+   "preset": "preset_dd_audi_rs6_gt3_base",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-25T23:07:17+01:00",
+   "appVersion": "0.25.2",
+   "laps": 2,
+   "validLaps": 2,
+   "bestMs": 405660,
+   "theoreticalBestMs": 403602,
+   "referenceMs": 405660,
+   "pbBeforeMs": null,
+   "spreadMs": 8392,
+   "coastS": 16.78,
+   "lockFrontS": 0.43,
+   "lockRearS": 0.25,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.59,
+   "pressureEnd": [
+    27.03,
+    26.83,
+    26.93,
+    26.92
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 1,
+   "brakeMaxC": 488.0,
+   "fuelStartL": 15.63,
+   "topKmh": 269.5,
+   "topLosses": [],
+   "coastCorners": [
+    48,
+    22,
+    56
+   ],
+   "lockCorners": [
+    6,
+    16,
+    5
+   ],
+   "spinCorners": [
+    58,
+    71,
+    19
+   ],
+   "findings": [],
+   "headline": {
+    "code": "first_preset",
+    "preset": "preset_dd_audi_rs6_gt3_base",
+    "bestMs": 384006,
+    "bestPreset": "preset_dd_audi_rs6_gt3_stage3"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792959292-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_stage2",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-25T21:14:52+01:00",
+   "appVersion": "0.25.2",
+   "laps": 7,
+   "validLaps": 6,
+   "bestMs": 378531,
+   "theoreticalBestMs": 373198,
+   "referenceMs": 378531,
+   "pbBeforeMs": 381945,
+   "spreadMs": 3683,
+   "coastS": 13.61,
+   "lockFrontS": 1.29,
+   "lockRearS": 0.12,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 1.08,
+   "pressureEnd": [
+    28.76,
+    28.71,
+    28.81,
+    28.83
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 489.0,
+   "fuelStartL": 20.42,
+   "topKmh": 306.7,
+   "topLosses": [],
+   "coastCorners": [
+    39,
+    36,
+    23
+   ],
+   "lockCorners": [
+    48,
+    58,
+    26
+   ],
+   "spinCorners": [
+    71,
+    48,
+    47
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "new_best",
+    "deltaMs": -3414,
+    "preset": "preset_dd_porsche_gt2rs_mr_stage2"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792947142-dd_audi_rs6_gt3",
+   "car": "dd_audi_rs6_gt3",
+   "carName": "Audi RS6 GT3",
+   "preset": "preset_dd_audi_rs6_gt3_stage3",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-25T17:52:22+01:00",
+   "appVersion": "0.25.2",
+   "laps": 2,
+   "validLaps": 2,
+   "bestMs": 384006,
+   "theoreticalBestMs": 379912,
+   "referenceMs": 384006,
+   "pbBeforeMs": 389508,
+   "spreadMs": 2134,
+   "coastS": 30.23,
+   "lockFrontS": 2.7,
+   "lockRearS": 0.25,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 1.39,
+   "pressureEnd": [
+    27.73,
+    27.32,
+    27.35,
+    27.25
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 676.0,
+   "fuelStartL": 20.33,
+   "topKmh": 315.9,
+   "topLosses": [],
+   "coastCorners": [
+    25,
+    70,
+    65
+   ],
+   "lockCorners": [
+    48,
+    65,
+    2
+   ],
+   "spinCorners": [
+    48,
+    71,
+    3
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "new_best",
+    "deltaMs": -5502,
+    "preset": "preset_dd_audi_rs6_gt3_stage3"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792940080-dd_vw_golf8_rsi_dahlbaeck",
+   "car": "dd_vw_golf8_rsi_dahlbaeck",
+   "carName": "VW Golf 8 RSI Dahlbaeck Tribute",
+   "preset": "preset_dd_vw_golf8_rsi_dahlbaeck_stage2",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-25T15:54:40+01:00",
+   "appVersion": "0.25.2",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 398409,
+   "theoreticalBestMs": 398406,
+   "referenceMs": 398409,
+   "pbBeforeMs": null,
+   "spreadMs": null,
+   "coastS": 26.16,
+   "lockFrontS": 3.94,
+   "lockRearS": 0.25,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.05,
+   "pressureEnd": [
+    32.45,
+    32.3,
+    25.99,
+    26.04
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 781.0,
+   "fuelStartL": 19.51,
+   "topKmh": 310.7,
+   "topLosses": [],
+   "coastCorners": [
+    16,
+    28,
+    33
+   ],
+   "lockCorners": [
+    39,
+    48,
+    47
+   ],
+   "spinCorners": [
+    68,
+    54
+   ],
+   "findings": [
+    "pressure_high",
+    "pressure_low",
+    "brake_fade"
+   ],
+   "headline": {
+    "code": "first_car"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792882174-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_stage2",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-25T00:49:34+02:00",
+   "appVersion": "0.25.2",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 381945,
+   "theoreticalBestMs": 381150,
+   "referenceMs": 381945,
+   "pbBeforeMs": 399510,
+   "spreadMs": null,
+   "coastS": 16.53,
+   "lockFrontS": 0.76,
+   "lockRearS": 0.27,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.34,
+   "pressureEnd": [
+    28.08,
+    28.06,
+    28.16,
+    27.99
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 463.0,
+   "fuelStartL": 20.42,
+   "topKmh": 309.2,
+   "topLosses": [],
+   "coastCorners": [
+    33,
+    47,
+    23
+   ],
+   "lockCorners": [
+    65,
+    48,
+    19
+   ],
+   "spinCorners": [
+    48,
+    63,
+    6
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "new_best",
+    "deltaMs": -17565,
+    "preset": "preset_dd_porsche_gt2rs_mr_stage2"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792880115-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_stage1",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-25T00:15:15+02:00",
+   "appVersion": "0.25.2",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 387756,
+   "theoreticalBestMs": 384410,
+   "referenceMs": 387756,
+   "pbBeforeMs": 400656,
+   "spreadMs": null,
+   "coastS": 10.1,
+   "lockFrontS": 0.4,
+   "lockRearS": 0.13,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.36,
+   "pressureEnd": [
+    28.42,
+    27.76,
+    28.26,
+    27.93
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 456.0,
+   "fuelStartL": 19.41,
+   "topKmh": 291.3,
+   "topLosses": [],
+   "coastCorners": [
+    16,
+    28,
+    39
+   ],
+   "lockCorners": [
+    48,
+    65,
+    6
+   ],
+   "spinCorners": [
+    71,
+    63,
+    34
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "new_best",
+    "deltaMs": -12900,
+    "preset": "preset_dd_porsche_gt2rs_mr_stage1"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792877733-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_base",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-24T23:35:33+02:00",
+   "appVersion": "0.25.2",
+   "laps": 2,
+   "validLaps": 1,
+   "bestMs": 393696,
+   "theoreticalBestMs": 390711,
+   "referenceMs": 393696,
+   "pbBeforeMs": 398244,
+   "spreadMs": null,
+   "coastS": 5.56,
+   "lockFrontS": 0.26,
+   "lockRearS": 0.0,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.16,
+   "pressureEnd": [
+    27.89,
+    27.61,
+    27.75,
+    27.65
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 435.0,
+   "fuelStartL": 18.48,
+   "topKmh": 285.6,
+   "topLosses": [],
+   "coastCorners": [
+    6,
+    23,
+    33
+   ],
+   "lockCorners": [
+    9,
+    47,
+    48
+   ],
+   "spinCorners": [
+    55,
+    71,
+    6
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "new_best",
+    "deltaMs": -4548,
+    "preset": "preset_dd_porsche_gt2rs_mr_base"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792874150-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_base",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-24T22:35:50+02:00",
+   "appVersion": "0.25.2",
+   "laps": 2,
+   "validLaps": 2,
+   "bestMs": 398244,
+   "theoreticalBestMs": 393914,
+   "referenceMs": 398244,
+   "pbBeforeMs": 408926,
+   "spreadMs": 3018,
+   "coastS": 8.29,
+   "lockFrontS": 0.42,
+   "lockRearS": 0.06,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.15,
+   "pressureEnd": [
+    27.64,
+    27.46,
+    27.53,
+    27.48
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 427.0,
+   "fuelStartL": 18.41,
+   "topKmh": 286.9,
+   "topLosses": [],
+   "coastCorners": [
+    33,
+    47,
+    23
+   ],
+   "lockCorners": [
+    48,
+    47,
+    65
+   ],
+   "spinCorners": [
+    71,
+    47,
+    5
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "new_best",
+    "deltaMs": -10682,
+    "preset": "preset_dd_porsche_gt2rs_mr_base"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792704427-dd_audi_rs6_v12",
+   "car": "dd_audi_rs6_v12",
+   "carName": "Audi RS6V12",
+   "preset": "preset_dd_audi_rs6_v12_stage1",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-22T23:27:07+02:00",
+   "appVersion": "0.25.2",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 394905,
+   "theoreticalBestMs": 393520,
+   "referenceMs": 394905,
+   "pbBeforeMs": 404667,
+   "spreadMs": null,
+   "coastS": 22.04,
+   "lockFrontS": 3.43,
+   "lockRearS": 0.1,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.19,
+   "pressureEnd": [
+    26.47,
+    26.28,
+    26.98,
+    26.82
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 568.0,
+   "fuelStartL": 19.38,
+   "topKmh": 309.0,
+   "topLosses": [],
+   "coastCorners": [
+    16,
+    25,
+    19
+   ],
+   "lockCorners": [
+    16,
+    39,
+    28
+   ],
+   "spinCorners": [
+    48,
+    3,
+    5
+   ],
+   "findings": [
+    "pressure_low"
+   ],
+   "headline": {
+    "code": "new_best",
+    "deltaMs": -9762,
+    "preset": "preset_dd_audi_rs6_v12_stage1"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792700870-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_stage1",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-22T22:27:50+02:00",
+   "appVersion": "0.25.2",
+   "laps": 2,
+   "validLaps": 1,
+   "bestMs": 400656,
+   "theoreticalBestMs": 392554,
+   "referenceMs": 400656,
+   "pbBeforeMs": 402139,
+   "spreadMs": null,
+   "coastS": 13.09,
+   "lockFrontS": 0.92,
+   "lockRearS": 0.17,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.49,
+   "pressureEnd": [
+    30.52,
+    30.27,
+    30.53,
+    30.42
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 491.0,
+   "fuelStartL": 19.47,
+   "topKmh": 306.8,
+   "topLosses": [],
+   "coastCorners": [
+    6,
+    23,
+    28
+   ],
+   "lockCorners": [
+    48,
+    2,
+    65
+   ],
+   "spinCorners": [
+    48,
+    6,
+    49
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "new_best",
+    "deltaMs": -1483,
+    "preset": "preset_dd_porsche_gt2rs_mr_stage1"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792697450-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_stage2",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-22T21:30:50+02:00",
+   "appVersion": "0.25.2",
+   "laps": 3,
+   "validLaps": 2,
+   "bestMs": 399510,
+   "theoreticalBestMs": 390644,
+   "referenceMs": 399510,
+   "pbBeforeMs": 400266,
+   "spreadMs": 6711,
+   "coastS": 16.34,
+   "lockFrontS": 1.34,
+   "lockRearS": 0.18,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.44,
+   "pressureEnd": [
+    30.15,
+    30.02,
+    30.03,
+    29.91
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 481.0,
+   "fuelStartL": 20.44,
+   "topKmh": 313.6,
+   "topLosses": [],
+   "coastCorners": [
+    33,
+    28,
+    23
+   ],
+   "lockCorners": [
+    2,
+    65,
+    39
+   ],
+   "spinCorners": [
+    49,
+    47,
+    48
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "new_best",
+    "deltaMs": -756,
+    "preset": "preset_dd_porsche_gt2rs_mr_stage2"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792696538-dd_audi_rs6_gt3",
+   "car": "dd_audi_rs6_gt3",
+   "carName": "Audi RS6 GT3",
+   "preset": "preset_dd_audi_rs6_gt3_stage3",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-22T21:15:38+02:00",
+   "appVersion": "0.25.2",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 389508,
+   "theoreticalBestMs": 384539,
+   "referenceMs": 389508,
+   "pbBeforeMs": 392403,
+   "spreadMs": null,
+   "coastS": 25.73,
+   "lockFrontS": 0.89,
+   "lockRearS": 0.18,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.63,
+   "pressureEnd": [
+    26.91,
+    26.95,
+    27.04,
+    27.17
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 1,
+   "brakeMaxC": 628.0,
+   "fuelStartL": 20.36,
+   "topKmh": 315.5,
+   "topLosses": [],
+   "coastCorners": [
+    28,
+    60,
+    22
+   ],
+   "lockCorners": [
+    19,
+    6,
+    23
+   ],
+   "spinCorners": [
+    24,
+    13,
+    47
+   ],
+   "findings": [],
+   "headline": {
+    "code": "new_best",
+    "deltaMs": -2895,
+    "preset": "preset_dd_audi_rs6_gt3_stage3"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792530476-dd_bmw_m3_e46_rennsport",
+   "car": "dd_bmw_m3_e46_rennsport",
+   "carName": "BMW M3 E46 CSL GT3 Rennsport",
+   "preset": "preset_dd_bmw_m3_e46_rennsport_stage1",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-20T23:07:56+02:00",
+   "appVersion": "0.25.2",
+   "laps": 2,
+   "validLaps": 2,
+   "bestMs": 386754,
+   "theoreticalBestMs": 384619,
+   "referenceMs": 386754,
+   "pbBeforeMs": null,
+   "spreadMs": 6009,
+   "coastS": 3.58,
+   "lockFrontS": 3.08,
+   "lockRearS": 0.25,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 4.79,
+   "pressureEnd": [
+    27.85,
+    27.85,
+    27.58,
+    27.5
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 1,
+   "brakeMaxC": 569.0,
+   "fuelStartL": 18.5,
+   "topKmh": 315.0,
+   "topLosses": [],
+   "coastCorners": [
+    33,
+    6,
+    26
+   ],
+   "lockCorners": [
+    5,
+    32,
+    47
+   ],
+   "spinCorners": [
+    53,
+    48,
+    19
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "first_car"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792528308-dd_audi_rs6_gt3",
+   "car": "dd_audi_rs6_gt3",
+   "carName": "Audi RS6 GT3",
+   "preset": "preset_dd_audi_rs6_gt3_stage3",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-20T22:31:48+02:00",
+   "appVersion": "0.25.2",
+   "laps": 2,
+   "validLaps": 2,
+   "bestMs": 392403,
+   "theoreticalBestMs": 387768,
+   "referenceMs": 392403,
+   "pbBeforeMs": 396837,
+   "spreadMs": 2562,
+   "coastS": 25.93,
+   "lockFrontS": 1.38,
+   "lockRearS": 0.14,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 1.3,
+   "pressureEnd": [
+    32.11,
+    32.05,
+    26.91,
+    26.87
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 809.0,
+   "fuelStartL": 24.43,
+   "topKmh": 310.0,
+   "topLosses": [],
+   "coastCorners": [
+    48,
+    62,
+    19
+   ],
+   "lockCorners": [
+    65,
+    28,
+    5
+   ],
+   "spinCorners": [
+    34,
+    3,
+    63
+   ],
+   "findings": [
+    "pressure_high",
+    "brake_hot"
+   ],
+   "headline": {
+    "code": "new_best",
+    "deltaMs": -4434,
+    "preset": "preset_dd_audi_rs6_gt3_stage3"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792443525-dd_audi_rs6_v12",
+   "car": "dd_audi_rs6_v12",
+   "carName": "Audi RS6V12",
+   "preset": "preset_dd_audi_rs6_v12_stage1",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-19T22:58:45+02:00",
+   "appVersion": "0.25.2",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 404667,
+   "theoreticalBestMs": 404562,
+   "referenceMs": 404667,
+   "pbBeforeMs": null,
+   "spreadMs": null,
+   "coastS": 18.31,
+   "lockFrontS": 2.72,
+   "lockRearS": 0.31,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.43,
+   "pressureEnd": [
+    29.92,
+    29.77,
+    27.95,
+    27.94
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 697.0,
+   "fuelStartL": 21.47,
+   "topKmh": 301.0,
+   "topLosses": [],
+   "coastCorners": [
+    23,
+    31,
+    14
+   ],
+   "lockCorners": [
+    47,
+    65,
+    10
+   ],
+   "spinCorners": [
+    49,
+    48,
+    71
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "first_car"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792440552-dd_audi_rs6_gt3",
+   "car": "dd_audi_rs6_gt3",
+   "carName": "Audi RS6 GT3",
+   "preset": "preset_dd_audi_rs6_gt3_stage3",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-19T22:09:12+02:00",
+   "appVersion": "0.25.2",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 396837,
+   "theoreticalBestMs": 396791,
+   "referenceMs": 396837,
+   "pbBeforeMs": null,
+   "spreadMs": null,
+   "coastS": 25.07,
+   "lockFrontS": 1.05,
+   "lockRearS": 0.16,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.66,
+   "pressureEnd": [
+    30.83,
+    30.93,
+    26.59,
+    26.69
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 821.0,
+   "fuelStartL": 24.42,
+   "topKmh": 309.8,
+   "topLosses": [],
+   "coastCorners": [
+    47,
+    59,
+    62
+   ],
+   "lockCorners": [
+    16,
+    6,
+    48
+   ],
+   "spinCorners": [
+    48,
+    55,
+    63
+   ],
+   "findings": [
+    "pressure_high",
+    "brake_hot"
+   ],
+   "headline": {
+    "code": "first_car"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792267896-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_stage1",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-17T22:11:36+02:00",
+   "appVersion": "0.25.2",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 403182,
+   "theoreticalBestMs": 393325,
+   "referenceMs": 402139,
+   "pbBeforeMs": 402139,
+   "spreadMs": null,
+   "coastS": 10.31,
+   "lockFrontS": 1.06,
+   "lockRearS": 0.12,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.53,
+   "pressureEnd": [
+    29.66,
+    29.55,
+    29.63,
+    29.59
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 498.0,
+   "fuelStartL": 19.43,
+   "topKmh": 307.3,
+   "topLosses": [
+    {
+     "n": 65,
+     "dtS": 0.486
+    },
+    {
+     "n": 72,
+     "dtS": 0.461
+    },
+    {
+     "n": 52,
+     "dtS": 0.458
+    },
+    {
+     "n": 3,
+     "dtS": 0.311
+    },
+    {
+     "n": 71,
+     "dtS": 0.294
+    }
+   ],
+   "coastCorners": [
+    28,
+    33,
+    24
+   ],
+   "lockCorners": [
+    2,
+    39,
+    16
+   ],
+   "spinCorners": [
+    47,
+    63,
+    67
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "near_best",
+    "deltaMs": 1043,
+    "preset": "preset_dd_porsche_gt2rs_mr_stage1"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792265450-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_base",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-17T21:30:50+02:00",
+   "appVersion": "0.25.2",
+   "laps": 2,
+   "validLaps": 2,
+   "bestMs": 410376,
+   "theoreticalBestMs": 400932,
+   "referenceMs": 408926,
+   "pbBeforeMs": 408926,
+   "spreadMs": 2217,
+   "coastS": 5.85,
+   "lockFrontS": 1.04,
+   "lockRearS": 0.11,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.22,
+   "pressureEnd": [
+    29.73,
+    29.5,
+    29.45,
+    29.39
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 462.0,
+   "fuelStartL": 18.49,
+   "topKmh": 294.6,
+   "topLosses": [
+    {
+     "n": 51,
+     "dtS": 0.39
+    },
+    {
+     "n": 37,
+     "dtS": 0.304
+    },
+    {
+     "n": 39,
+     "dtS": 0.302
+    },
+    {
+     "n": 61,
+     "dtS": 0.29
+    },
+    {
+     "n": 69,
+     "dtS": 0.272
+    }
+   ],
+   "coastCorners": [
+    33,
+    28,
+    14
+   ],
+   "lockCorners": [
+    48,
+    6,
+    32
+   ],
+   "spinCorners": [
+    10,
+    47,
+    13
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "near_best",
+    "deltaMs": 1450,
+    "preset": "preset_dd_porsche_gt2rs_mr_base"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792251878-dd_bmw_m3_e46_rennsport",
+   "car": "dd_bmw_m3_e46_rennsport",
+   "carName": "BMW M3 E46 CSL GT3 Rennsport",
+   "preset": "preset_dd_bmw_m3_e46_rennsport_stage3",
+   "track": "Circuit de Spa Francorchamps",
+   "layout": "GP",
+   "startedAt": "2026-10-17T17:44:38+02:00",
+   "appVersion": "0.25.2",
+   "laps": 7,
+   "validLaps": 3,
+   "bestMs": 132768,
+   "theoreticalBestMs": 130706,
+   "referenceMs": 132768,
+   "pbBeforeMs": null,
+   "spreadMs": 911,
+   "coastS": 2.45,
+   "lockFrontS": 0.53,
+   "lockRearS": 0.0,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.71,
+   "pressureEnd": [
+    27.65,
+    28.12,
+    27.47,
+    27.45
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 721.0,
+   "fuelStartL": 15.86,
+   "topKmh": 365.9,
+   "topLosses": [],
+   "coastCorners": [
+    7,
+    1,
+    8
+   ],
+   "lockCorners": [
+    1,
+    12,
+    7
+   ],
+   "spinCorners": [
+    15,
+    16,
+    1
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "first_car"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792248168-dd_bmw_m3_e46_gt3",
+   "car": "dd_bmw_m3_e46_gt3",
+   "carName": "BMW M3 E46 CSL GT3",
+   "preset": "preset_dd_bmw_m3_e46_gt3_base",
+   "track": "Nurburgring",
+   "layout": "Gp Strecke",
+   "startedAt": "2026-10-17T16:42:48+02:00",
+   "appVersion": "0.25.2",
+   "laps": 14,
+   "validLaps": 6,
+   "bestMs": 122430,
+   "theoreticalBestMs": 120915,
+   "referenceMs": 122430,
+   "pbBeforeMs": null,
+   "spreadMs": 1222,
+   "coastS": 6.42,
+   "lockFrontS": 1.07,
+   "lockRearS": 0.0,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.32,
+   "pressureEnd": [
+    27.4,
+    27.31,
+    27.2,
+    26.99
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 5,
+   "brakeMaxC": 648.0,
+   "fuelStartL": 6.73,
+   "topKmh": 254.3,
+   "topLosses": [],
+   "coastCorners": [
+    6,
+    1,
+    9
+   ],
+   "lockCorners": [
+    6,
+    2,
+    1
+   ],
+   "spinCorners": [
+    13,
+    8,
+    3
+   ],
+   "findings": [],
+   "headline": {
+    "code": "first_car"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792100963-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_stage2",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-15T23:49:23+02:00",
+   "appVersion": "0.25.0",
+   "laps": 3,
+   "validLaps": 3,
+   "bestMs": 403317,
+   "theoreticalBestMs": 391600,
+   "referenceMs": 400266,
+   "pbBeforeMs": 400266,
+   "spreadMs": 1825,
+   "coastS": 19.57,
+   "lockFrontS": 2.0,
+   "lockRearS": 0.15,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 1.01,
+   "pressureEnd": [
+    30.07,
+    29.88,
+    30.02,
+    30.18
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 509.0,
+   "fuelStartL": 19.44,
+   "topKmh": 315.8,
+   "topLosses": [
+    {
+     "n": 65,
+     "dtS": 1.516
+    },
+    {
+     "n": 39,
+     "dtS": 0.537
+    },
+    {
+     "n": 47,
+     "dtS": 0.496
+    },
+    {
+     "n": 36,
+     "dtS": 0.46
+    },
+    {
+     "n": 72,
+     "dtS": 0.45
+    }
+   ],
+   "coastCorners": [
+    39,
+    71,
+    28
+   ],
+   "lockCorners": [
+    36,
+    2,
+    65
+   ],
+   "spinCorners": [
+    66,
+    71,
+    54
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "near_best",
+    "deltaMs": 3051,
+    "preset": "preset_dd_porsche_gt2rs_mr_stage2"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792099536-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_stage1",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-15T23:25:36+02:00",
+   "appVersion": "0.25.0",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 416151,
+   "theoreticalBestMs": 393771,
+   "referenceMs": 402139,
+   "pbBeforeMs": 402139,
+   "spreadMs": null,
+   "coastS": 22.44,
+   "lockFrontS": 1.3,
+   "lockRearS": 0.18,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.23,
+   "pressureEnd": [
+    29.79,
+    29.86,
+    30.03,
+    30.08
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 478.0,
+   "fuelStartL": 19.48,
+   "topKmh": 292.3,
+   "topLosses": [
+    {
+     "n": 16,
+     "dtS": 3.415
+    },
+    {
+     "n": 39,
+     "dtS": 0.705
+    },
+    {
+     "n": 60,
+     "dtS": 0.598
+    },
+    {
+     "n": 2,
+     "dtS": 0.474
+    },
+    {
+     "n": 61,
+     "dtS": 0.414
+    }
+   ],
+   "coastCorners": [
+    33,
+    48,
+    47
+   ],
+   "lockCorners": [
+    16,
+    36,
+    48
+   ],
+   "spinCorners": [
+    53,
+    58,
+    63
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "off_best",
+    "deltaMs": 14012,
+    "preset": "preset_dd_porsche_gt2rs_mr_stage1"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792097734-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_base",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-15T22:55:34+02:00",
+   "appVersion": "0.25.0",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 414464,
+   "theoreticalBestMs": 402023,
+   "referenceMs": 408926,
+   "pbBeforeMs": 408926,
+   "spreadMs": null,
+   "coastS": 13.88,
+   "lockFrontS": 0.67,
+   "lockRearS": 0.09,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.03,
+   "pressureEnd": [
+    29.8,
+    29.59,
+    29.77,
+    29.61
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 427.0,
+   "fuelStartL": 18.51,
+   "topKmh": 293.7,
+   "topLosses": [
+    {
+     "n": 37,
+     "dtS": 0.662
+    },
+    {
+     "n": 39,
+     "dtS": 0.449
+    },
+    {
+     "n": 32,
+     "dtS": 0.334
+    },
+    {
+     "n": 3,
+     "dtS": 0.318
+    },
+    {
+     "n": 45,
+     "dtS": 0.282
+    }
+   ],
+   "coastCorners": [
+    36,
+    33,
+    19
+   ],
+   "lockCorners": [
+    65,
+    2,
+    31
+   ],
+   "spinCorners": [
+    71
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "off_best",
+    "deltaMs": 5538,
+    "preset": "preset_dd_porsche_gt2rs_mr_base"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792012397-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_stage2",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-14T23:13:17+02:00",
+   "appVersion": "0.25.0",
+   "laps": 2,
+   "validLaps": 2,
+   "bestMs": 405931,
+   "theoreticalBestMs": 391600,
+   "referenceMs": 400266,
+   "pbBeforeMs": 400266,
+   "spreadMs": 3262,
+   "coastS": 23.35,
+   "lockFrontS": 1.14,
+   "lockRearS": 0.16,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.41,
+   "pressureEnd": [
+    30.34,
+    29.96,
+    30.74,
+    30.21
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 504.0,
+   "fuelStartL": 24.45,
+   "topKmh": 313.1,
+   "topLosses": [
+    {
+     "n": 65,
+     "dtS": 1.77
+    },
+    {
+     "n": 39,
+     "dtS": 0.763
+    },
+    {
+     "n": 45,
+     "dtS": 0.616
+    },
+    {
+     "n": 66,
+     "dtS": 0.417
+    },
+    {
+     "n": 47,
+     "dtS": 0.322
+    }
+   ],
+   "coastCorners": [
+    19,
+    28,
+    14
+   ],
+   "lockCorners": [
+    65,
+    32,
+    48
+   ],
+   "spinCorners": [
+    47,
+    14,
+    17
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "off_best",
+    "deltaMs": 5665,
+    "preset": "preset_dd_porsche_gt2rs_mr_stage2"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1792009110-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_stage1",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-14T22:18:30+02:00",
+   "appVersion": "0.25.0",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 417881,
+   "theoreticalBestMs": 393771,
+   "referenceMs": 402139,
+   "pbBeforeMs": 402139,
+   "spreadMs": null,
+   "coastS": 19.03,
+   "lockFrontS": 0.83,
+   "lockRearS": 0.11,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.09,
+   "pressureEnd": [
+    29.94,
+    29.58,
+    29.76,
+    29.57
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 452.0,
+   "fuelStartL": 24.45,
+   "topKmh": 297.9,
+   "topLosses": [
+    {
+     "n": 15,
+     "dtS": 1.058
+    },
+    {
+     "n": 45,
+     "dtS": 1.005
+    },
+    {
+     "n": 72,
+     "dtS": 0.869
+    },
+    {
+     "n": 51,
+     "dtS": 0.73
+    },
+    {
+     "n": 71,
+     "dtS": 0.673
+    }
+   ],
+   "coastCorners": [
+    13,
+    10,
+    39
+   ],
+   "lockCorners": [
+    48,
+    65,
+    2
+   ],
+   "spinCorners": [
+    6,
+    49,
+    62
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "off_best",
+    "deltaMs": 15742,
+    "preset": "preset_dd_porsche_gt2rs_mr_stage1"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1791929525-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_stage2",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-14T00:12:05+02:00",
+   "appVersion": "0.25.0",
+   "laps": 3,
+   "validLaps": 3,
+   "bestMs": 400266,
+   "theoreticalBestMs": 391600,
+   "referenceMs": 400266,
+   "pbBeforeMs": 406572,
+   "spreadMs": 1078,
+   "coastS": 20.29,
+   "lockFrontS": 1.15,
+   "lockRearS": 0.16,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.32,
+   "pressureEnd": [
+    30.22,
+    30.15,
+    30.28,
+    29.95
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 511.0,
+   "fuelStartL": 24.41,
+   "topKmh": 313.8,
+   "topLosses": [],
+   "coastCorners": [
+    33,
+    6,
+    47
+   ],
+   "lockCorners": [
+    48,
+    28,
+    2
+   ],
+   "spinCorners": [
+    63,
+    47,
+    17
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "new_best",
+    "deltaMs": -6306,
+    "preset": "preset_dd_porsche_gt2rs_mr_stage2"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1791924142-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_stage1",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-13T22:42:22+02:00",
+   "appVersion": "0.25.0",
+   "laps": 4,
+   "validLaps": 4,
+   "bestMs": 402139,
+   "theoreticalBestMs": 393771,
+   "referenceMs": 402139,
+   "pbBeforeMs": 406554,
+   "spreadMs": 5040,
+   "coastS": 24.36,
+   "lockFrontS": 1.62,
+   "lockRearS": 0.13,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.17,
+   "pressureEnd": [
+    30.8,
+    30.55,
+    30.69,
+    30.44
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 524.0,
+   "fuelStartL": 24.47,
+   "topKmh": 304.5,
+   "topLosses": [],
+   "coastCorners": [
+    48,
+    6,
+    60
+   ],
+   "lockCorners": [
+    2,
+    36,
+    3
+   ],
+   "spinCorners": [
+    47,
+    28,
+    36
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "new_best",
+    "deltaMs": -4415,
+    "preset": "preset_dd_porsche_gt2rs_mr_stage1"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1791918919-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_stage1",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-13T21:15:19+02:00",
+   "appVersion": "0.25.0",
+   "laps": 3,
+   "validLaps": 3,
+   "bestMs": 406554,
+   "theoreticalBestMs": 393771,
+   "referenceMs": 402139,
+   "pbBeforeMs": 412605,
+   "spreadMs": 2230,
+   "coastS": 16.51,
+   "lockFrontS": 1.19,
+   "lockRearS": 0.13,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.24,
+   "pressureEnd": [
+    30.52,
+    30.22,
+    30.39,
+    30.05
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 493.0,
+   "fuelStartL": 63.47,
+   "topKmh": 304.5,
+   "topLosses": [
+    {
+     "n": 72,
+     "dtS": 1.592
+    },
+    {
+     "n": 2,
+     "dtS": 0.36
+    },
+    {
+     "n": 65,
+     "dtS": 0.334
+    },
+    {
+     "n": 3,
+     "dtS": 0.303
+    },
+    {
+     "n": 39,
+     "dtS": 0.297
+    }
+   ],
+   "coastCorners": [
+    23,
+    10,
+    47
+   ],
+   "lockCorners": [
+    65,
+    48,
+    47
+   ],
+   "spinCorners": [
+    47,
+    49,
+    28
+   ],
+   "findings": [
+    "pressure_high",
+    "fuel_heavy"
+   ],
+   "headline": {
+    "code": "new_best",
+    "deltaMs": -6051,
+    "preset": "preset_dd_porsche_gt2rs_mr_stage1"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1791913760-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_base",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-13T19:49:20+02:00",
+   "appVersion": "0.25.0",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 408926,
+   "theoreticalBestMs": 402023,
+   "referenceMs": 408926,
+   "pbBeforeMs": 409953,
+   "spreadMs": null,
+   "coastS": 17.57,
+   "lockFrontS": 1.73,
+   "lockRearS": 0.33,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.43,
+   "pressureEnd": [
+    30.75,
+    30.42,
+    30.54,
+    30.22
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 491.0,
+   "fuelStartL": 63.47,
+   "topKmh": 290.7,
+   "topLosses": [],
+   "coastCorners": [
+    47,
+    25,
+    60
+   ],
+   "lockCorners": [
+    2,
+    65,
+    32
+   ],
+   "spinCorners": [
+    71,
+    54,
+    66
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "new_best",
+    "deltaMs": -1027,
+    "preset": "preset_dd_porsche_gt2rs_mr_base"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1791908080-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_base",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-13T18:14:40+02:00",
+   "appVersion": "0.25.0",
+   "laps": 2,
+   "validLaps": 2,
+   "bestMs": 409953,
+   "theoreticalBestMs": 403753,
+   "referenceMs": 409953,
+   "pbBeforeMs": 416363,
+   "spreadMs": 858,
+   "coastS": 21.04,
+   "lockFrontS": 1.22,
+   "lockRearS": 0.16,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.62,
+   "pressureEnd": [
+    30.61,
+    30.23,
+    30.44,
+    30.09
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 471.0,
+   "fuelStartL": 63.48,
+   "topKmh": 293.6,
+   "topLosses": [],
+   "coastCorners": [
+    19,
+    3,
+    69
+   ],
+   "lockCorners": [
+    2,
+    36,
+    47
+   ],
+   "spinCorners": [
+    67,
+    28,
+    29
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "new_best",
+    "deltaMs": -6410,
+    "preset": "preset_dd_porsche_gt2rs_mr_base"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1791904623-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_base",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-13T17:17:03+02:00",
+   "appVersion": "0.25.0",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 416363,
+   "theoreticalBestMs": 410554,
+   "referenceMs": 414464,
+   "pbBeforeMs": null,
+   "spreadMs": null,
+   "coastS": 23.3,
+   "lockFrontS": 0.94,
+   "lockRearS": 0.19,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.23,
+   "pressureEnd": [
+    30.32,
+    30.04,
+    30.14,
+    29.81
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 442.0,
+   "fuelStartL": 63.48,
+   "topKmh": 288.6,
+   "topLosses": [
+    {
+     "n": 27,
+     "dtS": 0.685
+    },
+    {
+     "n": 16,
+     "dtS": 0.566
+    },
+    {
+     "n": 31,
+     "dtS": 0.491
+    },
+    {
+     "n": 32,
+     "dtS": 0.368
+    },
+    {
+     "n": 28,
+     "dtS": 0.309
+    }
+   ],
+   "coastCorners": [
+    33,
+    19,
+    69
+   ],
+   "lockCorners": [
+    65,
+    8,
+    2
+   ],
+   "spinCorners": [
+    67,
+    49,
+    14
+   ],
+   "findings": [
+    "pressure_high",
+    "fuel_heavy"
+   ],
+   "headline": {
+    "code": "first_preset",
+    "preset": "preset_dd_porsche_gt2rs_mr_base",
+    "bestMs": 406572,
+    "bestPreset": "preset_dd_porsche_gt2rs_mr_stage2"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1791835100-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_stage2",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-12T21:58:20+02:00",
+   "appVersion": "0.25.0",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 406572,
+   "theoreticalBestMs": 391600,
+   "referenceMs": 400266,
+   "pbBeforeMs": 417053,
+   "spreadMs": null,
+   "coastS": 30.02,
+   "lockFrontS": 1.42,
+   "lockRearS": 0.33,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.81,
+   "pressureEnd": [
+    30.24,
+    29.94,
+    30.22,
+    29.8
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 493.0,
+   "fuelStartL": 63.33,
+   "topKmh": 311.2,
+   "topLosses": [
+    {
+     "n": 64,
+     "dtS": 0.474
+    },
+    {
+     "n": 48,
+     "dtS": 0.457
+    },
+    {
+     "n": 63,
+     "dtS": 0.448
+    },
+    {
+     "n": 70,
+     "dtS": 0.353
+    },
+    {
+     "n": 51,
+     "dtS": 0.333
+    }
+   ],
+   "coastCorners": [
+    62,
+    39,
+    28
+   ],
+   "lockCorners": [
+    65,
+    2,
+    6
+   ],
+   "spinCorners": [
+    47,
+    37,
+    63
+   ],
+   "findings": [
+    "pressure_high",
+    "fuel_heavy"
+   ],
+   "headline": {
+    "code": "new_best",
+    "deltaMs": -10481,
+    "preset": "preset_dd_porsche_gt2rs_mr_stage2"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1791827079-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_stage1",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-12T19:44:39+02:00",
+   "appVersion": "0.25.0",
+   "laps": 4,
+   "validLaps": 4,
+   "bestMs": 412605,
+   "theoreticalBestMs": 393771,
+   "referenceMs": 402139,
+   "pbBeforeMs": 415045,
+   "spreadMs": 31526,
+   "coastS": 13.18,
+   "lockFrontS": 1.7,
+   "lockRearS": 0.18,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.19,
+   "pressureEnd": [
+    29.96,
+    29.79,
+    29.88,
+    29.61
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 471.0,
+   "fuelStartL": 24.39,
+   "topKmh": 301.7,
+   "topLosses": [
+    {
+     "n": 72,
+     "dtS": 0.674
+    },
+    {
+     "n": 71,
+     "dtS": 0.649
+    },
+    {
+     "n": 47,
+     "dtS": 0.54
+    },
+    {
+     "n": 59,
+     "dtS": 0.503
+    },
+    {
+     "n": 3,
+     "dtS": 0.498
+    }
+   ],
+   "coastCorners": [
+    48,
+    6,
+    14
+   ],
+   "lockCorners": [
+    2,
+    65,
+    32
+   ],
+   "spinCorners": [
+    47,
+    4,
+    14
+   ],
+   "findings": [
+    "pressure_high"
+   ],
+   "headline": {
+    "code": "new_best",
+    "deltaMs": -2440,
+    "preset": "preset_dd_porsche_gt2rs_mr_stage1"
+   }
+  },
+  {
+   "version": 1,
+   "id": "1791756631-dd_porsche_gt2rs_mr",
+   "car": "dd_porsche_gt2rs_mr",
+   "carName": "Porsche 911 GT2 RS MR",
+   "preset": "preset_dd_porsche_gt2rs_mr_stage2",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "startedAt": "2026-10-12T00:10:31+02:00",
+   "appVersion": "0.25.0",
+   "laps": 1,
+   "validLaps": 1,
+   "bestMs": 417053,
+   "theoreticalBestMs": 391600,
+   "referenceMs": 400266,
+   "pbBeforeMs": null,
+   "spreadMs": null,
+   "coastS": 21.06,
+   "lockFrontS": 1.54,
+   "lockRearS": 0.6,
+   "lockFrontShare": null,
+   "lockRearShare": null,
+   "spinS": 0.45,
+   "pressureEnd": [
+    30.08,
+    29.44,
+    29.86,
+    29.35
+   ],
+   "targetPsi": {
+    "min": 26.5,
+    "max": 27.5
+   },
+   "lapsInWindow": 0,
+   "brakeMaxC": 497.0,
+   "fuelStartL": 63.39,
+   "topKmh": 311.8,
+   "topLosses": [
+    {
+     "n": 72,
+     "dtS": 1.55
+    },
+    {
+     "n": 71,
+     "dtS": 1.145
+    },
+    {
+     "n": 46,
+     "dtS": 0.722
+    },
+    {
+     "n": 45,
+     "dtS": 0.679
+    },
+    {
+     "n": 64,
+     "dtS": 0.665
+    }
+   ],
+   "coastCorners": [
+    39,
+    47,
+    33
+   ],
+   "lockCorners": [
+    48,
+    2,
+    6
+   ],
+   "spinCorners": [
+    47,
+    49,
+    17
+   ],
+   "findings": [
+    "pressure_high",
+    "fuel_heavy"
+   ],
+   "headline": {
+    "code": "first_preset",
+    "preset": "preset_dd_porsche_gt2rs_mr_stage2",
+    "bestMs": 415045,
+    "bestPreset": "preset_dd_porsche_gt2rs_mr_stage1"
+   }
+  }
+ ],
+ "workItems": [
+  {
+   "metric": "coast",
+   "car": "dd_audi_rs6_v12",
+   "carName": "Audi RS6V12",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "value": 19.21,
+   "unit": "s",
+   "bestValue": 1.79,
+   "bestCar": "dd_bmw_m3_e46_rennsport",
+   "bestCarName": "BMW M3 E46 CSL GT3 Rennsport",
+   "history": [
+    18.31,
+    22.04,
+    16.98,
+    19.21
+   ],
+   "trend": "better",
+   "where": [
+    47,
+    26,
+    70
+   ]
+  },
+  {
+   "metric": "coast",
+   "car": "dd_audi_rs6_gt3",
+   "carName": "Audi RS6 GT3",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "value": 13.25,
+   "unit": "s",
+   "bestValue": 1.79,
+   "bestCar": "dd_bmw_m3_e46_rennsport",
+   "bestCarName": "BMW M3 E46 CSL GT3 Rennsport",
+   "history": [
+    25.07,
+    25.93,
+    25.73,
+    30.23,
+    16.78,
+    24.15,
+    14.05,
+    13.25
+   ],
+   "trend": "better",
+   "where": [
+    13,
+    6,
+    69
+   ]
+  },
+  {
+   "metric": "coast",
+   "car": "dd_bmw_m3_e46_clubsport",
+   "carName": "BMW M3 E46 CSL Clubsport",
+   "track": "Nurburgring",
+   "layout": "Touristenfahrten",
+   "value": 12.18,
+   "unit": "s",
+   "bestValue": 1.79,
+   "bestCar": "dd_bmw_m3_e46_rennsport",
+   "bestCarName": "BMW M3 E46 CSL GT3 Rennsport",
+   "history": [
+    12.09,
+    12.18
+   ],
+   "trend": null,
+   "where": [
+    69,
+    48,
+    36
+   ]
+  }
+ ]
+}
