@@ -250,7 +250,8 @@ pub fn session(drive: &Drive) -> Session {
     Session { chans, duration, laps, times: t }
 }
 
-/// The local lap list of the two timed laps when the file starts at `start_ms` (unix ms).
+/// The local lap list of the two timed laps when the file starts at `start_ms` (unix ms): one run, as
+/// [`super::laps::entry`] chains them.
 pub fn local_laps(session: &Session, start_ms: i64) -> Vec<LocalLap> {
     session.laps.iter().map(|(a, b)| LocalLap {
         end_ms: start_ms + (b * 1000.0).round() as i64,
@@ -261,6 +262,6 @@ pub fn local_laps(session: &Session, start_ms: i64) -> Vec<LocalLap> {
         preset: Some("preset_dd_test_car_stage1".into()),
         track: "Test Ring".into(),
         layout: "GP".into(),
-        session_start_ms: start_ms + (a * 1000.0).round() as i64,
+        session_start_ms: start_ms + (session.laps[0].0 * 1000.0).round() as i64,
     }).collect()
 }

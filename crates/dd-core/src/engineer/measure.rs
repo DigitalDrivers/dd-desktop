@@ -30,9 +30,65 @@ const VERY_HOT: f64 = 800.0;
 const COLD: f64 = 500.0;
 const TRACE_STEP: usize = 5;
 
-/// The club cars' hot pressure window for now (27 ± 0.5 psi, the slicks' ideal in the cars' data,
-/// research/2026-10-05-telemetry-check.md §2); other cars get no judgement. A table per car may follow.
-pub const CLUB_TARGET_PSI: TargetPsi = TargetPsi { min: 26.5, max: 27.5 };
+/// How far a lap's hot pressure may lie from its compound's ideal: the telemetry report's acceptance tolerance
+/// (`pressure_accept_tol` 0.5 psi in ~/acevo-setups/tools/tlm_targets.json, from plans/2026-10-05-club-umsetzung.md
+/// WP6 "27 ± 0,5 psi"). tlm.py flags its runs at 0.3 already (`pressure_flag_tol`, just above the scatter of two
+/// equal runs); the engineer speaks only outside what is accepted.
+const WINDOW_PSI: f64 = 0.5;
+
+/// The ideal hot pressure (`idealPressure`, psi; front and rear alike) of each club car's compounds, by the car's
+/// id and the compound's short name as the game's log names it. Source: the installed packages, read 2026-10-29
+/// with ~/acevo-setups/tools/car.py (`car.load(<id>)["compounds"]`, the tyre files named per entry);
+/// research/2026-10-21-renningenieur-coach/check_pressure_table.py checks this table against them. A car or
+/// compound not listed (every Kunos car) gets no judgement.
+const IDEAL_PSI: [(&str, &str, f64); 20] = [
+    // cup2r_hypercar_275_35_20 / _335_30_21.tyre, Michelin Pilot Sport Cup 2 R N0 (the package's default)
+    ("dd_porsche_gt2rs_mr", "C2R", 30.0),
+    // trofeors_hypercar_275_35_20 / _335_30_21.tyre, Pirelli P Zero Trofeo RS
+    ("dd_porsche_gt2rs_mr", "TRS", 30.0),
+    // cup2_supercar_275_35_20 / _335_30_21.tyre, Michelin Pilot Sport Cup 2 N0
+    ("dd_porsche_gt2rs_mr", "C2", 30.0),
+    // slick_slick_325_660_18 / _325_705_18.tyre, Michelin racing slick 20 / 21 in (bespoke)
+    ("dd_porsche_gt2rs_mr", "S", 27.0),
+    // cup2r_hypercar_235_35_19 / _265_30_19.tyre, Michelin Pilot Sport Cup 2 R
+    ("dd_bmw_m3_e46_clubsport", "C2R", 29.0),
+    // trofeors_hypercar_235_35_19 / _265_30_19.tyre, Pirelli P Zero Trofeo RS
+    ("dd_bmw_m3_e46_clubsport", "TRS", 29.0),
+    // a052_hypercar_235_35_19 / _265_30_19.tyre, Yokohama Advan A052
+    ("dd_bmw_m3_e46_clubsport", "A052", 29.0),
+    // slick_slick_275_645_18 / _305_645_18.tyre, Pirelli P Zero DHF GT3 slick
+    ("dd_bmw_m3_e46_gt3", "S", 27.0),
+    // wet_wet_275_645_18 / _305_645_18.tyre, Pirelli Cinturato GT3 wet
+    ("dd_bmw_m3_e46_gt3", "W", 26.0),
+    // cup2r_hypercar_235_35_19 / _265_30_19.tyre, Michelin Pilot Sport Cup 2 R
+    ("dd_bmw_m3_e46_gt3", "C2R", 29.0),
+    // trofeors_hypercar_235_35_19 / _265_30_19.tyre, Pirelli P Zero Trofeo RS
+    ("dd_bmw_m3_e46_gt3", "TRS", 29.0),
+    // a052_hypercar_235_35_19 / _265_30_19.tyre, Yokohama Advan A052
+    ("dd_bmw_m3_e46_gt3", "A052", 29.0),
+    // slick_slick_325_680_18 / _325_705_18.tyre, Pirelli P Zero DHF GT3 slick
+    ("dd_bmw_m3_e46_rennsport", "S", 27.0),
+    // wet_wet_325_680_18 / _325_705_18.tyre, Pirelli Cinturato GT3 wet
+    ("dd_bmw_m3_e46_rennsport", "W", 26.0),
+    // slick_slick_325_680_18.tyre front and rear, Pirelli P Zero DHF GT3 slick
+    ("dd_audi_rs6_gt3", "S", 27.0),
+    // wet_wet_325_680_18.tyre front and rear, Pirelli Cinturato GT3 wet
+    ("dd_audi_rs6_gt3", "W", 26.0),
+    // slick_slick_325_680_18 / _325_705_18.tyre, Pirelli P Zero DHF GT3 slick
+    ("dd_audi_rs6_v12", "S", 27.0),
+    // wet_wet_325_680_18 / _325_705_18.tyre, Pirelli Cinturato GT3 wet
+    ("dd_audi_rs6_v12", "W", 26.0),
+    // slick_slick_275_645_18.tyre front and rear, Pirelli P Zero DHF slick 275/645-18
+    ("dd_vw_golf8_rsi_dahlbaeck", "S", 27.0),
+    // wet_wet_275_645_18.tyre front and rear, Pirelli Cinturato wet 275/645-18
+    ("dd_vw_golf8_rsi_dahlbaeck", "W", 26.0),
+];
+
+/// The hot pressure window of `compound` on `car`: its ideal ± [`WINDOW_PSI`]; None for a car or compound
+/// [`IDEAL_PSI`] does not list.
+pub fn target_psi(car: &str, compound: &str) -> Option<TargetPsi> {
+    IDEAL_PSI.iter().find(|(c, short, _)| *c == car && *short == compound).map(|(_, _, ideal)| TargetPsi { min: ideal - WINDOW_PSI, max: ideal + WINDOW_PSI })
+}
 
 /// What a corner measures on its own; positions on the map's distance.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -258,7 +314,7 @@ fn diff(own: Option<f64>, reference: Option<f64>) -> Option<f64> {
 }
 
 /// The report of a lap: its numbers against the reference's (when there is one on the same map), the theoretical
-/// best, the club car's pressure window (`target`) and the findings.
+/// best, the pressure window of the lap's compound (`target`, None: no judgement) and the findings.
 #[allow(clippy::too_many_arguments)]
 pub fn report(id: &str, n: u32, lap: &LocalLap, source: TimeSource, m: &LapMeasures, reference: Option<&LapMeasures>, theoretical_best_ms: Option<i64>, target: Option<TargetPsi>) -> EngineerLap {
     let reference = reference.filter(|r| r.corners.len() == m.corners.len());
@@ -454,13 +510,14 @@ mod tests {
     fn finds_locking_and_compares_with_the_reference() {
         let lab = lab(Drive { late: Some(2), lock: true });
         let (_, [one, two]) = measured(&lab);
-        let r = report("s#2", 2, &lap(1, &lab), TimeSource::App, &two, Some(&one), Some(400_000), Some(CLUB_TARGET_PSI));
+        let slick = target_psi("dd_bmw_m3_e46_rennsport", "S");
+        let r = report("s#2", 2, &lap(1, &lab), TimeSource::App, &two, Some(&one), Some(400_000), slick.clone());
         let hairpin = &r.corners[2];
         assert!(hairpin.lock_s[0] > 0.5 && hairpin.lock_s[1] > 0.5 && hairpin.lock_s[2] == 0.0, "{:?}", hairpin.lock_s);
         assert!(r.findings.contains(&Finding::LockFront));
-        // the club car's window: 27.5 to 27.8 psi at the end is above 27.5
+        // the slick's window: 27.5 to 27.8 psi at the end is above 27.5
         assert!(r.findings.contains(&Finding::PressureHigh) && !r.findings.contains(&Finding::PressureLow));
-        assert_eq!(r.tyres.target_psi, Some(CLUB_TARGET_PSI));
+        assert_eq!(r.tyres.target_psi, slick);
         assert_eq!(r.theoretical_best_ms, Some(400_000));
         assert!(r.balance.iter().take(3).all(|b| b.relative.is_some_and(|x| x.abs() < 0.01)), "{:?}", r.balance);
         assert_eq!(r.balance[3].relative, None, "no corner above 240 km/h");
@@ -469,6 +526,43 @@ mod tests {
         assert!(alone.corners.iter().all(|c| c.dt_s.is_none() && c.brake.vs_ref_m.is_none() && c.balance.entry.is_none()));
         assert_eq!((alone.theoretical_best_ms, alone.tyres.target_psi.clone()), (None, None));
         assert!(alone.findings.iter().all(|f| matches!(f, Finding::CoastLong | Finding::LockFront | Finding::LockRear | Finding::SpinRear | Finding::BrakeHot | Finding::BrakeFade)));
+    }
+
+    #[test]
+    fn the_target_window_is_the_ideal_of_the_compound_fitted_half_a_psi_either_way() {
+        let window = |car: &str, compound: &str| target_psi(car, compound).map(|t| (t.min, t.max));
+        // the packages' idealPressure (car.py, 2026-10-29)
+        assert_eq!(window("dd_porsche_gt2rs_mr", "TRS"), Some((29.5, 30.5)));
+        assert_eq!(window("dd_porsche_gt2rs_mr", "C2R"), Some((29.5, 30.5)));
+        assert_eq!(window("dd_porsche_gt2rs_mr", "S"), Some((26.5, 27.5)));
+        assert_eq!(window("dd_bmw_m3_e46_clubsport", "A052"), Some((28.5, 29.5)));
+        assert_eq!(window("dd_bmw_m3_e46_gt3", "TRS"), Some((28.5, 29.5)));
+        assert_eq!(window("dd_bmw_m3_e46_gt3", "S"), Some((26.5, 27.5)));
+        assert_eq!(window("dd_bmw_m3_e46_rennsport", "W"), Some((25.5, 26.5)));
+        assert_eq!(window("dd_vw_golf8_rsi_dahlbaeck", "S"), Some((26.5, 27.5)));
+        // a compound the car does not have, a car the table does not know, a Kunos car: no judgement
+        assert_eq!(window("dd_bmw_m3_e46_rennsport", "TRS"), None);
+        assert_eq!(window("dd_test_car", "S"), None);
+        assert_eq!(window("ks_bmw_m4_gt3", "S"), None);
+    }
+
+    #[test]
+    fn judges_the_hot_pressures_by_the_compound_s_window() {
+        let lab = lab(Drive { late: None, lock: false });
+        let (_, [one, _]) = measured(&lab);
+        let at = |psi: [f64; 4]| LapMeasures { tyres: Tyres { pressure_end: psi, ..one.tyres.clone() }, ..one.clone() };
+        let findings = |psi: [f64; 4], compound: &str| {
+            let r = report("s#1", 1, &lap(0, &lab), TimeSource::App, &at(psi), None, None, target_psi("dd_bmw_m3_e46_rennsport", compound));
+            r.findings.into_iter().filter(|f| matches!(f, Finding::PressureHigh | Finding::PressureLow)).collect::<Vec<_>>()
+        };
+        // a Rennsport on slicks at Joe's Porsche pressures is too high
+        assert_eq!(findings([29.8, 29.6, 29.8, 29.6], "S"), [Finding::PressureHigh]);
+        // on wets 26 psi is the ideal, 27.5 too high, 25.4 too low
+        assert_eq!(findings([26.0, 26.1, 25.9, 26.0], "W"), []);
+        assert_eq!(findings([27.5, 26.1, 25.9, 26.0], "W"), [Finding::PressureHigh]);
+        assert_eq!(findings([26.0, 26.1, 25.4, 26.0], "W"), [Finding::PressureLow]);
+        // the window's edges are in it
+        assert_eq!(findings([26.5, 25.5, 26.5, 25.5], "W"), []);
     }
 
     #[test]

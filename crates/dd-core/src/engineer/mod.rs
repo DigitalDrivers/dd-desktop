@@ -153,7 +153,8 @@ pub struct Tyres {
     /// Mean of the three surface temperatures of each wheel
     pub surface_temp_avg: [f64; 4],
     pub air_temp_avg: [f64; 4],
-    /// The club car's target window of the hot pressure (the lap's end), null for other cars (no judgement then)
+    /// The target window of the hot pressure (the lap's end) for the compound fitted, null when there is no
+    /// judgement (compound unknown, a car without a table entry, a circuit's out lap or pit lap)
     pub target_psi: Option<TargetPsi>,
 }
 

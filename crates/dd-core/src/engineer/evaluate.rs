@@ -12,11 +12,10 @@ use super::corners::{self, curvature, detect, fit, fit_within, LapShape, Map};
 use super::cut::{grid, grid_in, windows, Data, Grid};
 use super::laps::LocalLap;
 use super::ld::Ld;
-use super::measure::{measure, report, trace, LapMeasures, CLUB_TARGET_PSI};
+use super::measure::{measure, report, target_psi, trace, LapMeasures};
 use super::sessions::{name_parts, same_track, NameParts};
 use super::store::{self, id_car, refs_key, RefLap, Refs};
-use super::{beacons, gamelog, CornerMap, EngineerSession, Reference, TimeSource, TimingNote};
-use crate::laps::is_club_car;
+use super::{beacons, gamelog, CornerMap, EngineerSession, Reference, TargetPsi, TimeSource, TimingNote};
 
 /// A lap's integrated distance may differ this much from the track's.
 const DISTANCE: f64 = 0.10;
@@ -174,8 +173,12 @@ pub fn run<R: Read + Seek>(dir: &Path, r: &mut R, input: &Input) -> io::Result<O
     }
     let reference = refs.reference.as_ref().filter(|_| map.is_some());
     let theoretical_best = (!refs.best_segments_s.is_empty()).then(|| (refs.best_segments_s.iter().sum::<f64>() * 1000.0).round() as i64);
-    let target = is_club_car(&car).then_some(CLUB_TARGET_PSI);
-    let laps = measured.iter().map(|(c, lap_id, m)| report(lap_id, c.n, c.lap, source.unwrap_or_default(), m, reference.map(|r| &r.measures), theoretical_best, target.clone())).collect::<Vec<_>>();
+    let log = clock.log.map(|i| input.logs[i]);
+    let tf = touristenfahrten(&track, &layout);
+    let laps = measured
+        .iter()
+        .map(|(c, lap_id, m)| report(lap_id, c.n, c.lap, source.unwrap_or_default(), m, reference.map(|r| &r.measures), theoretical_best, pressure_target(&car, c.lap, log, clock.offset_s, tf)))
+        .collect::<Vec<_>>();
     let traces = measured.iter().map(|(c, lap_id, _)| trace(lap_id, &c.grid)).collect::<Vec<_>>();
 
     let session = EngineerSession {
@@ -214,6 +217,18 @@ pub fn run<R: Read + Seek>(dir: &Path, r: &mut R, input: &Input) -> io::Result<O
 /// Touristenfahrten: the recording starts at the pit exit, the timed lap at the start split.
 fn touristenfahrten(track: &str, layout: &str) -> bool {
     layout.to_lowercase().contains("touristenfahrt") || track.to_lowercase().contains("touristenfahrt")
+}
+
+/// The hot pressure window a lap is judged by: that of the compound the game's log names as fitted when the lap
+/// started ([`gamelog::compound`], [`target_psi`]). None, no judgement, without the log or a compound in it, for a car
+/// or compound the table does not list, and on a circuit for the run's first lap (out of the pit box, the tyres
+/// still cold) and a lap through the pit lane. On Touristenfahrten every stint's timed lap starts at the pit exit
+/// and ends 20 km later with hot tyres; tlm.py judges the stint's end there too.
+fn pressure_target(car: &str, lap: &LocalLap, log: Option<&str>, offset_s: i64, touristenfahrten: bool) -> Option<TargetPsi> {
+    if !touristenfahrten && (lap.pit || lap.start_ms() <= lap.session_start_ms) {
+        return None;
+    }
+    target_psi(car, &gamelog::compound(log?, lap.start_ms() + offset_s * 1000)?)
 }
 
 /// The laps between the beacons of the file's `.ldx` (see [`beacons`]), as the app's lap list would have them. The
@@ -321,7 +336,7 @@ fn laps_from_log(parts: &NameParts, clock: &FileClock, duration: f64, log: Optio
 mod tests {
     use super::super::clock::days_from_civil;
     use super::super::testkit::{self, Drive};
-    use super::super::{Finding, TimeSource};
+    use super::super::{Finding, TargetPsi, TimeSource};
     use super::*;
     use std::io::Cursor;
 
@@ -374,8 +389,8 @@ mod tests {
         // 20 Hz yaw rate leaves between equal segments (up to 0.02 s each)
         let best = s.laps[0].theoretical_best_ms.unwrap();
         assert!(best <= reference.lap_time_ms && reference.lap_time_ms - best <= 60, "{best} against {}", reference.lap_time_ms);
-        // the test car's id starts with dd_: a club car, judged by the club's pressure window
-        assert_eq!(s.laps[0].tyres.target_psi, Some(CLUB_TARGET_PSI));
+        // the log names no compound (and the table no test car): the pressures are not judged
+        assert!(s.laps.iter().all(|l| l.tyres.target_psi.is_none()));
         assert_eq!(store::traces(&dir, &outcome.id).unwrap().len(), 2);
         assert!(corners::load(&dir, "Test Ring", "GP").is_some());
         store::forget(&dir).unwrap();
@@ -508,6 +523,97 @@ mod tests {
         assert_eq!(run(&dir, &mut Cursor::new(session(&drive, 0).0), &none).unwrap().laps, 0);
         let one = ldx(&[s.laps[0].0]);
         assert_eq!(run(&dir, &mut Cursor::new(session(&drive, 0).0), &Input { ldx: Some(&one), ..input }).unwrap().laps, 0);
+        store::forget(&dir).unwrap();
+    }
+
+    /// The hot pressures at the end of the lap of Joe's GT2 RS MR base session of 2026-10-15 on Touristenfahrten
+    /// (his stored report 1792097734-dd_porsche_gt2rs_mr, lap 1; the engineer called them too high).
+    const JOE_PSI: [f64; 4] = [29.8, 29.6, 29.8, 29.6];
+
+    const SLICK: &str = "setCompound Tyre: 0 compound name: S";
+
+    /// The session of `car` on Touristenfahrten (`tf`) or the GP, the pressures at its laps' ends at `psi`, the
+    /// second lap through the pit lane when `pit`, and the log's `lines` (at file seconds) after the car's selection.
+    fn tyre_session(dir: &Path, car: &str, tf: bool, pit: bool, psi: [f64; 4], lines: &[(f64, &str)]) -> EngineerSession {
+        let drive = Drive { late: None, lock: false };
+        let (_, completed, mut laps, modified_ms, start_ms) = session(&drive, 0);
+        let mut chans = testkit::session(&drive).chans;
+        // the test car's pressures end at 27.5 psi plus 0.1 per wheel
+        for (w, wheel) in ["LF", "RF", "LR", "RR"].iter().enumerate() {
+            let c = chans.iter_mut().find(|c| c.name == format!("TYRE_PRESS_{wheel}")).unwrap();
+            let shift = (psi[w] - (27.5 + 0.1 * w as f64)) as f32;
+            c.values.iter_mut().for_each(|v| *v += shift);
+        }
+        let bytes = testkit::write_ld("04/10/2026", "23:40:23", &chans);
+        for lap in &mut laps {
+            lap.car = car.into();
+            if tf {
+                lap.layout = "Touristenfahrten".into();
+            }
+        }
+        laps[1].pit = pit;
+        let local = |t: f64| start_ms + 7_200_000 + (t * 1000.0).round() as i64;
+        let lines: String = lines.iter().map(|(t, line)| format!("{} [physics] [info] {line}\n", stamp(local(*t)))).collect();
+        let log = format!("{SELECTED}{lines}{completed}");
+        let input = Input { name: if tf { NAME_T } else { NAME }, modified_ms, logs: &[&log], laps: &laps, app_version: "0.25.0", now_ms: modified_ms, ldx: None, keep_days: Some(30) };
+        let outcome = run(dir, &mut Cursor::new(bytes), &input).unwrap();
+        assert!(outcome.laps == 2 && outcome.from_log, "{outcome:?}");
+        store::session(dir, &outcome.id).unwrap()
+    }
+
+    fn window(min: f64, max: f64) -> Option<TargetPsi> {
+        Some(TargetPsi { min, max })
+    }
+
+    fn pressure_findings(lap: &super::super::EngineerLap) -> Vec<Finding> {
+        lap.findings.iter().filter(|f| matches!(f, Finding::PressureHigh | Finding::PressureLow)).cloned().collect()
+    }
+
+    #[test]
+    fn joe_s_porsche_on_trofeo_rs_at_29_8_psi_is_in_its_window() {
+        let dir = temp("porsche");
+        // the preset loads on the package's Cup 2 R, his setup fits Trofeo RS (the order of his log of 2026-10-27;
+        // that of 10-15 is gone, and both are 30 psi)
+        let tyres = [(1.0, "setCompound Tyre: 0 compound name: C2R"), (5.0, "setCompound Tyre: 0 compound name: TRS")];
+        let s = tyre_session(&dir, "dd_porsche_gt2rs_mr", true, false, JOE_PSI, &tyres);
+        for lap in &s.laps {
+            assert_eq!(lap.tyres.target_psi, window(29.5, 30.5));
+            assert_eq!(pressure_findings(lap), [], "{:?}", lap.tyres);
+        }
+        store::forget(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_rennsport_on_slicks_at_29_8_psi_is_too_high_and_wets_fitted_count_from_the_next_lap() {
+        let dir = temp("slicks");
+        let second = testkit::session(&Drive { late: None, lock: false }).laps[1].0;
+        let s = tyre_session(&dir, "dd_bmw_m3_e46_rennsport", true, false, JOE_PSI, &[(1.0, SLICK), (second - 1.0, "setCompound Tyre: 0 compound name: W")]);
+        let targets: Vec<Option<TargetPsi>> = s.laps.iter().map(|l| l.tyres.target_psi.clone()).collect();
+        assert_eq!(targets, [window(26.5, 27.5), window(25.5, 26.5)]);
+        assert!(s.laps.iter().all(|l| pressure_findings(l) == [Finding::PressureHigh]));
+        store::forget(&dir).unwrap();
+    }
+
+    #[test]
+    fn without_the_compound_in_the_log_or_for_a_kunos_car_the_pressures_are_not_judged() {
+        let dir = temp("unknown");
+        let unknown = tyre_session(&dir, "dd_bmw_m3_e46_rennsport", true, false, JOE_PSI, &[]);
+        let kunos = tyre_session(&dir, "ks_bmw_m4_gt3", true, false, JOE_PSI, &[(1.0, SLICK)]);
+        for lap in unknown.laps.iter().chain(&kunos.laps) {
+            assert_eq!((lap.tyres.target_psi.clone(), pressure_findings(lap)), (None, vec![]));
+        }
+        store::forget(&dir).unwrap();
+    }
+
+    #[test]
+    fn on_a_circuit_the_run_s_first_lap_and_a_lap_through_the_pit_lane_are_not_judged() {
+        let dir = temp("cold");
+        // the first lap of the run is out of the pit box: its tyres are still cold
+        let s = tyre_session(&dir, "dd_bmw_m3_e46_rennsport", false, false, JOE_PSI, &[(1.0, SLICK)]);
+        assert_eq!((s.laps[0].tyres.target_psi.clone(), pressure_findings(&s.laps[0])), (None, vec![]));
+        assert_eq!((s.laps[1].tyres.target_psi.clone(), pressure_findings(&s.laps[1])), (window(26.5, 27.5), vec![Finding::PressureHigh]));
+        let s = tyre_session(&dir, "dd_bmw_m3_e46_rennsport", false, true, JOE_PSI, &[(1.0, SLICK)]);
+        assert!(s.laps.iter().all(|l| l.tyres.target_psi.is_none() && pressure_findings(l).is_empty()));
         store::forget(&dir).unwrap();
     }
 
