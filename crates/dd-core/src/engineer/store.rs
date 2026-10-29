@@ -62,36 +62,92 @@ pub struct Pace {
 }
 
 impl Pace {
-    /// Counts the lap `lap_id` once.
-    pub fn add(&mut self, lap_id: &str, m: &LapMeasures) {
+    /// Counts the lap `lap_id` once, with its numbers at each corner.
+    pub fn add(&mut self, lap_id: &str, numbers: &[[Option<f64>; 4]]) {
         if self.laps.iter().any(|l| l == lap_id) {
             return;
         }
-        if self.corners.len() != m.corners.len() {
-            *self = Pace { laps: Vec::new(), corners: vec![[Moments::default(); 4]; m.corners.len()] };
+        if self.corners.len() != numbers.len() {
+            *self = Pace { laps: Vec::new(), corners: vec![[Moments::default(); 4]; numbers.len()] };
         }
-        for (moments, c) in self.corners.iter_mut().zip(&m.corners) {
-            for (moment, x) in moments.iter_mut().zip(c.pace_numbers()) {
+        for (moments, own) in self.corners.iter_mut().zip(numbers) {
+            for (moment, x) in moments.iter_mut().zip(own) {
                 if let Some(x) = x {
-                    moment.add(x);
+                    moment.add(*x);
                 }
             }
         }
         self.laps.push(lap_id.to_string());
     }
 
-    /// The spread to judge the lap `lap_id` by at each corner, without the lap itself; empty when the corners do
-    /// not match.
-    pub fn spread(&self, lap_id: &str, m: &LapMeasures) -> Vec<Spread> {
-        if self.corners.len() != m.corners.len() {
+    /// The spread to judge the lap `lap_id` (its `numbers` at each corner) by, without the lap itself; empty when
+    /// the corners do not match.
+    pub fn spread(&self, lap_id: &str, numbers: &[[Option<f64>; 4]]) -> Vec<Spread> {
+        if self.corners.len() != numbers.len() {
             return Vec::new();
         }
         let counted = self.laps.iter().any(|l| l == lap_id);
-        self.corners.iter().zip(&m.corners).map(|(moments, c)| {
-            let own = c.pace_numbers();
-            std::array::from_fn(|k| moments[k].sigma(own[k], counted))
-        }).collect()
+        self.corners.iter().zip(numbers).map(|(moments, own)| std::array::from_fn(|k| moments[k].sigma(own[k], counted))).collect()
     }
+}
+
+/// A lap to count into the driver's own spread: its id, lap time, whether it is valid, its numbers at each corner.
+pub type PaceLap<'a> = (&'a str, i64, bool, Vec<[Option<f64>; 4]>);
+
+impl Refs {
+    /// Counts `laps` (id, lap time, valid, the numbers at each corner) that are pace laps of the reference into the
+    /// driver's own spread. When the reference became more than 2 % faster than `before_ms` (the reference before
+    /// these laps), the laps counted so far are no longer pace laps: the spread starts over with these. The sums
+    /// cannot give a single lap back, so it starts over as a whole.
+    pub fn count_pace(&mut self, before_ms: Option<i64>, laps: &[PaceLap]) {
+        let Some(best) = self.reference.as_ref().map(|r| r.lap_time_ms as f64) else { return };
+        if before_ms.is_some_and(|before| best * (1.0 + PACE) < before as f64) {
+            self.pace = Pace::default();
+        }
+        for (lap_id, _, _, numbers) in laps.iter().filter(|(_, t, valid, _)| *valid && *t as f64 <= best * (1.0 + PACE)) {
+            self.pace.add(lap_id, numbers);
+        }
+    }
+}
+
+/// A stored corner's numbers whose spread the findings are judged by, as [`super::measure::CornerMeasure::pace_numbers`].
+fn stored_numbers(c: &super::CornerResult) -> [Option<f64>; 4] {
+    [c.brake.point_m, c.throttle.pickup_m, Some(c.min_speed.kmh), Some(c.exit_kmh)]
+}
+
+/// Seeds the driver's own spread of every reference from the stored reports (`sessions`, each lap once), for the
+/// references kept before 0.26.0, which have none: the valid laps of the same car, preset, track, layout and map
+/// version within 2 % of the reference lap, the reference included. Answers how many laps it counted.
+fn seed_pace(dir: &Path, sessions: &[EngineerSession]) -> io::Result<usize> {
+    let mut counted = 0;
+    for entry in fs::read_dir(dir.join(REFS)).into_iter().flatten().flatten() {
+        let Some(key) = entry.file_name().to_string_lossy().strip_suffix(".json").map(str::to_string) else { continue };
+        let Some(mut refs) = load_refs(dir, &key) else { continue };
+        let (before, version) = (refs.pace.laps.len(), refs.map_version);
+        for s in sessions.iter().filter(|s| s.corners.version == version && refs_key(&s.car, s.preset.as_deref(), &s.track, &s.layout) == key) {
+            let laps: Vec<PaceLap> =
+                s.laps.iter().filter_map(|l| Some((l.id.as_str(), l.lap_time_ms?, l.valid, l.corners.iter().map(stored_numbers).collect()))).collect();
+            refs.count_pace(None, &laps);
+        }
+        if refs.pace.laps.len() != before {
+            counted += refs.pace.laps.len() - before;
+            save_refs(dir, &key, &refs)?;
+        }
+    }
+    Ok(counted)
+}
+
+/// The stored sessions, the oldest first, each lap once: a lap an earlier session of the car that still ran when
+/// this one started holds already ([`holds`]) is left out of the later one.
+pub fn physical(dir: &Path) -> Vec<EngineerSession> {
+    let mut kept: Vec<EngineerSession> = Vec::new();
+    for mut s in all(dir) {
+        let start_ms = digest::start_secs(&s.id) * 1000;
+        let before: Vec<&EngineerSession> = kept.iter().filter(|k| k.car == s.car && clock::unix_ms(&k.ended_at).is_some_and(|end| end > start_ms)).collect();
+        s.laps.retain(|l| !l.lap_time_ms.is_some_and(|t| before.iter().any(|k| holds(k, t, &l.fuel))));
+        kept.push(s);
+    }
+    kept
 }
 
 /// A running sum of one number over the pace laps: how many, their sum and the sum of their squares.
@@ -313,6 +369,9 @@ pub struct CoachState {
     /// The digests of the sessions stored before 0.26.0 were made ([`super::digest`])
     #[serde(default)]
     pub backfilled: bool,
+    /// The references' own spread was seeded from the stored reports
+    #[serde(default)]
+    pub pace_seeded: bool,
     /// When the driver last opened the coach, unix ms (0: never)
     #[serde(default)]
     pub seen_ms: i64,
@@ -364,7 +423,7 @@ pub fn clear_old_pressures(dir: &Path) -> io::Result<usize> {
 }
 
 /// The engineer's one-off changes to the stored data, each once (remembered in `coach.json`): the old pressure
-/// window out, then the digests of the stored sessions.
+/// window out, then from the stored sessions (each lap once) the references' own spread and the coach's digests.
 pub fn upgrade(dir: &Path) -> io::Result<()> {
     let _lock = digest::lock();
     let mut state = coach_state(dir);
@@ -373,10 +432,18 @@ pub fn upgrade(dir: &Path) -> io::Result<()> {
         state.pressures_cleared = true;
         save_coach_state(dir, &state)?;
     }
-    if !state.backfilled {
-        digest::backfill(dir)?;
-        state.backfilled = true;
-        save_coach_state(dir, &state)?;
+    if !state.pace_seeded || !state.backfilled {
+        let sessions = physical(dir);
+        if !state.pace_seeded {
+            seed_pace(dir, &sessions)?;
+            state.pace_seeded = true;
+            save_coach_state(dir, &state)?;
+        }
+        if !state.backfilled {
+            digest::backfill(dir, &sessions)?;
+            state.backfilled = true;
+            save_coach_state(dir, &state)?;
+        }
     }
     Ok(())
 }
@@ -524,6 +591,68 @@ mod tests {
         // a lap without the number (no braking there) leaves it alone
         assert_eq!(m.sigma(None, true), m.sigma(None, false));
         assert_eq!(Moments::default().sigma(None, false), None);
+    }
+
+    /// A pace lap's numbers: braking point, pick-up, minimum and exit speed at each of two corners.
+    fn numbers(x: f64) -> Vec<[Option<f64>; 4]> {
+        vec![[Some(100.0 + x), Some(200.0 + x), Some(80.0 + x), Some(120.0 + x)]; 2]
+    }
+
+    fn refs_at(lap_time_ms: i64) -> Refs {
+        Refs { map_version: 1, reference: Some(RefLap { session_id: "1-x".into(), lap_id: "1-x#1".into(), lap_time_ms, measures: serde_json::from_str(REF_MEASURES).unwrap() }), best_segments_s: vec![], pace: Pace::default() }
+    }
+
+    #[test]
+    fn counts_the_laps_within_2_percent_and_starts_over_when_the_reference_got_more_than_2_percent_faster() {
+        let mut refs = refs_at(400_000);
+        let laps = [("a#1", 400_000, true, numbers(0.0)), ("a#2", 408_000, true, numbers(4.0)), ("a#3", 408_001, true, numbers(9.0)), ("a#4", 401_000, false, numbers(9.0)), ("a#5", 402_000, true, numbers(-4.0))];
+        refs.count_pace(None, &laps);
+        // 2 % slower is a pace lap, 1 ms more or an invalid one not; each once
+        assert_eq!(refs.pace.laps, ["a#1", "a#2", "a#5"]);
+        refs.count_pace(Some(400_000), &laps);
+        assert_eq!(refs.pace.laps.len(), 3);
+        assert_eq!(refs.pace.corners[0][0], Moments { n: 3, sum: 300.0, sum_sq: 100.0f64.powi(2) + 104.0f64.powi(2) + 96.0f64.powi(2) });
+        // a reference 2 % faster keeps them (they are still within 2 % of it), more than 2 % starts over with it
+        let mut kept = refs.clone();
+        kept.reference.as_mut().unwrap().lap_time_ms = 392_157;
+        kept.count_pace(Some(400_000), &[("b#1", 392_157, true, numbers(1.0))]);
+        assert_eq!(kept.pace.laps.len(), 4);
+        refs.reference.as_mut().unwrap().lap_time_ms = 392_000;
+        refs.count_pace(Some(400_000), &[("b#1", 392_000, true, numbers(1.0)), ("b#2", 399_000, true, numbers(2.0))]);
+        assert_eq!(refs.pace.laps, ["b#1", "b#2"]);
+        assert_eq!(refs.pace.corners[1][3].n, 2);
+    }
+
+    #[test]
+    fn seeds_the_driver_s_own_spread_from_the_stored_reports_each_lap_once() {
+        let dir = std::env::temp_dir().join(format!("dd-engineer-seed-{}", std::process::id())).join(DIR);
+        let stored = |id: &str, version: u32, times: &[i64], fuel: &[f64]| {
+            let mut s = session(id, times.len());
+            s.corners.version = version;
+            s.started_at = clock::iso_local(digest::start_secs(id) * 1000, 3600);
+            s.ended_at = clock::iso_local(digest::start_secs(id) * 1000 + 1_200_000, 3600);
+            for (i, lap) in s.laps.iter_mut().enumerate() {
+                lap.id = format!("{id}#{}", i + 1);
+                lap.lap_time_ms = Some(times[i]);
+                lap.fuel = Fuel { start_l: fuel[i], used_l: 20.0 };
+            }
+            save_session(&dir, &s, &[]).unwrap();
+        };
+        save_refs(&dir, &refs_key("dd_x", None, "T", "L"), &refs_at(400_000)).unwrap();
+        // within 2 %: 400.0, 405.0 and 401.0 s; 420 s is not; the second file holds the 405 s lap again; a session on
+        // another map version does not count
+        stored("1793025378-dd_x", 1, &[400_000, 405_000, 420_000], &[60.0, 40.0, 20.0]);
+        stored("1793025609-dd_x", 1, &[405_000, 401_000], &[40.0, 20.0]);
+        stored("1793111778-dd_x", 2, &[400_500], &[60.0]);
+        upgrade(&dir).unwrap();
+        let refs = load_refs(&dir, &refs_key("dd_x", None, "T", "L")).unwrap();
+        assert_eq!(refs.pace.laps, ["1793025378-dd_x#1", "1793025378-dd_x#2", "1793025609-dd_x#2"]);
+        assert_eq!(refs.pace.corners.len(), 2);
+        // once
+        save_refs(&dir, &refs_key("dd_x", None, "T", "L"), &refs_at(400_000)).unwrap();
+        upgrade(&dir).unwrap();
+        assert!(load_refs(&dir, &refs_key("dd_x", None, "T", "L")).unwrap().pace.laps.is_empty());
+        forget(&dir).unwrap();
     }
 
     #[test]

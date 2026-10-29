@@ -170,6 +170,7 @@ pub fn run<R: Read + Seek>(dir: &Path, r: &mut R, input: &Input) -> io::Result<O
         if refs.map_version != map.version {
             refs = Refs { map_version: map.version, ..Refs::default() };
         }
+        let before = refs.reference.as_ref().map(|r| r.lap_time_ms);
         for (c, lap_id, m) in measured.iter().filter(|(c, _, _)| c.lap.valid) {
             if refs.reference.as_ref().is_none_or(|r| c.lap.lap_time_ms < r.lap_time_ms || r.session_id == id && r.lap_id == *lap_id) {
                 refs.reference = Some(RefLap { session_id: id.clone(), lap_id: lap_id.clone(), lap_time_ms: c.lap.lap_time_ms, measures: m.clone() });
@@ -182,11 +183,8 @@ pub fn run<R: Read + Seek>(dir: &Path, r: &mut R, input: &Input) -> io::Result<O
             };
         }
         // the driver's own spread: the valid laps within 2 % of the reference
-        if let Some(best) = refs.reference.as_ref().map(|r| r.lap_time_ms) {
-            for (_, lap_id, m) in measured.iter().filter(|(c, _, _)| c.lap.valid && c.lap.lap_time_ms as f64 <= best as f64 * (1.0 + store::PACE)) {
-                refs.pace.add(lap_id, m);
-            }
-        }
+        let laps: Vec<store::PaceLap> = measured.iter().map(|(c, lap_id, m)| (lap_id.as_str(), c.lap.lap_time_ms, c.lap.valid, numbers(m))).collect();
+        refs.count_pace(before, &laps);
     }
     let reference = refs.reference.as_ref().filter(|_| map.is_some());
     let theoretical_best = (!refs.best_segments_s.is_empty()).then(|| (refs.best_segments_s.iter().sum::<f64>() * 1000.0).round() as i64);
@@ -194,7 +192,7 @@ pub fn run<R: Read + Seek>(dir: &Path, r: &mut R, input: &Input) -> io::Result<O
     let tf = touristenfahrten(&track, &layout);
     let laps = measured
         .iter()
-        .map(|(c, lap_id, m)| report(lap_id, c.n, c.lap, source.unwrap_or_default(), m, reference.map(|r| &r.measures), &refs.pace.spread(lap_id, m), theoretical_best, pressure_target(&car, c.lap, log, clock.offset_s, tf)))
+        .map(|(c, lap_id, m)| report(lap_id, c.n, c.lap, source.unwrap_or_default(), m, reference.map(|r| &r.measures), &refs.pace.spread(lap_id, &numbers(m)), theoretical_best, pressure_target(&car, c.lap, log, clock.offset_s, tf)))
         .collect::<Vec<_>>();
     let traces = measured.iter().map(|(c, lap_id, _)| trace(lap_id, &c.grid)).collect::<Vec<_>>();
 
@@ -230,6 +228,11 @@ pub fn run<R: Read + Seek>(dir: &Path, r: &mut R, input: &Input) -> io::Result<O
         laps_from_log: source == Some(TimeSource::Log),
         laps_from_beacons: matches!(source, Some(TimeSource::Beacon | TimeSource::Telemetry)),
     })
+}
+
+/// A lap's numbers at each corner whose spread its findings are judged by.
+fn numbers(m: &LapMeasures) -> Vec<[Option<f64>; 4]> {
+    m.corners.iter().map(|c| c.pace_numbers()).collect()
 }
 
 /// Touristenfahrten: the recording starts at the pit exit, the timed lap at the start split.
@@ -446,6 +449,27 @@ mod tests {
         let map = corners::load(&dir, "Test Ring", "GP").unwrap();
         evaluate(&dir, &Drive { late: Some(2), lock: false }, 0);
         assert_eq!(corners::load(&dir, "Test Ring", "GP").unwrap(), map);
+        store::forget(&dir).unwrap();
+    }
+
+    #[test]
+    fn with_three_pace_laps_beside_the_judged_one_a_corner_finding_fires() {
+        let dir = temp("pace");
+        let drive = Drive { late: Some(2), lock: false };
+        let (first, _) = evaluate(&dir, &drive, 0);
+        assert!(!store::session(&dir, &first.id).unwrap().laps[0].findings.contains(&Finding::BrakeEarlier));
+        // three more pace laps braking where the reference does (as seeded from stored reports)
+        let key = refs_key("dd_test_car", Some("preset_dd_test_car_stage1"), "Test Ring", "GP");
+        let mut refs = store::load_refs(&dir, &key).unwrap();
+        let like_reference = numbers(&refs.reference.as_ref().unwrap().measures);
+        for n in 1..=3 {
+            refs.pace.add(&format!("1-seeded#{n}"), &like_reference);
+        }
+        store::save_refs(&dir, &key, &refs).unwrap();
+        // lap 1 brakes 79 m earlier for the hairpin and loses 0.2 s there: beyond the others' spread now
+        let (again, _) = evaluate(&dir, &drive, 0);
+        let lap = &store::session(&dir, &again.id).unwrap().laps[0];
+        assert!(lap.findings.contains(&Finding::BrakeEarlier), "{:?}", lap.findings);
         store::forget(&dir).unwrap();
     }
 

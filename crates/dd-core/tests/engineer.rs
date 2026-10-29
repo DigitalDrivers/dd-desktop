@@ -233,4 +233,14 @@ fn builds_the_coach_s_profile_from_a_copy_of_the_stored_sessions() {
         .map(|d| (d.lock_front_share, d.lock_rear_share))
         .collect();
     println!("lock shares (laps, front above 3 %, rear above 0.5 %): digests {:?}, every session's best lap {:?}", above(&digests), above(&bests));
+    // the references' own spread, seeded from the stored reports
+    let mut keys: Vec<String> = std::fs::read_dir(dir.join("refs")).unwrap().flatten().map(|e| e.file_name().to_string_lossy().trim_end_matches(".json").to_string()).collect();
+    keys.sort();
+    for key in keys {
+        let refs = store::load_refs(&dir, &key).unwrap();
+        println!("pace laps {key}: {}", refs.pace.laps.len());
+        if key == "dd_porsche_gt2rs_mr__preset_dd_porsche_gt2rs_mr_stage2__Nurburgring__Touristenfahrten" {
+            assert!(refs.pace.laps.len() >= 3, "Joe's stage-2 laps judge corners from the first evaluation on");
+        }
+    }
 }

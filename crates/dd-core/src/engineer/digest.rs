@@ -12,7 +12,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
 
-use super::{clock, round, store, EngineerLap, EngineerSession, EngineerTrace, Finding, TargetPsi};
+use super::{round, store, EngineerLap, EngineerSession, EngineerTrace, Finding, TargetPsi};
 
 pub const FILE: &str = "digests.jsonl";
 /// The lap-level limits of the locked seconds' share of the braking time ([`super::measure::report`]).
@@ -280,25 +280,20 @@ pub fn record(dir: &Path, session: &EngineerSession, now_ms: i64) -> io::Result<
     Ok(Some(d))
 }
 
-/// The digests of the sessions stored before the coach existed, the oldest first, each lap once (a lap an earlier,
-/// overlapping session of the car holds counts there, see [`store::holds`]); a session that has a digest keeps it.
-/// Called by [`store::upgrade`] under the lock. Answers how many it wrote.
-pub(crate) fn backfill(dir: &Path) -> io::Result<usize> {
+/// The digests of the sessions stored before the coach existed (`sessions`, the oldest first, each lap once:
+/// [`store::physical`]); a session that has a digest keeps it. Called by [`store::upgrade`] under the lock. Answers
+/// how many it wrote.
+pub(crate) fn backfill(dir: &Path, sessions: &[EngineerSession]) -> io::Result<usize> {
     let mut all = load(dir);
-    let mut kept: Vec<EngineerSession> = Vec::new();
     let mut written = 0;
-    for mut s in store::all(dir) {
-        let start_ms = start_secs(&s.id) * 1000;
-        let before: Vec<&EngineerSession> = kept.iter().filter(|k| k.car == s.car && clock::unix_ms(&k.ended_at).is_some_and(|end| end > start_ms)).collect();
-        s.laps.retain(|l| !l.lap_time_ms.is_some_and(|t| before.iter().any(|k| store::holds(k, t, &l.fuel))));
+    for s in sessions {
         if !all.iter().any(|d| d.digest.id == s.id) {
-            if let Some(mut d) = digest(&s, store::traces(dir, &s.id).as_deref()) {
+            if let Some(mut d) = digest(s, store::traces(dir, &s.id).as_deref()) {
                 judge(&mut d, &all.iter().map(|s| &s.digest).collect::<Vec<_>>());
                 all.push(Stored { digest: d, sent: false, written_ms: 0 });
                 written += 1;
             }
         }
-        kept.push(s);
     }
     all.sort_by(|a, b| start_secs(&a.digest.id).cmp(&start_secs(&b.digest.id)).then(a.digest.id.cmp(&b.digest.id)));
     save(dir, &all)?;
@@ -338,6 +333,7 @@ pub(crate) fn unseen(dir: &Path, all: &[Stored]) -> u32 {
 
 #[cfg(test)]
 mod tests {
+    use super::super::clock;
     use super::super::store::{self, DIR};
     use super::super::{EngineerTrace, Fuel};
     use super::*;
