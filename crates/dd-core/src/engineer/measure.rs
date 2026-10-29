@@ -46,8 +46,9 @@ const SPEED_KMH: f64 = 4.0;
 /// Coasting and wheelspin are judged against the reference's same corner, by this much more (s).
 const COAST_S: f64 = 0.4;
 const SPIN_S: f64 = 0.1;
-/// Locking is judged by the locked seconds of the axle's worse wheel as a share of the lap's braking time:
-/// tlm.py's limits (lock_front_high 3 %, lock_rear 0.5 %, the latter an assumption there).
+/// Locking is judged by the locked seconds of each corner's worse wheel of the axle, summed over the lap, as a share
+/// of the lap's braking time ([`braking_time`]): tlm.py's limits (lock_front_high 3 %, lock_rear 0.5 %, the latter an
+/// assumption there), as the audit measured them on Joe's laps (REPORT.md section 4b).
 const LOCK_FRONT: f64 = 0.03;
 const LOCK_REAR: f64 = 0.005;
 /// Balance is judged from the speed bands below 240 km/h with this many samples on both laps, by this much more or
@@ -156,7 +157,7 @@ impl CornerMeasure {
 #[serde(rename_all = "camelCase")]
 pub struct LapMeasures {
     pub distance_m: f64,
-    /// Seconds with the brake above 5 %; 0 in the references of apps before 0.26.0
+    /// Seconds with the brake above 5 % above 30 km/h ([`braking_time`]); 0 in the references of apps before 0.26.0
     #[serde(default)]
     pub braking_s: f64,
     pub top_speed_kmh: f64,
@@ -256,6 +257,12 @@ fn corner(g: &Grid, map: &Map, fit: &Fit, c: usize) -> CornerMeasure {
     }
 }
 
+/// Seconds with the brake above 5 % and the car above 30 km/h: what the lock shares are of (the audit's braking
+/// time, REPORT.md section 4b, against which tlm.py's 3 % / 0.5 % were checked).
+fn braking_time(g: &Grid) -> f64 {
+    (0..g.t.len()).filter(|i| g.brake[*i] > PEDAL && g.speed[*i] > SLOW).map(|i| g.dt(i)).sum()
+}
+
 /// The numbers of the lap in the file's window [start, end] (seconds), on the grid `g` with its curvature `kappa`,
 /// fitted onto `map` by `fit`.
 pub fn measure(g: &Grid, kappa: &[f64], data: &Data, start: f64, end: f64, map: &Map, fit: &Fit) -> LapMeasures {
@@ -313,7 +320,7 @@ pub fn measure(g: &Grid, kappa: &[f64], data: &Data, start: f64, end: f64, map: 
     gears.sort_by_key(|x| x.0);
     LapMeasures {
         distance_m: round(g.length(), 0),
-        braking_s: round((0..g.t.len()).filter(|i| g.brake[*i] > PEDAL).map(|i| g.dt(i)).sum(), 2),
+        braking_s: round(braking_time(g), 2),
         top_speed_kmh: round(series_max(&data.speed) * 3.6, 1),
         fuel: Fuel { start_l: round(data.fuel.at(start), 2), used_l: round(used, 2) },
         tyres: Tyres {
@@ -417,8 +424,8 @@ pub fn report(id: &str, n: u32, lap: &LocalLap, source: TimeSource, m: &LapMeasu
             }
         })
         .collect();
-    // the locked seconds of the axle's worse wheel over the lap, as a share of its braking time
-    let locked = |wheels: [usize; 2]| wheels.map(|w| corners.iter().map(|c| c.lock_s[w]).sum::<f64>()).into_iter().fold(0.0, f64::max);
+    // the locked seconds of each corner's worse wheel of the axle, over the lap, as a share of its braking time
+    let locked = |[a, b]: [usize; 2]| corners.iter().map(|c| c.lock_s[a].max(c.lock_s[b])).sum::<f64>();
     let lock_share = |wheels: [usize; 2]| (m.braking_s > 0.0).then(|| locked(wheels) / m.braking_s);
     let balance: Vec<BandBalance> = Band::ALL.iter().enumerate().map(|(k, band)| BandBalance { band: *band, relative: relative(m.bands[k].0, reference.and_then(|r| r.bands[k].0)), samples: m.bands[k].1 }).collect();
     let like_fuel = reference.is_some_and(|r| (m.fuel.start_l - r.fuel.start_l).abs() <= BALANCE_FUEL_L);
@@ -724,15 +731,28 @@ mod tests {
         assert!(braking > 4.0 && braking < 20.0, "four stops: {braking} s");
         let findings = |front: f64, rear: f64| {
             let mut m = one.clone();
-            // the worse wheel of each axle, spread over two corners
-            m.corners[0].lock_s = [front / 2.0, 0.0, rear / 2.0, 0.0];
-            m.corners[2].lock_s = [front / 2.0, front / 4.0, rear / 2.0, 0.0];
+            // each corner's worse wheel counts: the left one in corner 1, the right one in corner 3 (the audit's
+            // calibration of tlm.py's limits, REPORT.md section 4b)
+            m.corners[0].lock_s = [front / 2.0, front / 4.0, rear / 2.0, 0.0];
+            m.corners[2].lock_s = [0.0, front / 2.0, 0.0, rear / 2.0];
             report("s#1", 1, &lap(0, &lab), TimeSource::App, &m, None, &[], None, None).findings
         };
         assert_eq!(findings(0.031 * braking, 0.0), [Finding::LockFront]);
         assert_eq!(findings(0.029 * braking, 0.0), []);
         assert_eq!(findings(0.0, 0.006 * braking), [Finding::LockRear]);
         assert_eq!(findings(0.0, 0.004 * braking), []);
+    }
+
+    #[test]
+    fn the_braking_time_counts_the_pressed_pedal_above_30_km_h() {
+        let (mut g, _) = edge_lap();
+        // 123 m at 3 m/s² from 31 down to 15 m/s
+        let all = braking_time(&g);
+        assert!((all - 16.0 / 3.0).abs() < 0.05, "{all}");
+        // the same pedal at walking pace does not count
+        g.brake[350..].fill(60.0);
+        g.speed[350..].fill(5.0);
+        assert_eq!(braking_time(&g), all);
     }
 
     #[test]

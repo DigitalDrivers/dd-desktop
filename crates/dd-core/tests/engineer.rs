@@ -220,4 +220,17 @@ fn builds_the_coach_s_profile_from_a_copy_of_the_stored_sessions() {
         m
     });
     println!("findings of the recent: {findings:?}");
+    // the lock shares against tlm.py's limits: over the digests, and over every stored session's best lap as the
+    // audit counted them (REPORT.md section 4b, without removing the copies of a lap)
+    let above = |shares: &[(Option<f64>, Option<f64>)]| {
+        let known: Vec<_> = shares.iter().filter_map(|(f, r)| Some((f.as_ref()?, r.as_ref()?))).collect();
+        (known.len(), known.iter().filter(|(f, _)| **f > 0.03).count(), known.iter().filter(|(_, r)| **r > 0.005).count())
+    };
+    let digests: Vec<_> = dd_core::engineer::digest::digests(&dir).iter().map(|d| (d.lock_front_share, d.lock_rear_share)).collect();
+    let bests: Vec<_> = store::all(&dir)
+        .iter()
+        .filter_map(|s| dd_core::engineer::digest::digest(s, store::traces(&dir, &s.id).as_deref()))
+        .map(|d| (d.lock_front_share, d.lock_rear_share))
+        .collect();
+    println!("lock shares (laps, front above 3 %, rear above 0.5 %): digests {:?}, every session's best lap {:?}", above(&digests), above(&bests));
 }

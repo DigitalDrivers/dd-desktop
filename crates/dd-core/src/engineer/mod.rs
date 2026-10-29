@@ -121,7 +121,8 @@ pub struct EngineerLap {
     pub valid: bool,
     pub pit: bool,
     pub distance_m: f64,
-    /// Seconds with the brake above 5 % (what the lock shares are of); null in reports of apps before 0.26.0
+    /// Seconds with the brake above 5 % and the car above 30 km/h (what the lock shares are of); null in reports of
+    /// apps before 0.26.0
     #[serde(default)]
     pub braking_s: Option<f64>,
     pub top_speed_kmh: f64,

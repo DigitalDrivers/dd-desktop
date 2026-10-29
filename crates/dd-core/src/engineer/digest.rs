@@ -20,6 +20,7 @@ const LOCK_FRONT: f64 = 0.03;
 const LOCK_REAR: f64 = 0.005;
 /// A pedal counts as pressed above this (%).
 const PEDAL: f64 = 5.0;
+const SLOW_KMH: f64 = 30.0;
 /// `engineer_digests` hands out at most this many at once.
 const PENDING_MAX: usize = 50;
 
@@ -57,10 +58,11 @@ pub struct CoachDigest {
     pub spread_ms: Option<i64>,
     /// Of the best valid lap:
     pub coast_s: f64,
-    /// Locked seconds of the axle's worse wheel
+    /// Locked seconds of the axle, each corner's worse wheel, summed over the lap
     pub lock_front_s: f64,
     pub lock_rear_s: f64,
-    /// The same as a share of the lap's braking time; null when neither the report nor the curves give it
+    /// The same as a share of the lap's braking time (brake above 5 % above 30 km/h); null when neither the report
+    /// nor the curves give it
     pub lock_front_share: Option<f64>,
     pub lock_rear_share: Option<f64>,
     /// Spinning seconds of the worse rear wheel
@@ -134,8 +136,9 @@ pub(crate) fn start_secs(id: &str) -> i64 {
 }
 
 /// The lap's braking time from its curves (every 5 m), for reports of apps before 0.26.0, which do not carry it.
+/// Like the report's, only above 30 km/h.
 fn braking_from_trace(trace: &EngineerTrace) -> f64 {
-    trace.brake.iter().zip(&trace.speed_kmh).filter(|(brake, _)| **brake > PEDAL).map(|(_, kmh)| trace.step_m / (kmh / 3.6).max(1.0)).sum()
+    trace.brake.iter().zip(&trace.speed_kmh).filter(|(brake, kmh)| **brake > PEDAL && **kmh > SLOW_KMH).map(|(_, kmh)| trace.step_m / (kmh / 3.6)).sum()
 }
 
 /// The corners of `lap` with the most of `value`, at most 3, those with none left out.
@@ -156,8 +159,9 @@ pub fn digest(s: &EngineerSession, traces: Option<&[EngineerTrace]>) -> Option<C
     // a half to the even ms, as the fixture (Python) rounds: two laps an odd number of ms apart give one
     let spread = (times.len() > 1).then(|| (times.iter().map(|t| (t - mean).powi(2)).sum::<f64>() / times.len() as f64).sqrt().round_ties_even() as i64);
     let worse = |wheels: [usize; 2], seconds: fn(&super::CornerResult) -> [f64; 4]| wheels.map(|w| best.corners.iter().map(|c| seconds(c)[w]).sum::<f64>()).into_iter().fold(0.0, f64::max);
-    let lock_front = worse([0, 1], |c| c.lock_s);
-    let lock_rear = worse([2, 3], |c| c.lock_s);
+    // locking: each corner's worse wheel of the axle, as the report judges it
+    let locked = |[a, b]: [usize; 2]| best.corners.iter().map(|c| c.lock_s[a].max(c.lock_s[b])).sum::<f64>();
+    let (lock_front, lock_rear) = (locked([0, 1]), locked([2, 3]));
     let braking = best.braking_s.or_else(|| traces?.iter().find(|t| t.lap_id == best.id).map(braking_from_trace)).filter(|b| *b > 0.0);
     let share = |locked: f64| braking.map(|b| round(locked / b, 4));
     let (front_share, rear_share) = (share(lock_front), share(lock_rear));
@@ -362,13 +366,15 @@ mod tests {
         // make lap 1 the best, with its locking and coasting
         s.laps[1].lap_time_ms = Some(380_000);
         s.laps[0].findings.push(Finding::Understeer);
+        // each corner's worse front wheel counts: FL 0.12 in T1, FR 0.2 in T2
+        s.laps[0].corners[1].lock_s[1] = 0.2;
         let d = digest(&s, None).unwrap();
         let json = serde_json::to_value(&d).unwrap();
         assert_eq!(json["bestMs"], 375_780);
         assert_eq!((d.laps, d.valid_laps, d.spread_ms, d.theoretical_best_ms, d.reference_ms), (2, 2, Some(2110), Some(366_950), Some(368_283)));
-        // the worse front wheel locked 0.12 s of 61.3 s braking; the worse rear wheel spun 0.15 s
-        assert_eq!((d.lock_front_s, d.lock_rear_s, d.lock_front_share, d.lock_rear_share, d.spin_s), (0.12, 0.0, Some(0.002), Some(0.0), 0.15));
-        assert_eq!((d.coast_s, d.coast_corners.clone(), d.lock_corners.clone(), d.spin_corners.clone()), (0.12, vec![1], vec![1], vec![2]));
+        // each corner's worse front wheel: 0.32 s of 61.3 s braking; the worse rear wheel spun 0.15 s
+        assert_eq!((d.lock_front_s, d.lock_rear_s, d.lock_front_share, d.lock_rear_share, d.spin_s), (0.32, 0.0, Some(0.0052), Some(0.0), 0.15));
+        assert_eq!((d.coast_s, d.coast_corners.clone(), d.lock_corners.clone(), d.spin_corners.clone()), (0.12, vec![1], vec![2, 1], vec![2]));
         assert_eq!(d.top_losses, [Loss { n: 2, dt_s: 7.468 }, Loss { n: 1, dt_s: 0.029 }]);
         // the lap's own findings only (its corners' codes are left out); lap 1 ends inside the slick window, lap 2 not
         assert_eq!(d.findings, [Finding::BrakeHot, Finding::Understeer]);
@@ -385,8 +391,8 @@ mod tests {
         s.laps[1].lap_time_ms = Some(380_000);
         s.laps.iter_mut().for_each(|l| l.braking_s = None);
         assert_eq!(digest(&s, None).unwrap().lock_front_share, None);
-        // 30 points of 5 m braking at 108 km/h: 5 s; 2 points under 5 %
-        let trace = EngineerTrace { lap_id: s.laps[0].id.clone(), step_m: 5.0, speed_kmh: vec![108.0; 32], throttle: vec![0.0; 32], brake: [vec![50.0; 30], vec![4.0; 2]].concat(), steer_deg: vec![0.0; 32], gear: vec![3; 32] };
+        // 30 points of 5 m braking at 108 km/h: 5 s; 2 points under 5 %, 2 at 20 km/h (below 30 km/h)
+        let trace = EngineerTrace { lap_id: s.laps[0].id.clone(), step_m: 5.0, speed_kmh: [vec![108.0; 32], vec![20.0; 2]].concat(), throttle: vec![0.0; 34], brake: [vec![50.0; 30], vec![4.0; 2], vec![50.0; 2]].concat(), steer_deg: vec![0.0; 34], gear: vec![3; 34] };
         let d = digest(&s, Some(&[trace])).unwrap();
         assert_eq!(d.lock_front_share, Some(0.024));
     }
