@@ -16,7 +16,7 @@ const CONTRACT: [(&str, &[&str]); 17] = [
     ("reference", &["sessionId", "lapId", "lapTimeMs"]),
     ("corners", &["version", "frozen", "corners"]),
     ("corners.corners[]", &["n", "startM", "endM", "apexM", "direction", "radiusM"]),
-    ("laps[]", &["id", "n", "lapTimeMs", "valid", "pit", "distanceM", "topSpeedKmh", "theoreticalBestMs", "fuel", "tyres", "brakes", "balance", "traction", "corners", "findings", "timeSource"]),
+    ("laps[]", &["id", "n", "lapTimeMs", "valid", "pit", "distanceM", "brakingS", "topSpeedKmh", "theoreticalBestMs", "fuel", "tyres", "brakes", "balance", "traction", "corners", "findings", "timeSource"]),
     ("laps[].fuel", &["startL", "usedL"]),
     ("laps[].tyres", &["pressureStart", "pressureAvg", "pressureEnd", "surfaceTempAvg", "airTempAvg", "targetPsi"]),
     ("laps[].tyres.targetPsi", &["min", "max"]),
@@ -80,7 +80,8 @@ fn the_example_session_round_trips_and_has_exactly_the_contract_s_fields() {
         assert!(
             [
                 "brake_later", "brake_earlier", "brake_softer", "coast_long", "throttle_later", "throttle_earlier", "min_speed_lower", "exit_slower", "lock_front",
-                "lock_rear", "spin_rear", "understeer_entry", "oversteer_exit", "pressure_high", "pressure_low", "brake_hot", "brake_fade", "fuel_heavy"
+                "lock_rear", "spin_rear", "understeer_entry", "oversteer_exit", "pressure_high", "pressure_low", "brake_hot", "brake_fade", "fuel_heavy",
+                "understeer", "oversteer"
             ]
             .contains(&f.as_str()),
             "{f}"

@@ -119,6 +119,9 @@ pub struct EngineerLap {
     pub valid: bool,
     pub pit: bool,
     pub distance_m: f64,
+    /// Seconds with the brake above 5 % (what the lock shares are of); null in reports of apps before 0.26.0
+    #[serde(default)]
+    pub braking_s: Option<f64>,
     pub top_speed_kmh: f64,
     /// Sum of the best segment times of this driver on this map (valid laps), null without a reference
     pub theoretical_best_ms: Option<i64>,
@@ -270,12 +273,18 @@ pub struct CornerBalance {
     pub exit: Option<f64>,
 }
 
-/// Codes; the sentences live in the platform's i18n files (`engineer.findings.*`).
+/// Codes; the sentences live in the platform's i18n files (`engineer.findings.*`). A corner's codes (brake_later,
+/// brake_earlier, coast_long, throttle_later, throttle_earlier, min_speed_lower, exit_slower, spin_rear) come only
+/// where the corner cost at least 0.05 s against the reference, the braking, throttle and speed ones only beyond the
+/// driver's own spread there ([`measure::report`]); lock_front, lock_rear, understeer and oversteer are codes of the
+/// lap. Reports of apps before 0.26.0 also carry brake_softer, understeer_entry and oversteer_exit, and
+/// lock_front and lock_rear per corner; they stay readable, the app no longer writes them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Finding {
     BrakeLater,
     BrakeEarlier,
+    /// No longer written (noise alone breaks its threshold, REPORT.md section 7.2)
     BrakeSofter,
     CoastLong,
     ThrottleLater,
@@ -285,13 +294,19 @@ pub enum Finding {
     LockFront,
     LockRear,
     SpinRear,
+    /// No longer written: a corner's balance is noise (REPORT.md section 3)
     UndersteerEntry,
+    /// No longer written
     OversteerExit,
     PressureHigh,
     PressureLow,
     BrakeHot,
     BrakeFade,
     FuelHeavy,
+    /// More steering for the same yaw than the reference in a speed band below 240 km/h
+    Understeer,
+    /// Less steering for the same yaw than the reference in a speed band below 240 km/h
+    Oversteer,
 }
 
 /// The curves of a lap for the charts, every 5 m from the lap's start; they stay on the PC.

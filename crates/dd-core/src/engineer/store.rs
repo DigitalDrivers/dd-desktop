@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use super::corners::file_key;
-use super::measure::LapMeasures;
+use super::measure::{LapMeasures, Spread};
 use super::{clock, laps, sessions, EngineerSession, EngineerTrace, Finding, Fuel, TargetPsi};
 
 /// The engineer's folder in the app's config folder.
@@ -34,13 +34,93 @@ pub struct RefLap {
     pub measures: LapMeasures,
 }
 
-/// The reference lap and the best time of each segment over every valid lap evaluated on this map version.
+/// The reference lap and the best time of each segment over every valid lap evaluated on this map version, and the
+/// driver's own spread at each corner.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Refs {
     pub map_version: u32,
     pub reference: Option<RefLap>,
     pub best_segments_s: Vec<f64>,
+    /// Missing in the references of apps before 0.26.0: none counted yet
+    #[serde(default)]
+    pub pace: Pace,
+}
+
+/// A pace lap is a valid lap at most this much slower than the reference lap (the audit's "own spread", REPORT.md
+/// section 2).
+pub const PACE: f64 = 0.02;
+
+/// The driver's own spread at each corner over the pace laps: the laps counted (each once, also when its session
+/// is evaluated again), and per corner the running sums of the numbers [`super::measure::CornerMeasure::pace_numbers`]
+/// names.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Pace {
+    pub laps: Vec<String>,
+    pub corners: Vec<[Moments; 4]>,
+}
+
+impl Pace {
+    /// Counts the lap `lap_id` once.
+    pub fn add(&mut self, lap_id: &str, m: &LapMeasures) {
+        if self.laps.iter().any(|l| l == lap_id) {
+            return;
+        }
+        if self.corners.len() != m.corners.len() {
+            *self = Pace { laps: Vec::new(), corners: vec![[Moments::default(); 4]; m.corners.len()] };
+        }
+        for (moments, c) in self.corners.iter_mut().zip(&m.corners) {
+            for (moment, x) in moments.iter_mut().zip(c.pace_numbers()) {
+                if let Some(x) = x {
+                    moment.add(x);
+                }
+            }
+        }
+        self.laps.push(lap_id.to_string());
+    }
+
+    /// The spread to judge the lap `lap_id` by at each corner, without the lap itself; empty when the corners do
+    /// not match.
+    pub fn spread(&self, lap_id: &str, m: &LapMeasures) -> Vec<Spread> {
+        if self.corners.len() != m.corners.len() {
+            return Vec::new();
+        }
+        let counted = self.laps.iter().any(|l| l == lap_id);
+        self.corners.iter().zip(&m.corners).map(|(moments, c)| {
+            let own = c.pace_numbers();
+            std::array::from_fn(|k| moments[k].sigma(own[k], counted))
+        }).collect()
+    }
+}
+
+/// A running sum of one number over the pace laps: how many, their sum and the sum of their squares.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Moments {
+    pub n: u32,
+    pub sum: f64,
+    pub sum_sq: f64,
+}
+
+impl Moments {
+    pub fn add(&mut self, x: f64) {
+        self.n += 1;
+        self.sum += x;
+        self.sum_sq += x * x;
+    }
+
+    /// The sample standard deviation, without `own` when the judged lap is one of the laps counted (`counted`);
+    /// None with fewer than 3 others.
+    pub fn sigma(&self, own: Option<f64>, counted: bool) -> Option<f64> {
+        let (mut n, mut sum, mut sum_sq) = (self.n as f64, self.sum, self.sum_sq);
+        if let (true, Some(x)) = (counted, own) {
+            n -= 1.0;
+            sum -= x;
+            sum_sq -= x * x;
+        }
+        (n >= 3.0).then(|| ((sum_sq - sum * sum / n) / (n - 1.0)).max(0.0).sqrt())
+    }
 }
 
 pub fn refs_key(car: &str, preset: Option<&str>, track: &str, layout: &str) -> String {
@@ -393,7 +473,7 @@ mod tests {
         assert_eq!(session_id(&dir, 1_791_062_550_004, "dd_x"), "1791062550-dd_x");
         assert_eq!(session_id(&dir, 1_791_062_548_004, "dd_y"), "1791062548-dd_y");
         // retention keeps the reference's session, deletes the other old one
-        let refs = Refs { map_version: 1, reference: Some(RefLap { session_id: old.id.clone(), lap_id: format!("{}#1", old.id), lap_time_ms: 1, measures: serde_json::from_str(REF_MEASURES).unwrap() }), best_segments_s: vec![] };
+        let refs = Refs { map_version: 1, reference: Some(RefLap { session_id: old.id.clone(), lap_id: format!("{}#1", old.id), lap_time_ms: 1, measures: serde_json::from_str(REF_MEASURES).unwrap() }), best_segments_s: vec![], pace: Pace::default() };
         save_refs(&dir, &refs_key("dd_x", None, "T", "L"), &refs).unwrap();
         assert_eq!(load_refs(&dir, "dd_x____T__L"), Some(refs));
         assert!(apply_retention(&dir, 1_791_999_999_000 + 31 * DAY, Some(30)).unwrap() == ["1791999999-dd_x"]);
@@ -406,6 +486,24 @@ mod tests {
         forget(&dir).unwrap();
         assert!(!dir.exists());
         forget(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_driver_s_own_spread_leaves_the_judged_lap_out() {
+        let mut m = Moments::default();
+        for x in [100.0, 104.0, 98.0] {
+            m.add(x);
+        }
+        // three laps: the spread of the other two is no spread yet; a lap that is not one of them sees all three
+        assert_eq!(m.sigma(Some(98.0), true), None);
+        let all = m.sigma(None, false).unwrap();
+        assert!((all - (28.0f64 / 3.0).sqrt()).abs() < 1e-9, "{all}");
+        m.add(102.0);
+        let without = m.sigma(Some(98.0), true).unwrap();
+        assert!((without - 2.0).abs() < 1e-9, "the sample deviation of 100, 104, 102: {without}");
+        // a lap without the number (no braking there) leaves it alone
+        assert_eq!(m.sigma(None, true), m.sigma(None, false));
+        assert_eq!(Moments::default().sigma(None, false), None);
     }
 
     #[test]

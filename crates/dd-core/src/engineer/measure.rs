@@ -33,6 +33,34 @@ const VERY_HOT: f64 = 800.0;
 const COLD: f64 = 500.0;
 const TRACE_STEP: usize = 5;
 
+/// A corner's finding against the reference needs the corner to have cost this much (s), and a difference beyond
+/// both its threshold and [`SPREAD_K`] times the driver's own spread there ([`Spread`]); the audit of Joe's laps
+/// (research/2026-10-21-renningenieur-coach/audit/REPORT.md sections 2b and 7) found the fixed thresholds inside his
+/// own lap-to-lap spread, so nearly every finding was noise.
+const COST_S: f64 = 0.05;
+/// 2·√2: a difference of two laps spreads √2 times one lap's σ, and 2 σ of that is beyond noise.
+const SPREAD_K: f64 = 2.0 * std::f64::consts::SQRT_2;
+const BRAKE_M: f64 = 8.0;
+const THROTTLE_M: f64 = 10.0;
+const SPEED_KMH: f64 = 4.0;
+/// Coasting and wheelspin are judged against the reference's same corner, by this much more (s).
+const COAST_S: f64 = 0.4;
+const SPIN_S: f64 = 0.1;
+/// Locking is judged by the locked seconds of the axle's worse wheel as a share of the lap's braking time:
+/// tlm.py's limits (lock_front_high 3 %, lock_rear 0.5 %, the latter an assumption there).
+const LOCK_FRONT: f64 = 0.03;
+const LOCK_REAR: f64 = 0.005;
+/// Balance is judged from the speed bands below 240 km/h with this many samples on both laps, by this much more or
+/// less steering for the same yaw, against a reference that started within 5 l of fuel (REPORT.md section 3: the
+/// 240+ band and the corners' own thirds are noise).
+const BALANCE: f64 = 0.25;
+const BALANCE_SAMPLES: u32 = 1000;
+const BALANCE_FUEL_L: f64 = 5.0;
+
+/// The driver's own standard deviation at a corner over the pace laps, without the lap judged: braking point,
+/// throttle pick-up, minimum speed, exit speed (the order of [`CornerMeasure::pace_numbers`]); None with fewer than 3.
+pub type Spread = [Option<f64>; 4];
+
 /// How far a lap's hot pressure may lie from its compound's ideal: the telemetry report's acceptance tolerance
 /// (`pressure_accept_tol` 0.5 psi in ~/acevo-setups/tools/tlm_targets.json, from plans/2026-10-05-club-umsetzung.md
 /// WP6 "27 ± 0,5 psi"). tlm.py flags its runs at 0.3 already (`pressure_flag_tol`, just above the scatter of two
@@ -117,10 +145,20 @@ pub struct CornerMeasure {
     pub spin_s: [f64; 4],
 }
 
+impl CornerMeasure {
+    /// The numbers whose spread over the pace laps the corner's findings are judged by.
+    pub fn pace_numbers(&self) -> [Option<f64>; 4] {
+        [self.point_m, self.pickup_m, Some(self.min_kmh), Some(self.exit_kmh)]
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LapMeasures {
     pub distance_m: f64,
+    /// Seconds with the brake above 5 %; 0 in the references of apps before 0.26.0
+    #[serde(default)]
+    pub braking_s: f64,
     pub top_speed_kmh: f64,
     pub fuel: Fuel,
     pub tyres: Tyres,
@@ -275,6 +313,7 @@ pub fn measure(g: &Grid, kappa: &[f64], data: &Data, start: f64, end: f64, map: 
     gears.sort_by_key(|x| x.0);
     LapMeasures {
         distance_m: round(g.length(), 0),
+        braking_s: round((0..g.t.len()).filter(|i| g.brake[*i] > PEDAL).map(|i| g.dt(i)).sum(), 2),
         top_speed_kmh: round(series_max(&data.speed) * 3.6, 1),
         fuel: Fuel { start_l: round(data.fuel.at(start), 2), used_l: round(used, 2) },
         tyres: Tyres {
@@ -324,9 +363,13 @@ fn diff(own: Option<f64>, reference: Option<f64>) -> Option<f64> {
 }
 
 /// The report of a lap: its numbers against the reference's (when there is one on the same map), the theoretical
-/// best, the pressure window of the lap's compound (`target`, None: no judgement) and the findings.
+/// best, the pressure window of the lap's compound (`target`, None: no judgement) and the findings. A corner's
+/// findings come only against the reference, where the corner cost at least [`COST_S`]: braking point, throttle
+/// pick-up, minimum and exit speed beyond their threshold and the driver's own spread (`spread`, per corner; none
+/// without it), coasting and rear wheelspin beyond the reference's at that corner. Locking and balance are findings of
+/// the lap.
 #[allow(clippy::too_many_arguments)]
-pub fn report(id: &str, n: u32, lap: &LocalLap, source: TimeSource, m: &LapMeasures, reference: Option<&LapMeasures>, theoretical_best_ms: Option<i64>, target: Option<TargetPsi>) -> EngineerLap {
+pub fn report(id: &str, n: u32, lap: &LocalLap, source: TimeSource, m: &LapMeasures, reference: Option<&LapMeasures>, spread: &[Spread], theoretical_best_ms: Option<i64>, target: Option<TargetPsi>) -> EngineerLap {
     let reference = reference.filter(|r| r.corners.len() == m.corners.len());
     let mut findings = Vec::new();
     let corners: Vec<CornerResult> = m
@@ -335,29 +378,32 @@ pub fn report(id: &str, n: u32, lap: &LocalLap, source: TimeSource, m: &LapMeasu
         .enumerate()
         .map(|(c, own)| {
             let r = reference.map(|r| &r.corners[c]);
+            let dt_s = r.map(|r| round(own.segment_s - r.segment_s, 3));
             let brake_vs = diff(own.point_m, r.and_then(|r| r.point_m));
             let throttle_vs = diff(own.pickup_m, r.and_then(|r| r.pickup_m));
             let min_vs = r.map(|r| round(own.min_kmh - r.min_kmh, 1));
+            let exit_vs = r.map(|r| round(own.exit_kmh - r.exit_kmh, 1));
             let balance: [Option<f64>; 3] = std::array::from_fn(|k| relative(own.balance[k], r.and_then(|r| r.balance[k])));
+            let cost = dt_s.is_some_and(|dt| dt >= COST_S);
+            // the difference, when it is beyond the threshold and the driver's own spread there
+            let beyond = |d: Option<f64>, threshold: f64, k: usize| d.filter(|d| spread.get(c).and_then(|s| s[k]).is_some_and(|sigma| d.abs() >= threshold.max(SPREAD_K * sigma)));
+            let rear_spin = |x: &CornerMeasure| x.spin_s[2].max(x.spin_s[3]);
             let checks = [
-                (brake_vs.is_some_and(|d| d >= 8.0), Finding::BrakeLater),
-                (brake_vs.is_some_and(|d| d <= -8.0), Finding::BrakeEarlier),
-                (r.is_some_and(|r| r.peak > PEDAL && own.peak < 0.8 * r.peak), Finding::BrakeSofter),
-                (own.coast_s > 0.4, Finding::CoastLong),
-                (throttle_vs.is_some_and(|d| d >= 10.0), Finding::ThrottleLater),
-                (throttle_vs.is_some_and(|d| d <= -10.0), Finding::ThrottleEarlier),
-                (min_vs.is_some_and(|d| d <= -4.0), Finding::MinSpeedLower),
-                (r.is_some_and(|r| own.exit_kmh - r.exit_kmh <= -4.0), Finding::ExitSlower),
-                (own.lock_s[0].max(own.lock_s[1]) > 0.1, Finding::LockFront),
-                (own.lock_s[2].max(own.lock_s[3]) > 0.1, Finding::LockRear),
-                (own.spin_s[2].max(own.spin_s[3]) > 0.1, Finding::SpinRear),
-                (balance[0].is_some_and(|b| b > 0.15), Finding::UndersteerEntry),
-                (balance[2].is_some_and(|b| b < -0.15), Finding::OversteerExit),
+                (beyond(brake_vs, BRAKE_M, 0).is_some_and(|d| d > 0.0), Finding::BrakeLater),
+                (beyond(brake_vs, BRAKE_M, 0).is_some_and(|d| d < 0.0), Finding::BrakeEarlier),
+                (r.is_some_and(|r| own.coast_s - r.coast_s > COAST_S), Finding::CoastLong),
+                (beyond(throttle_vs, THROTTLE_M, 1).is_some_and(|d| d > 0.0), Finding::ThrottleLater),
+                (beyond(throttle_vs, THROTTLE_M, 1).is_some_and(|d| d < 0.0), Finding::ThrottleEarlier),
+                (beyond(min_vs, SPEED_KMH, 2).is_some_and(|d| d < 0.0), Finding::MinSpeedLower),
+                (beyond(exit_vs, SPEED_KMH, 3).is_some_and(|d| d < 0.0), Finding::ExitSlower),
+                (r.is_some_and(|r| rear_spin(own) - rear_spin(r) > SPIN_S), Finding::SpinRear),
             ];
-            findings.extend(checks.into_iter().filter(|(hit, _)| *hit).map(|(_, f)| f));
+            if cost {
+                findings.extend(checks.into_iter().filter(|(hit, _)| *hit).map(|(_, f)| f));
+            }
             CornerResult {
                 n: c as u32 + 1,
-                dt_s: r.map(|r| round(own.segment_s - r.segment_s, 3)),
+                dt_s,
                 entry_kmh: own.entry_kmh,
                 brake: CornerBrake { point_m: own.point_m, vs_ref_m: brake_vs, peak: own.peak, release_m: own.release_m },
                 min_speed: MinSpeed { kmh: own.min_kmh, at_m: own.min_at_m, vs_ref_kmh: min_vs, gear: own.gear },
@@ -371,6 +417,17 @@ pub fn report(id: &str, n: u32, lap: &LocalLap, source: TimeSource, m: &LapMeasu
             }
         })
         .collect();
+    // the locked seconds of the axle's worse wheel over the lap, as a share of its braking time
+    let locked = |wheels: [usize; 2]| wheels.map(|w| corners.iter().map(|c| c.lock_s[w]).sum::<f64>()).into_iter().fold(0.0, f64::max);
+    let lock_share = |wheels: [usize; 2]| (m.braking_s > 0.0).then(|| locked(wheels) / m.braking_s);
+    let balance: Vec<BandBalance> = Band::ALL.iter().enumerate().map(|(k, band)| BandBalance { band: *band, relative: relative(m.bands[k].0, reference.and_then(|r| r.bands[k].0)), samples: m.bands[k].1 }).collect();
+    let like_fuel = reference.is_some_and(|r| (m.fuel.start_l - r.fuel.start_l).abs() <= BALANCE_FUEL_L);
+    let judged_bands: Vec<f64> = balance
+        .iter()
+        .enumerate()
+        .filter(|(k, b)| like_fuel && b.band != Band::B240 && b.samples >= BALANCE_SAMPLES && reference.is_some_and(|r| r.bands[*k].1 >= BALANCE_SAMPLES))
+        .filter_map(|(_, b)| b.relative)
+        .collect();
     let tyres = Tyres { target_psi: target.clone(), ..m.tyres.clone() };
     let lap_checks = [
         (target.as_ref().is_some_and(|t| tyres.pressure_end.iter().any(|p| *p > t.max)), Finding::PressureHigh),
@@ -378,6 +435,10 @@ pub fn report(id: &str, n: u32, lap: &LocalLap, source: TimeSource, m: &LapMeasu
         (m.brakes.temp_max.iter().any(|t| *t > VERY_HOT), Finding::BrakeHot),
         (m.fade.is_some_and(|f| f >= 0.04), Finding::BrakeFade),
         (reference.is_some_and(|r| m.fuel.start_l >= r.fuel.start_l + 20.0), Finding::FuelHeavy),
+        (lock_share([0, 1]).is_some_and(|s| s > LOCK_FRONT), Finding::LockFront),
+        (lock_share([2, 3]).is_some_and(|s| s > LOCK_REAR), Finding::LockRear),
+        (judged_bands.iter().any(|b| *b >= BALANCE), Finding::Understeer),
+        (judged_bands.iter().any(|b| *b <= -BALANCE), Finding::Oversteer),
     ];
     findings.extend(lap_checks.into_iter().filter(|(hit, _)| *hit).map(|(_, f)| f));
     findings.sort();
@@ -390,12 +451,13 @@ pub fn report(id: &str, n: u32, lap: &LocalLap, source: TimeSource, m: &LapMeasu
         pit: lap.pit,
         time_source: source,
         distance_m: m.distance_m,
+        braking_s: Some(m.braking_s),
         top_speed_kmh: m.top_speed_kmh,
         theoretical_best_ms: reference.and(theoretical_best_ms),
         fuel: m.fuel.clone(),
         tyres,
         brakes: m.brakes.clone(),
-        balance: Band::ALL.iter().enumerate().map(|(k, band)| BandBalance { band: *band, relative: relative(m.bands[k].0, reference.and_then(|r| r.bands[k].0)), samples: m.bands[k].1 }).collect(),
+        balance,
         traction: m.traction.clone(),
         corners,
         findings,
@@ -444,7 +506,7 @@ mod tests {
     fn a_later_braking_point_shows_its_time_in_that_corner_only() {
         let lab = lab(Drive { late: Some(2), lock: false });
         let (map, [one, two]) = measured(&lab);
-        let r = report("s#2", 2, &lap(1, &lab), TimeSource::App, &two, Some(&one), None, None);
+        let r = report("s#2", 2, &lap(1, &lab), TimeSource::App, &two, Some(&one), &TIGHT, None, None);
         let dts: Vec<f64> = r.corners.iter().map(|c| c.dt_s.unwrap()).collect();
         // corner 3 (the hairpin) is braked for harder and later: faster there, equal elsewhere (within what the
         // 20 Hz yaw rate allows: it places a turn-in to ±1.5 m, 0.02 s at 75 m/s)
@@ -464,7 +526,8 @@ mod tests {
         assert!((hairpin.brake.vs_ref_m.unwrap() - 79.3).abs() < 2.0, "{:?}", hairpin.brake);
         assert_eq!(hairpin.brake.peak, 90.0);
         assert!((hairpin.brake.release_m.unwrap() - arc).abs() < 3.0);
-        assert!(r.findings.contains(&Finding::BrakeLater));
+        // braking later gained time there: nothing to say
+        assert!(!r.findings.contains(&Finding::BrakeLater), "{:?}", r.findings);
         assert!(map.corners[2].apex_m >= map.corners[2].turn_in_m);
         assert!(r.corners.iter().enumerate().all(|(c, x)| c == 2 || x.brake.vs_ref_m.is_some_and(|d| d.abs() <= 1.5)), "{:?}", r.corners);
     }
@@ -521,10 +584,13 @@ mod tests {
         let lab = lab(Drive { late: Some(2), lock: true });
         let (_, [one, two]) = measured(&lab);
         let slick = target_psi("dd_bmw_m3_e46_rennsport", "S");
-        let r = report("s#2", 2, &lap(1, &lab), TimeSource::App, &two, Some(&one), Some(400_000), slick.clone());
+        let r = report("s#2", 2, &lap(1, &lab), TimeSource::App, &two, Some(&one), &TIGHT, Some(400_000), slick.clone());
         let hairpin = &r.corners[2];
         assert!(hairpin.lock_s[0] > 0.5 && hairpin.lock_s[1] > 0.5 && hairpin.lock_s[2] == 0.0, "{:?}", hairpin.lock_s);
-        assert!(r.findings.contains(&Finding::LockFront));
+        // the fronts lock for more than 3 % of the lap's braking time: a finding of the lap
+        let front: f64 = (0..2).map(|w| r.corners.iter().map(|c| c.lock_s[w]).sum::<f64>()).fold(0.0, f64::max);
+        assert!(r.braking_s.is_some_and(|b| b > 4.0 && front / b > 0.03), "{front} s of {:?} s", r.braking_s);
+        assert!(r.findings.contains(&Finding::LockFront) && !r.findings.contains(&Finding::LockRear));
         // the slick's window: 27.5 to 27.8 psi at the end is above 27.5
         assert!(r.findings.contains(&Finding::PressureHigh) && !r.findings.contains(&Finding::PressureLow));
         assert_eq!(r.tyres.target_psi, slick);
@@ -532,7 +598,7 @@ mod tests {
         assert!(r.balance.iter().take(3).all(|b| b.relative.is_some_and(|x| x.abs() < 0.01)), "{:?}", r.balance);
         assert_eq!(r.balance[3].relative, None, "no corner above 240 km/h");
         // without a reference: no comparisons, no theoretical best
-        let alone = report("s#1", 1, &lap(0, &lab), TimeSource::App, &one, None, Some(400_000), None);
+        let alone = report("s#1", 1, &lap(0, &lab), TimeSource::App, &one, None, &TIGHT, Some(400_000), None);
         assert!(alone.corners.iter().all(|c| c.dt_s.is_none() && c.brake.vs_ref_m.is_none() && c.balance.entry.is_none()));
         assert_eq!((alone.theoretical_best_ms, alone.tyres.target_psi.clone()), (None, None));
         assert!(alone.findings.iter().all(|f| matches!(f, Finding::CoastLong | Finding::LockFront | Finding::LockRear | Finding::SpinRear | Finding::BrakeHot | Finding::BrakeFade)));
@@ -562,7 +628,7 @@ mod tests {
         let (_, [one, _]) = measured(&lab);
         let at = |psi: [f64; 4]| LapMeasures { tyres: Tyres { pressure_end: psi, ..one.tyres.clone() }, ..one.clone() };
         let findings = |psi: [f64; 4], compound: &str| {
-            let r = report("s#1", 1, &lap(0, &lab), TimeSource::App, &at(psi), None, None, target_psi("dd_bmw_m3_e46_rennsport", compound));
+            let r = report("s#1", 1, &lap(0, &lab), TimeSource::App, &at(psi), None, &[], None, target_psi("dd_bmw_m3_e46_rennsport", compound));
             r.findings.into_iter().filter(|f| matches!(f, Finding::PressureHigh | Finding::PressureLow)).collect::<Vec<_>>()
         };
         // a Rennsport on slicks at Joe's Porsche pressures is too high
@@ -575,27 +641,123 @@ mod tests {
         assert_eq!(findings([26.5, 25.5, 26.5, 25.5], "W"), []);
     }
 
+    /// The driver's own spread at every corner: none to speak of (the thresholds decide).
+    const TIGHT: [Spread; 4] = [[Some(0.5); 4]; 4];
+
     #[test]
-    fn judges_hot_brakes_fade_fuel_and_coasting() {
+    fn judges_hot_brakes_fade_and_fuel() {
         let lab = lab(Drive { late: None, lock: false });
         let (_, [one, _]) = measured(&lab);
         let mut hot = one.clone();
         hot.brakes.temp_max[1] = 812.0;
         hot.fade = Some(0.045);
         hot.fuel.start_l += 25.0;
-        hot.corners[1].coast_s = 0.5;
-        hot.corners[0].balance = one.corners[0].balance.map(|b| b.map(|b| b * 1.2));
-        hot.corners[3].balance[2] = one.corners[3].balance[2].map(|b| b * 0.8);
-        hot.corners[1].min_kmh -= 5.0;
-        hot.corners[1].exit_kmh -= 4.0;
-        hot.corners[0].peak = 70.0;
-        let r = report("s#1", 1, &lap(0, &lab), TimeSource::App, &hot, Some(&one), None, None);
-        for f in [Finding::BrakeHot, Finding::BrakeFade, Finding::FuelHeavy, Finding::CoastLong, Finding::UndersteerEntry, Finding::OversteerExit, Finding::MinSpeedLower, Finding::ExitSlower, Finding::BrakeSofter] {
+        let r = report("s#1", 1, &lap(0, &lab), TimeSource::App, &hot, Some(&one), &TIGHT, None, None);
+        assert_eq!(r.findings, [Finding::BrakeHot, Finding::BrakeFade, Finding::FuelHeavy]);
+    }
+
+    #[test]
+    fn a_corner_s_finding_needs_its_time_lost_and_more_than_the_driver_s_own_spread() {
+        let lab = lab(Drive { late: Some(2), lock: false });
+        let (_, [one, two]) = measured(&lab);
+        // lap 1 brakes 79 m earlier than the reference (lap 2) for the hairpin and loses 0.2 s there
+        let findings = |spread: &[Spread]| report("s#1", 1, &lap(0, &lab), TimeSource::App, &one, Some(&two), spread, None, None).findings;
+        assert!(findings(&TIGHT).contains(&Finding::BrakeEarlier));
+        // a driver whose own braking points there scatter by 30 m: 79 m is inside 2·√2·30 = 85 m
+        let mut wide = TIGHT;
+        wide[2][0] = Some(30.0);
+        assert!(!findings(&wide).contains(&Finding::BrakeEarlier));
+        wide[2][0] = Some(25.0);
+        assert!(findings(&wide).contains(&Finding::BrakeEarlier));
+        // fewer than 3 own pace laps: no corner finding at all
+        let mut few = TIGHT;
+        few[2] = [None; 4];
+        assert!(!findings(&few).contains(&Finding::BrakeEarlier));
+        assert_eq!(findings(&[]), Vec::<Finding>::new());
+        // a corner that costs nothing says nothing, however far off: corner 1 braked 20 m later, 10 km/h slower out,
+        // 0.5 s more coasting
+        let mut off = one.clone();
+        off.corners[0].point_m = Some(off.corners[0].point_m.unwrap_or(500.0) + 20.0);
+        off.corners[0].exit_kmh -= 10.0;
+        off.corners[0].min_kmh -= 10.0;
+        off.corners[0].coast_s += 0.5;
+        off.corners[0].spin_s[3] += 0.5;
+        let r = report("s#1", 1, &lap(0, &lab), TimeSource::App, &off, Some(&one), &TIGHT, None, None);
+        assert_eq!(r.findings, [], "{:?}", r.corners[0]);
+        // the same corner 0.06 s slower: each of them
+        off.corners[0].segment_s += 0.06;
+        let r = report("s#1", 1, &lap(0, &lab), TimeSource::App, &off, Some(&one), &TIGHT, None, None);
+        assert_eq!(r.corners[0].dt_s, Some(0.06));
+        for f in [Finding::MinSpeedLower, Finding::ExitSlower, Finding::CoastLong, Finding::SpinRear] {
             assert!(r.findings.contains(&f), "{f:?} in {:?}", r.findings);
         }
-        assert_eq!(r.corners[1].min_speed.vs_ref_kmh, Some(-5.0));
-        let json = serde_json::to_value(&r.findings).unwrap();
-        assert_eq!(json[0], "brake_softer");
+        // coasting and spinning count against the reference's same corner: as much as there is nothing
+        let mut both = one.clone();
+        both.corners[0].coast_s += 0.45;
+        both.corners[0].spin_s[3] += 0.45;
+        let r = report("s#1", 1, &lap(0, &lab), TimeSource::App, &off, Some(&both), &TIGHT, None, None);
+        assert!(!r.findings.contains(&Finding::CoastLong) && !r.findings.contains(&Finding::SpinRear), "{:?}", r.findings);
+        // and without a reference nothing is relative
+        assert_eq!(report("s#1", 1, &lap(0, &lab), TimeSource::App, &off, None, &TIGHT, None, None).findings, []);
+    }
+
+    #[test]
+    fn never_says_brake_softer_or_a_corner_s_balance() {
+        let lab = lab(Drive { late: None, lock: false });
+        let (_, [one, _]) = measured(&lab);
+        let mut soft = one.clone();
+        soft.corners[0].peak = 50.0;
+        soft.corners[0].balance = one.corners[0].balance.map(|b| b.map(|b| b * 1.5));
+        soft.corners[3].balance[2] = one.corners[3].balance[2].map(|b| b * 0.5);
+        soft.corners[0].segment_s += 0.1;
+        soft.corners[3].segment_s += 0.1;
+        let r = report("s#1", 1, &lap(0, &lab), TimeSource::App, &soft, Some(&one), &TIGHT, None, None);
+        assert_eq!(r.findings, []);
+        assert!(r.corners[0].balance.entry.is_some_and(|b| b > 0.4), "the numbers stay: {:?}", r.corners[0].balance);
+    }
+
+    #[test]
+    fn locking_is_judged_by_its_share_of_the_lap_s_braking_time() {
+        let lab = lab(Drive { late: None, lock: false });
+        let (_, [one, _]) = measured(&lab);
+        let braking = one.braking_s;
+        assert!(braking > 4.0 && braking < 20.0, "four stops: {braking} s");
+        let findings = |front: f64, rear: f64| {
+            let mut m = one.clone();
+            // the worse wheel of each axle, spread over two corners
+            m.corners[0].lock_s = [front / 2.0, 0.0, rear / 2.0, 0.0];
+            m.corners[2].lock_s = [front / 2.0, front / 4.0, rear / 2.0, 0.0];
+            report("s#1", 1, &lap(0, &lab), TimeSource::App, &m, None, &[], None, None).findings
+        };
+        assert_eq!(findings(0.031 * braking, 0.0), [Finding::LockFront]);
+        assert_eq!(findings(0.029 * braking, 0.0), []);
+        assert_eq!(findings(0.0, 0.006 * braking), [Finding::LockRear]);
+        assert_eq!(findings(0.0, 0.004 * braking), []);
+    }
+
+    #[test]
+    fn balance_is_judged_by_the_speed_bands_below_240_against_a_reference_of_like_fuel() {
+        let lab = lab(Drive { late: None, lock: false });
+        let (_, [one, _]) = measured(&lab);
+        let mut reference = one.clone();
+        reference.bands = [(Some(2.0), 1500), (Some(2.0), 1500), (Some(2.0), 1500), (Some(2.0), 1500)];
+        let findings = |band: usize, value: f64, samples: u32, fuel: f64| {
+            let mut m = one.clone();
+            m.bands = reference.bands;
+            m.bands[band] = (Some(value), samples);
+            m.fuel.start_l = reference.fuel.start_l + fuel;
+            report("s#1", 1, &lap(0, &lab), TimeSource::App, &m, Some(&reference), &[], None, None).findings
+        };
+        // 25 % more steering for the same yaw: understeer, 25 % less: oversteer
+        assert_eq!(findings(0, 2.5, 1200, 0.0), [Finding::Understeer]);
+        assert_eq!(findings(2, 1.5, 1000, 4.9), [Finding::Oversteer]);
+        // within the noise, too few samples, the 240+ band, a reference 5 l or more lighter or heavier: nothing
+        assert_eq!(findings(1, 2.48, 1200, 0.0), []);
+        assert_eq!(findings(1, 2.6, 999, 0.0), []);
+        assert_eq!(findings(3, 3.0, 5000, 0.0), []);
+        assert_eq!(findings(0, 2.6, 1200, -5.1), []);
+        let json = serde_json::to_value([Finding::Understeer, Finding::Oversteer]).unwrap();
+        assert_eq!(json, serde_json::json!(["understeer", "oversteer"]));
     }
 
     /// A 400 m lap by hand, a point every metre: corner 1 turns from 60 to 100 m at 30 m/s, the car accelerates to

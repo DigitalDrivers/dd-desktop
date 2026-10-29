@@ -180,6 +180,12 @@ pub fn run<R: Read + Seek>(dir: &Path, r: &mut R, input: &Input) -> io::Result<O
                 segments
             };
         }
+        // the driver's own spread: the valid laps within 2 % of the reference
+        if let Some(best) = refs.reference.as_ref().map(|r| r.lap_time_ms) {
+            for (_, lap_id, m) in measured.iter().filter(|(c, _, _)| c.lap.valid && c.lap.lap_time_ms as f64 <= best as f64 * (1.0 + store::PACE)) {
+                refs.pace.add(lap_id, m);
+            }
+        }
     }
     let reference = refs.reference.as_ref().filter(|_| map.is_some());
     let theoretical_best = (!refs.best_segments_s.is_empty()).then(|| (refs.best_segments_s.iter().sum::<f64>() * 1000.0).round() as i64);
@@ -187,7 +193,7 @@ pub fn run<R: Read + Seek>(dir: &Path, r: &mut R, input: &Input) -> io::Result<O
     let tf = touristenfahrten(&track, &layout);
     let laps = measured
         .iter()
-        .map(|(c, lap_id, m)| report(lap_id, c.n, c.lap, source.unwrap_or_default(), m, reference.map(|r| &r.measures), theoretical_best, pressure_target(&car, c.lap, log, clock.offset_s, tf)))
+        .map(|(c, lap_id, m)| report(lap_id, c.n, c.lap, source.unwrap_or_default(), m, reference.map(|r| &r.measures), &refs.pace.spread(lap_id, m), theoretical_best, pressure_target(&car, c.lap, log, clock.offset_s, tf)))
         .collect::<Vec<_>>();
     let traces = measured.iter().map(|(c, lap_id, _)| trace(lap_id, &c.grid)).collect::<Vec<_>>();
 
@@ -400,7 +406,16 @@ mod tests {
         let reference = s.reference.clone().unwrap();
         assert_eq!((reference.lap_id.as_str(), reference.lap_time_ms), (s.laps[1].id.as_str(), s.laps[1].lap_time_ms.unwrap()));
         assert!(s.laps[0].corners[2].dt_s.unwrap() > 0.2 && s.laps[1].corners[2].dt_s == Some(0.0));
-        assert!(s.laps[0].findings.contains(&Finding::BrakeEarlier));
+        // two pace laps are no spread yet: no corner finding, though lap 1 brakes 79 m earlier and loses 0.2 s
+        assert!(s.laps[0].corners[2].brake.vs_ref_m.is_some_and(|d| d < -70.0));
+        assert!(!s.laps[0].findings.contains(&Finding::BrakeEarlier), "{:?}", s.laps[0].findings);
+        let refs = store::load_refs(&dir, &refs_key("dd_test_car", Some("preset_dd_test_car_stage1"), "Test Ring", "GP")).unwrap();
+        assert_eq!(refs.pace.laps, [s.laps[0].id.clone(), s.laps[1].id.clone()]);
+        assert!(refs.pace.corners.len() == 4 && refs.pace.corners.iter().all(|c| c[2].n == 2), "{:?}", refs.pace);
+        // evaluated again, its laps count once
+        evaluate(&dir, &Drive { late: Some(2), lock: false }, 0);
+        assert_eq!(store::load_refs(&dir, &refs_key("dd_test_car", Some("preset_dd_test_car_stage1"), "Test Ring", "GP")).unwrap().pace, refs.pace);
+        assert!(s.laps.iter().all(|l| l.braking_s.is_some_and(|b| b > 4.0)));
         // the theoretical best is the sum of both laps' best segments: the reference's lap time here, less what the
         // 20 Hz yaw rate leaves between equal segments (up to 0.02 s each)
         let best = s.laps[0].theoretical_best_ms.unwrap();
