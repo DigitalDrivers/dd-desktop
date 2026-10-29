@@ -23,6 +23,9 @@ const YAW: f64 = 0.05;
 const SLOW: f64 = 30.0 / 3.6;
 /// The lowest speed of a corner is looked for this far (m) before its turn-in and after its turn-out.
 const APEX_MARGIN: f64 = 30.0;
+/// A point this close (m) to its segment's start or end sits on the edge (research/2026-10-21-renningenieur-coach/
+/// audit/REPORT.md §2e).
+const EDGE_M: f64 = 2.0;
 /// The pressures at a lap's end: the mean of its last 20 s.
 const END_S: f64 = 20.0;
 const HOT: f64 = 700.0;
@@ -153,18 +156,25 @@ fn corner(g: &Grid, map: &Map, fit: &Fit, c: usize) -> CornerMeasure {
     let (a, b) = (lap(mc.start_m) as usize, lap(mc.end_m) as usize);
     let (turn_in, turn_out) = (lap(mc.turn_in_m), lap(mc.turn_out_m));
     let at_map = |i: usize| round(fit.to_map(i as f64), 1);
+    let slowest = |lo: usize, hi: usize| (lo..=hi.max(lo)).min_by(|x, y| g.speed[*x].total_cmp(&g.speed[*y])).unwrap_or(lo);
     let lo = ((turn_in - APEX_MARGIN).max(a as f64)) as usize;
     let hi = ((turn_out + APEX_MARGIN).min(b as f64)) as usize;
-    let apex = (lo..=hi.max(lo)).min_by(|x, y| g.speed[*x].total_cmp(&g.speed[*y])).unwrap_or(a);
-    // braking: walk back from the hardest braking before the apex to where the pedal was first pressed
+    let mut apex = slowest(lo, hi);
+    // a slowest point on the segment's edge is where the segment is cut (the car still slowing for the next corner,
+    // or still accelerating out of the one before): the slowest point of the corner's own turn instead
+    if apex as f64 <= a as f64 + EDGE_M || apex as f64 >= b as f64 - EDGE_M {
+        apex = slowest(turn_in.max(a as f64 + EDGE_M) as usize, turn_out.min(b as f64 - EDGE_M) as usize);
+    }
+    // braking: walk back from the hardest braking before the apex to where the pedal was first pressed, also into
+    // the segment before (the braking for a corner often begins there); one pressed since the lap's start is unknown
     let hardest = (a..=apex).max_by(|x, y| g.brake[*x].total_cmp(&g.brake[*y])).unwrap_or(a);
     let peak = g.brake[hardest];
     let (point, release) = if peak > PEDAL {
         let mut first = hardest;
-        while first > a && g.brake[first - 1] > PEDAL {
+        while first > 0 && g.brake[first - 1] > PEDAL {
             first -= 1;
         }
-        (Some(first), (a..=apex).rev().find(|i| g.brake[*i] > PEDAL))
+        (Some(first).filter(|first| *first > 0), (a..=apex).rev().find(|i| g.brake[*i] > PEDAL))
     } else {
         (None, None)
     };
@@ -586,6 +596,64 @@ mod tests {
         assert_eq!(r.corners[1].min_speed.vs_ref_kmh, Some(-5.0));
         let json = serde_json::to_value(&r.findings).unwrap();
         assert_eq!(json[0], "brake_softer");
+    }
+
+    /// A 400 m lap by hand, a point every metre: corner 1 turns from 60 to 100 m at 30 m/s, the car accelerates to
+    /// 31 m/s and brakes from 105 m at 3 m/s² for corner 2 (turning from 240 to 280 m at 15 m/s), whose segment
+    /// starts at 120 m: the braking begins in corner 1's segment, and corner 1's segment ends while the car slows.
+    fn edge_lap() -> (Grid, Map) {
+        let n = 401;
+        let v = |m: f64| match m {
+            m if m < 100.0 => 30.0,
+            m if m < 105.0 => 30.0 + (m - 100.0) / 5.0,
+            m if m < 280.0 => (961.0 - 6.0 * (m - 105.0)).max(225.0).sqrt(),
+            m => (225.0 + 6.0 * (m - 280.0)).sqrt(),
+        };
+        let speed: Vec<f64> = (0..n).map(|i| v(i as f64)).collect();
+        let mut t = vec![0.0; n];
+        for i in 1..n {
+            t[i] = t[i - 1] + 2.0 / (speed[i] + speed[i - 1]);
+        }
+        let braking = |i: usize| (105..228).contains(&i);
+        let yaw: Vec<f64> = (0..n).map(|i| if (60..100).contains(&i) { speed[i] / 60.0 } else if (240..280).contains(&i) { speed[i] / 40.0 } else { 0.0 }).collect();
+        let g = Grid {
+            t,
+            throttle: (0..n).map(|i| if braking(i) || (228..280).contains(&i) { 0.0 } else if (100..105).contains(&i) || i >= 280 { 100.0 } else { 30.0 }).collect(),
+            brake: (0..n).map(|i| if braking(i) { 60.0 } else { 0.0 }).collect(),
+            steer: yaw.iter().map(|y| y * 20.0).collect(),
+            gear: vec![3.0; n],
+            g_lat: vec![0.0; n],
+            yaw,
+            slip: std::array::from_fn(|_| vec![0.0; n]),
+            speed,
+        };
+        let corner = |n: u32, start_m: f64, end_m: f64, turn_in_m: f64, turn_out_m: f64| super::super::corners::MapCorner {
+            n,
+            start_m,
+            end_m,
+            apex_m: (turn_in_m + turn_out_m) / 2.0,
+            turn_in_m,
+            turn_out_m,
+            direction: super::super::Direction::L,
+            radius_m: 50.0,
+        };
+        let map = Map { version: 1, frozen: false, agreed: vec![], length_m: 400.0, corners: vec![corner(1, 0.0, 120.0, 60.0, 100.0), corner(2, 120.0, 400.0, 240.0, 280.0)] };
+        (g, map)
+    }
+
+    #[test]
+    fn a_braking_begun_in_the_segment_before_and_a_car_still_slowing_at_the_segment_s_end_are_measured_where_they_happen() {
+        let (mut g, map) = edge_lap();
+        let fit = Fit { scale: 1.0, offset: 0.0, matched: 2 };
+        // corner 2's braking point is where the pedal went down, 15 m before its segment starts
+        assert_eq!(corner(&g, &map, &fit, 1).point_m, Some(105.0));
+        // corner 1's slowest point is in its turn (30 m/s), not at its segment's end (29.5 m/s, braking for corner 2)
+        let one = corner(&g, &map, &fit, 0);
+        assert!(one.min_kmh == 108.0 && (60.0..=100.0).contains(&one.min_at_m), "{one:?}");
+        assert_eq!(one.pickup_m, Some(100.0));
+        // a braking that began before the lap's start has no known point
+        g.brake[..=10].fill(50.0);
+        assert_eq!(corner(&g, &map, &fit, 0).point_m, None);
     }
 
     #[test]
