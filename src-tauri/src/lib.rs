@@ -8,7 +8,7 @@ use std::time::Duration;
 use std::sync::Mutex;
 use std::time::SystemTime;
 
-use dd_core::engineer::{self, digest::CoachDigestsPending, laps::LocalLap, profile::CoachProfile, store::SessionHead, EngineerSession, EngineerTrace};
+use dd_core::engineer::{self, digest::CoachDigestsPending, laps::LocalLap, profile::CoachFocus, profile::CoachProfile, store::SessionHead, EngineerSession, EngineerTrace};
 use dd_core::evo_memory::{self, LiveSnapshot};
 use dd_core::garage;
 use dd_core::laps::{self, LapRecorder, LapSummary};
@@ -801,6 +801,23 @@ fn engineer_digests_sent(app: tauri::AppHandle, ids: Vec<String>) -> Result<(), 
     })?;
     log(&format!("engineer_digests_sent -> {} uploaded", ids.len()));
     Ok(())
+}
+
+/// The skill the driver works on, and since when (both null until they chose one).
+#[tauri::command]
+fn coach_focus_get(app: tauri::AppHandle) -> Result<CoachFocus, String> {
+    Ok(engineer::profile::focus(&engineer_dir(&app).ok_or("failed")?))
+}
+
+/// The driver accepted or chose the skill `focus` (one of the coach's eight; null: none). Answers it with since when.
+#[tauri::command]
+fn coach_focus_set(app: tauri::AppHandle, focus: Option<String>) -> Result<CoachFocus, String> {
+    let chosen = engineer::profile::set_focus(&engineer_dir(&app).ok_or("failed")?, focus.as_deref(), unix_now_ms()).map_err(|error| {
+        log(&format!("coach_focus_set failed: {error}"));
+        if error.kind() == std::io::ErrorKind::InvalidInput { "unknown-skill" } else { "failed" }.to_string()
+    })?;
+    log(&format!("coach_focus_set -> {:?}", chosen.focus));
+    Ok(chosen)
 }
 
 /// How often the app evaluates ended sessions by itself while the switch is on.
@@ -1670,7 +1687,7 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status, engineer_status, engineer_enable, engineer_sessions, engineer_session, engineer_traces, engineer_evaluate, engineer_forget, engineer_forget_session, engineer_keep, engineer_profile, engineer_seen, engineer_digests, engineer_digests_sent])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status, engineer_status, engineer_enable, engineer_sessions, engineer_session, engineer_traces, engineer_evaluate, engineer_forget, engineer_forget_session, engineer_keep, engineer_profile, engineer_seen, engineer_digests, engineer_digests_sent, coach_focus_get, coach_focus_set])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

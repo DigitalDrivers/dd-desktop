@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-coach-focus-get"
+description = "Enables the coach_focus_get command without any pre-configured scope."
+commands.allow = ["coach_focus_get"]
+
+[[permission]]
+identifier = "deny-coach-focus-get"
+description = "Denies the coach_focus_get command without any pre-configured scope."
+commands.deny = ["coach_focus_get"]
