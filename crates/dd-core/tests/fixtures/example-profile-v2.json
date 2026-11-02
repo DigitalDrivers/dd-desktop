@@ -5732,6 +5732,26 @@
       "value": 6.17
      }
     ],
+    "tracks": [
+     {
+      "track": "Circuit de Spa Francorchamps",
+      "layout": "GP",
+      "sessions": 1,
+      "value": 1.85
+     },
+     {
+      "track": "Nurburgring",
+      "layout": "Touristenfahrten",
+      "sessions": 58,
+      "value": 3.42
+     },
+     {
+      "track": "Nurburgring",
+      "layout": "Gp Strecke",
+      "sessions": 1,
+      "value": 5.24
+     }
+    ],
     "where": {
      "track": "Nurburgring",
      "layout": "Touristenfahrten",
@@ -5876,6 +5896,26 @@
       "carName": "BMW M3 E46 CSL GT3",
       "sessions": 2,
       "value": 7.94
+     }
+    ],
+    "tracks": [
+     {
+      "track": "Circuit de Spa Francorchamps",
+      "layout": "GP",
+      "sessions": 1,
+      "value": 2.03
+     },
+     {
+      "track": "Nurburgring",
+      "layout": "Touristenfahrten",
+      "sessions": 58,
+      "value": 2.48
+     },
+     {
+      "track": "Nurburgring",
+      "layout": "Gp Strecke",
+      "sessions": 1,
+      "value": 8.9
      }
     ],
     "where": {
@@ -6024,6 +6064,26 @@
       "value": 1.36
      }
     ],
+    "tracks": [
+     {
+      "track": "Nurburgring",
+      "layout": "Touristenfahrten",
+      "sessions": 58,
+      "value": 0.11
+     },
+     {
+      "track": "Nurburgring",
+      "layout": "Gp Strecke",
+      "sessions": 1,
+      "value": 0.26
+     },
+     {
+      "track": "Circuit de Spa Francorchamps",
+      "layout": "GP",
+      "sessions": 1,
+      "value": 0.53
+     }
+    ],
     "where": {
      "track": "Nurburgring",
      "layout": "Touristenfahrten",
@@ -6103,6 +6163,7 @@
     "value": null,
     "trend": null,
     "cars": [],
+    "tracks": [],
     "where": null
    },
    {
@@ -6241,6 +6302,26 @@
       "value": 2.36
      }
     ],
+    "tracks": [
+     {
+      "track": "Nurburgring",
+      "layout": "Touristenfahrten",
+      "sessions": 58,
+      "value": 1.15
+     },
+     {
+      "track": "Nurburgring",
+      "layout": "Gp Strecke",
+      "sessions": 1,
+      "value": 1.25
+     },
+     {
+      "track": "Circuit de Spa Francorchamps",
+      "layout": "GP",
+      "sessions": 1,
+      "value": 1.58
+     }
+    ],
     "where": null
    },
    {
@@ -6341,6 +6422,26 @@
       "carName": "BMW M3 E46 CSL GT3 Rennsport",
       "sessions": 3,
       "value": 0.92
+     }
+    ],
+    "tracks": [
+     {
+      "track": "Circuit de Spa Francorchamps",
+      "layout": "GP",
+      "sessions": 1,
+      "value": 0.69
+     },
+     {
+      "track": "Nurburgring",
+      "layout": "Touristenfahrten",
+      "sessions": 20,
+      "value": 0.73
+     },
+     {
+      "track": "Nurburgring",
+      "layout": "Gp Strecke",
+      "sessions": 1,
+      "value": 1.0
      }
     ],
     "where": null
@@ -6481,6 +6582,26 @@
       "value": 33.33
      }
     ],
+    "tracks": [
+     {
+      "track": "Nurburgring",
+      "layout": "Touristenfahrten",
+      "sessions": 58,
+      "value": 100.0
+     },
+     {
+      "track": "Nurburgring",
+      "layout": "Gp Strecke",
+      "sessions": 1,
+      "value": 42.86
+     },
+     {
+      "track": "Circuit de Spa Francorchamps",
+      "layout": "GP",
+      "sessions": 1,
+      "value": 42.86
+     }
+    ],
     "where": null
    },
    {
@@ -6568,6 +6689,14 @@
       "car": "dd_vw_golf8_rsi_dahlbaeck",
       "carName": "VW Golf 8 RSI Dahlbaeck Tribute",
       "sessions": 1,
+      "value": 0.0
+     }
+    ],
+    "tracks": [
+     {
+      "track": "Nurburgring",
+      "layout": "Touristenfahrten",
+      "sessions": 3,
       "value": 0.0
      }
     ],

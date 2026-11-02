@@ -66,7 +66,8 @@ pub struct CoachDriver {
 
 /// A skill of the driver: `history` per digest (null where not measured), `value` the median of the measured ones,
 /// `trend` their second half against the first (null below 4, flat within 5 % of the first half's mean), `cars` the
-/// median per car, the best first, `where` the corners with the most of it.
+/// median per car and `tracks` per track × layout over the sessions that measured it, the best first (equals in the
+/// order first driven), `where` the corners with the most of it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CoachDriverSkill {
@@ -77,6 +78,7 @@ pub struct CoachDriverSkill {
     pub value: Option<f64>,
     pub trend: Option<Trend>,
     pub cars: Vec<CoachDriverCar>,
+    pub tracks: Vec<CoachDriverTrack>,
     pub r#where: Option<CoachWhere>,
 }
 
@@ -85,6 +87,16 @@ pub struct CoachDriverSkill {
 pub struct CoachDriverCar {
     pub car: String,
     pub car_name: String,
+    /// Sessions that measured the skill
+    pub sessions: u32,
+    pub value: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoachDriverTrack {
+    pub track: String,
+    pub layout: String,
     /// Sessions that measured the skill
     pub sessions: u32,
     pub value: f64,
@@ -357,6 +369,19 @@ fn driver_skill(key: SkillKey, digests: &[CoachDigest], track: Option<(&str, &st
         by_car.into_iter().map(|(car, car_name, v)| CoachDriverCar { car: car.into(), car_name: car_name.into(), sessions: v.len() as u32, value: median(&v) }).collect();
     cars.sort_by(|a, b| if lower_better { a.value.total_cmp(&b.value) } else { b.value.total_cmp(&a.value) });
     cars.iter_mut().for_each(|c| c.value = round(c.value, 2));
+    // the same per track × layout
+    let mut by_track: Vec<(&str, &str, Vec<f64>)> = Vec::new();
+    for (d, v) in digests.iter().zip(&history) {
+        let Some(v) = v else { continue };
+        match by_track.iter_mut().find(|(track, layout, _)| *track == d.track && *layout == d.layout) {
+            Some(entry) => entry.2.push(*v),
+            None => by_track.push((&d.track, &d.layout, vec![*v])),
+        }
+    }
+    let mut tracks: Vec<CoachDriverTrack> =
+        by_track.into_iter().map(|(track, layout, v)| CoachDriverTrack { track: track.into(), layout: layout.into(), sessions: v.len() as u32, value: median(&v) }).collect();
+    tracks.sort_by(|a, b| if lower_better { a.value.total_cmp(&b.value) } else { b.value.total_cmp(&a.value) });
+    tracks.iter_mut().for_each(|t| t.value = round(t.value, 2));
     // where: over the latest digests on the most-driven track that measured it, the corners named most often, then
     // those named higher up, then the lower number
     let r#where = track.and_then(|(track, layout)| {
@@ -380,6 +405,7 @@ fn driver_skill(key: SkillKey, digests: &[CoachDigest], track: Option<(&str, &st
         value: (!values.is_empty()).then(|| round(median(&values), 2)),
         trend: driver_trend(&values, lower_better),
         cars,
+        tracks,
         r#where,
         history,
     }
@@ -634,6 +660,10 @@ mod tests {
         assert!((coast.value.unwrap() - 3.425).abs() <= 0.0051, "{:?}", coast.value);
         assert_eq!((coast.cars.len(), coast.cars[0].car.as_str(), coast.cars[0].sessions), (11, "ks_alfa_romeo_giulia_gtam", 1));
         assert!(coast.cars.windows(2).all(|w| w[0].value <= w[1].value));
+        // and per track × layout: 58 sessions on Touristenfahrten, one each on the GP circuit and at Spa
+        let tracks: Vec<(&str, u32)> = coast.tracks.iter().map(|t| (t.layout.as_str(), t.sessions)).collect();
+        assert_eq!(tracks.len(), 3);
+        assert!(tracks.contains(&("Touristenfahrten", 58)) && coast.tracks.windows(2).all(|w| w[0].value <= w[1].value), "{tracks:?}");
         assert_eq!(coast.r#where.as_ref().map(|w| (w.layout.as_str(), w.corners.clone())), Some(("Touristenfahrten", vec![19, 28, 6])));
         let pace = &d.skills[4];
         assert_eq!((pace.key, pace.value, pace.trend, pace.history.iter().flatten().count(), pace.r#where.clone()), (SkillKey::Pace, Some(1.23), Some(Trend::Better), 60, None));
