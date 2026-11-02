@@ -6582,7 +6582,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 2,
+   "newBest": false
   },
   {
    "id": "1791756631-dd_porsche_gt2rs_mr",
@@ -6590,7 +6592,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1791827079-dd_porsche_gt2rs_mr",
@@ -6598,7 +6602,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 4,
+   "newBest": true
   },
   {
    "id": "1791835100-dd_porsche_gt2rs_mr",
@@ -6606,7 +6612,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": true
   },
   {
    "id": "1791904623-dd_porsche_gt2rs_mr",
@@ -6614,7 +6622,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1791908080-dd_porsche_gt2rs_mr",
@@ -6622,7 +6632,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 2,
+   "newBest": true
   },
   {
    "id": "1791913760-dd_porsche_gt2rs_mr",
@@ -6630,7 +6642,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": true
   },
   {
    "id": "1791918919-dd_porsche_gt2rs_mr",
@@ -6638,7 +6652,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 3,
+   "newBest": true
   },
   {
    "id": "1791924142-dd_porsche_gt2rs_mr",
@@ -6646,7 +6662,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 4,
+   "newBest": true
   },
   {
    "id": "1791929525-dd_porsche_gt2rs_mr",
@@ -6654,7 +6672,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 3,
+   "newBest": true
   },
   {
    "id": "1792009110-dd_porsche_gt2rs_mr",
@@ -6662,7 +6682,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1792012397-dd_porsche_gt2rs_mr",
@@ -6670,7 +6692,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 2,
+   "newBest": false
   },
   {
    "id": "1792097734-dd_porsche_gt2rs_mr",
@@ -6678,7 +6702,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1792099536-dd_porsche_gt2rs_mr",
@@ -6686,7 +6712,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1792100963-dd_porsche_gt2rs_mr",
@@ -6694,7 +6722,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 3,
+   "newBest": false
   },
   {
    "id": "1792248168-dd_bmw_m3_e46_gt3",
@@ -6702,7 +6732,9 @@
    "car": "dd_bmw_m3_e46_gt3",
    "carName": "BMW M3 E46 CSL GT3",
    "track": "Nurburgring",
-   "layout": "Gp Strecke"
+   "layout": "Gp Strecke",
+   "validLaps": 6,
+   "newBest": false
   },
   {
    "id": "1792251878-dd_bmw_m3_e46_rennsport",
@@ -6710,7 +6742,9 @@
    "car": "dd_bmw_m3_e46_rennsport",
    "carName": "BMW M3 E46 CSL GT3 Rennsport",
    "track": "Circuit de Spa Francorchamps",
-   "layout": "GP"
+   "layout": "GP",
+   "validLaps": 3,
+   "newBest": false
   },
   {
    "id": "1792265450-dd_porsche_gt2rs_mr",
@@ -6718,7 +6752,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 2,
+   "newBest": false
   },
   {
    "id": "1792267896-dd_porsche_gt2rs_mr",
@@ -6726,7 +6762,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1792440552-dd_audi_rs6_gt3",
@@ -6734,7 +6772,9 @@
    "car": "dd_audi_rs6_gt3",
    "carName": "Audi RS6 GT3",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1792443525-dd_audi_rs6_v12",
@@ -6742,7 +6782,9 @@
    "car": "dd_audi_rs6_v12",
    "carName": "Audi RS6V12",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1792528308-dd_audi_rs6_gt3",
@@ -6750,7 +6792,9 @@
    "car": "dd_audi_rs6_gt3",
    "carName": "Audi RS6 GT3",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 2,
+   "newBest": true
   },
   {
    "id": "1792530476-dd_bmw_m3_e46_rennsport",
@@ -6758,7 +6802,9 @@
    "car": "dd_bmw_m3_e46_rennsport",
    "carName": "BMW M3 E46 CSL GT3 Rennsport",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 2,
+   "newBest": false
   },
   {
    "id": "1792696538-dd_audi_rs6_gt3",
@@ -6766,7 +6812,9 @@
    "car": "dd_audi_rs6_gt3",
    "carName": "Audi RS6 GT3",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": true
   },
   {
    "id": "1792697450-dd_porsche_gt2rs_mr",
@@ -6774,7 +6822,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 2,
+   "newBest": true
   },
   {
    "id": "1792700870-dd_porsche_gt2rs_mr",
@@ -6782,7 +6832,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": true
   },
   {
    "id": "1792704427-dd_audi_rs6_v12",
@@ -6790,7 +6842,9 @@
    "car": "dd_audi_rs6_v12",
    "carName": "Audi RS6V12",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": true
   },
   {
    "id": "1792874150-dd_porsche_gt2rs_mr",
@@ -6798,7 +6852,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 2,
+   "newBest": true
   },
   {
    "id": "1792877733-dd_porsche_gt2rs_mr",
@@ -6806,7 +6862,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": true
   },
   {
    "id": "1792880115-dd_porsche_gt2rs_mr",
@@ -6814,7 +6872,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": true
   },
   {
    "id": "1792882174-dd_porsche_gt2rs_mr",
@@ -6822,7 +6882,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": true
   },
   {
    "id": "1792940080-dd_vw_golf8_rsi_dahlbaeck",
@@ -6830,7 +6892,9 @@
    "car": "dd_vw_golf8_rsi_dahlbaeck",
    "carName": "VW Golf 8 RSI Dahlbaeck Tribute",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1792947142-dd_audi_rs6_gt3",
@@ -6838,7 +6902,9 @@
    "car": "dd_audi_rs6_gt3",
    "carName": "Audi RS6 GT3",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 2,
+   "newBest": true
   },
   {
    "id": "1792959292-dd_porsche_gt2rs_mr",
@@ -6846,7 +6912,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 6,
+   "newBest": true
   },
   {
    "id": "1792966037-dd_audi_rs6_gt3",
@@ -6854,7 +6922,9 @@
    "car": "dd_audi_rs6_gt3",
    "carName": "Audi RS6 GT3",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 2,
+   "newBest": false
   },
   {
    "id": "1792968430-dd_audi_rs6_gt3",
@@ -6862,7 +6932,9 @@
    "car": "dd_audi_rs6_gt3",
    "carName": "Audi RS6 GT3",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": true
   },
   {
    "id": "1792970151-dd_bmw_m3_e46_gt3",
@@ -6870,7 +6942,9 @@
    "car": "dd_bmw_m3_e46_gt3",
    "carName": "BMW M3 E46 CSL GT3",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 2,
+   "newBest": false
   },
   {
    "id": "1792972467-dd_bmw_m3_e46_rennsport",
@@ -6878,7 +6952,9 @@
    "car": "dd_bmw_m3_e46_rennsport",
    "carName": "BMW M3 E46 CSL GT3 Rennsport",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1792973587-dd_audi_rs6_v12",
@@ -6886,7 +6962,9 @@
    "car": "dd_audi_rs6_v12",
    "carName": "Audi RS6V12",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1793021592-dd_porsche_gt2rs_mr",
@@ -6894,7 +6972,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1793025378-dd_bmw_m3_e46_clubsport",
@@ -6902,7 +6982,9 @@
    "car": "dd_bmw_m3_e46_clubsport",
    "carName": "BMW M3 E46 CSL Clubsport",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1793026295-dd_bmw_m3_e46_clubsport",
@@ -6910,7 +6992,9 @@
    "car": "dd_bmw_m3_e46_clubsport",
    "carName": "BMW M3 E46 CSL Clubsport",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1793030211-dd_audi_rs6_v12",
@@ -6918,7 +7002,9 @@
    "car": "dd_audi_rs6_v12",
    "carName": "Audi RS6V12",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1793032476-dd_porsche_gt2rs_mr",
@@ -6926,7 +7012,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1793044629-dd_audi_rs6_gt3",
@@ -6934,7 +7022,9 @@
    "car": "dd_audi_rs6_gt3",
    "carName": "Audi RS6 GT3",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1793046720-dd_audi_rs6_gt3",
@@ -6942,7 +7032,9 @@
    "car": "dd_audi_rs6_gt3",
    "carName": "Audi RS6 GT3",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1793051134-dd_bmw_m3_e46_rennsport",
@@ -6950,7 +7042,9 @@
    "car": "dd_bmw_m3_e46_rennsport",
    "carName": "BMW M3 E46 CSL GT3 Rennsport",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": true
   },
   {
    "id": "1793131592-dd_porsche_gt2rs_mr",
@@ -6958,7 +7052,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 2,
+   "newBest": false
   },
   {
    "id": "1793133020-dd_porsche_gt2rs_mr",
@@ -6966,7 +7062,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": true
   },
   {
    "id": "1793134596-dd_vw_golf8_rsi_dahlbaeck",
@@ -6974,7 +7072,9 @@
    "car": "dd_vw_golf8_rsi_dahlbaeck",
    "carName": "VW Golf 8 RSI Dahlbaeck Tribute",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1793135585-dd_vw_golf8_rsi_dahlbaeck",
@@ -6982,7 +7082,9 @@
    "car": "dd_vw_golf8_rsi_dahlbaeck",
    "carName": "VW Golf 8 RSI Dahlbaeck Tribute",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1793388180-dd_bmw_m3_e46_clubsport",
@@ -6990,7 +7092,9 @@
    "car": "dd_bmw_m3_e46_clubsport",
    "carName": "BMW M3 E46 CSL Clubsport",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1793405935-dd_bmw_m3_e46_clubsport",
@@ -6998,7 +7102,9 @@
    "car": "dd_bmw_m3_e46_clubsport",
    "carName": "BMW M3 E46 CSL Clubsport",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": true
   },
   {
    "id": "1793465819-dd_porsche_gt2rs_mr",
@@ -7006,7 +7112,9 @@
    "car": "dd_porsche_gt2rs_mr",
    "carName": "Porsche 911 GT2 RS MR",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1793473673-dd_bmw_m3_e46_rennsport",
@@ -7014,7 +7122,9 @@
    "car": "dd_bmw_m3_e46_rennsport",
    "carName": "BMW M3 E46 CSL GT3 Rennsport",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 2,
+   "newBest": false
   },
   {
    "id": "1793483130-ks_alfa_romeo_giulia_gtam",
@@ -7022,7 +7132,9 @@
    "car": "ks_alfa_romeo_giulia_gtam",
    "carName": "Alfa Romeo Giulia GTAm",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1793484571-ks_porsche_935",
@@ -7030,7 +7142,9 @@
    "car": "ks_porsche_935",
    "carName": "Porsche 935",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1793486032-ks_porsche_992_gt3_r_rennsport",
@@ -7038,7 +7152,9 @@
    "car": "ks_porsche_992_gt3_r_rennsport",
    "carName": "Porsche 992 GT3 R Rennsport",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   },
   {
    "id": "1793554613-dd_porsche_935_moby_dick",
@@ -7046,7 +7162,9 @@
    "car": "dd_porsche_935_moby_dick",
    "carName": "Porsche 935 Moby Dick",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 2,
+   "newBest": false
   },
   {
    "id": "1793565632-dd_vw_golf8_rsi_dahlbaeck",
@@ -7054,7 +7172,9 @@
    "car": "dd_vw_golf8_rsi_dahlbaeck",
    "carName": "VW Golf 8 RSI Dahlbaeck Tribute",
    "track": "Nurburgring",
-   "layout": "Touristenfahrten"
+   "layout": "Touristenfahrten",
+   "validLaps": 1,
+   "newBest": false
   }
  ],
  "focus": null,

@@ -99,6 +99,8 @@ pub struct CoachWhere {
     pub corners: Vec<u32>,
 }
 
+/// A digest in the history: its session, car and track, its valid laps, and whether its best lap beat the best
+/// before it with this car, preset, track and layout (`newBest`, false for the first).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CoachHistory {
@@ -108,6 +110,8 @@ pub struct CoachHistory {
     pub car_name: String,
     pub track: String,
     pub layout: String,
+    pub valid_laps: u32,
+    pub new_best: bool,
 }
 
 /// The skill the driver works on (`coach_focus_get`, `coach_focus_set`, `<config>/engineer/focus.json`), and when they
@@ -501,7 +505,16 @@ pub fn build(digests: &[CoachDigest], unseen: u32, generated_at: String) -> Coac
         driver: driver(digests),
         history: digests
             .iter()
-            .map(|d| CoachHistory { id: d.id.clone(), at: d.started_at.clone(), car: d.car.clone(), car_name: d.car_name.clone(), track: d.track.clone(), layout: d.layout.clone() })
+            .map(|d| CoachHistory {
+                id: d.id.clone(),
+                at: d.started_at.clone(),
+                car: d.car.clone(),
+                car_name: d.car_name.clone(),
+                track: d.track.clone(),
+                layout: d.layout.clone(),
+                valid_laps: d.valid_laps,
+                new_best: d.pb_before_ms.is_some_and(|pb| d.best_ms < pb),
+            })
             .collect(),
         focus: None,
         focus_since: None,
@@ -611,6 +624,9 @@ mod tests {
         let d = &p.driver;
         assert_eq!((d.sessions, d.laps, d.cars, d.tracks, d.since.as_str()), (60, 98, 11, 3, "2026-10-11T23:19:12+02:00"));
         assert_eq!((p.history.len(), p.recent.len(), p.focus, p.focus_since.clone()), (60, 50, None, None));
+        // the history counts the laps and the new best laps itself
+        assert_eq!(p.history.iter().map(|h| h.valid_laps).sum::<u32>(), d.laps);
+        assert_eq!(p.history.iter().filter(|h| h.new_best).count(), 22, "the sessions headlined new_best");
         // coast: the median of 60 sessions' coasting share (3.42 and 3.43 the middle two; Python rounds the 3.425 down,
         // Rust up), falling; the Alfa's single session the best car
         let coast = &d.skills[0];
