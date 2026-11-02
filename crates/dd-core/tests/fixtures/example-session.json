@@ -61,7 +61,7 @@
           "latGMax": 2.12,
           "balance": { "entry": 0.18, "mid": 0.04, "exit": -0.02 },
           "lockS": [0.12, 0.05, 0.0, 0.0],
-          "spinS": [0.0, 0.0, 0.0, 0.0]
+          "spinS": [0.0, 0.0, 0.0, 0.0], "corrections": 2, "lifts": 0
         },
         {
           "n": 2,
@@ -75,7 +75,7 @@
           "latGMax": 2.31,
           "balance": { "entry": null, "mid": 0.01, "exit": 0.02 },
           "lockS": [0.0, 0.0, 0.0, 0.0],
-          "spinS": [0.0, 0.0, 0.15, 0.12]
+          "spinS": [0.0, 0.0, 0.15, 0.12], "corrections": 3, "lifts": 1
         }
       ],
       "findings": ["brake_earlier", "throttle_later", "min_speed_lower", "lock_front", "spin_rear", "understeer_entry", "brake_hot"],
@@ -124,7 +124,7 @@
           "latGMax": 2.2,
           "balance": { "entry": 0.0, "mid": 0.0, "exit": 0.0 },
           "lockS": [0.0, 0.0, 0.0, 0.0],
-          "spinS": [0.0, 0.0, 0.0, 0.0]
+          "spinS": [0.0, 0.0, 0.0, 0.0], "corrections": 1, "lifts": 0
         },
         {
           "n": 2,
@@ -138,7 +138,7 @@
           "latGMax": 2.35,
           "balance": { "entry": null, "mid": 0.0, "exit": 0.0 },
           "lockS": [0.0, 0.0, 0.0, 0.0],
-          "spinS": [0.0, 0.0, 0.0, 0.0]
+          "spinS": [0.0, 0.0, 0.0, 0.0], "corrections": 2, "lifts": 0
         }
       ],
       "findings": ["pressure_high", "brake_hot"],

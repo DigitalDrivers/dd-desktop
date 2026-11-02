@@ -241,6 +241,14 @@ pub struct CornerResult {
     pub lock_s: [f64; 4],
     /// Seconds a wheel spun under throttle above 50 % (slip ratio above 0.15), FL FR RL RR
     pub spin_s: [f64; 4],
+    /// Steering corrections while the car corners (above 0.3 g and 50 km/h): the sign changes of the steering rate
+    /// beyond the turn-in and unwinding, two per correction ([`measure::report`]); null in reports of apps before 0.27.0
+    #[serde(default)]
+    pub corrections: Option<u32>,
+    /// Throttle lifts on the exit: drops of more than 20 % between the pick-up after the minimum speed and full
+    /// throttle; null in reports of apps before 0.27.0
+    #[serde(default)]
+    pub lifts: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

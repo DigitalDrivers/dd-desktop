@@ -23,7 +23,7 @@ const CONTRACT: [(&str, &[&str]); 17] = [
     ("laps[].brakes", &["tempMax", "secondsAbove700", "frontShare"]),
     ("laps[].balance[]", &["band", "relative", "samples"]),
     ("laps[].traction[]", &["gear", "spinShare", "samples"]),
-    ("laps[].corners[]", &["n", "dtS", "entryKmh", "brake", "minSpeed", "coastS", "throttle", "exitKmh", "latGMax", "balance", "lockS", "spinS"]),
+    ("laps[].corners[]", &["n", "dtS", "entryKmh", "brake", "minSpeed", "coastS", "throttle", "exitKmh", "latGMax", "balance", "lockS", "spinS", "corrections", "lifts"]),
     ("laps[].corners[].brake", &["pointM", "vsRefM", "peak", "releaseM"]),
     ("laps[].corners[].minSpeed", &["kmh", "atM", "vsRefKmh", "gear"]),
     ("laps[].corners[].throttle", &["pickupM", "fullM", "vsRefM"]),

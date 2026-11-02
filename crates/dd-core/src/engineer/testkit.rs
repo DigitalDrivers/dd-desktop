@@ -1,7 +1,10 @@
 //! Test data: a writer of MoTeC `.ld` files in the layout the game writes, and a car driving a parametric track,
 //! so every number of the engineer can be checked against a known answer.
 
+use super::corners::{Map, MapCorner};
+use super::cut::Grid;
 use super::laps::LocalLap;
+use super::Direction;
 
 /// A channel to write: f32 values, or i16 raw values with `dec` decimals (`value = raw × 10^-dec`).
 pub struct Chan {
@@ -264,4 +267,58 @@ pub fn local_laps(session: &Session, start_ms: i64) -> Vec<LocalLap> {
         layout: "GP".into(),
         session_start_ms: start_ms + (session.laps[0].0 * 1000.0).round() as i64,
     }).collect()
+}
+
+/// One corner by hand on a 500 m grid, a point every metre, for the smoothness: the car slows from 40 to 20 m/s at
+/// the apex (250 m) and speeds up again, corners at 1 g from 100 to 400 m, turns in to 60° of steering from 100 to
+/// 150 m and unwinds from 350 to 400 m; the throttle comes at the apex, rises to 100 % at 300 m. `correction` takes
+/// 10° off the steering from 195 to 200 m and puts it back by 210 m, `lift` lifts the throttle by 30 % from 280 to
+/// 285 m, `jitter` wobbles the steering with that rate in °/s at most (a sine of 0.25 s).
+pub fn corner_grid(correction: bool, lift: bool, jitter: f64) -> (Grid, Map) {
+    let n = 501;
+    let speed: Vec<f64> = (0..n).map(|i| 20.0 + 20.0 * (i as f64 - 250.0).abs() / 250.0).collect();
+    let mut t = vec![0.0; n];
+    for i in 1..n {
+        t[i] = t[i - 1] + 2.0 / (speed[i] + speed[i - 1]);
+    }
+    let period = 0.25;
+    let steer: Vec<f64> = (0..n)
+        .map(|i| {
+            let m = i as f64;
+            let base = match m {
+                m if m < 100.0 => 0.0,
+                m if m < 150.0 => 60.0 * (m - 100.0) / 50.0,
+                m if m < 350.0 => 60.0,
+                m if m < 400.0 => 60.0 * (400.0 - m) / 50.0,
+                _ => 0.0,
+            };
+            let dip = match m {
+                m if correction && (195.0..200.0).contains(&m) => 10.0 * (m - 195.0) / 5.0,
+                m if correction && (200.0..205.0).contains(&m) => 10.0,
+                m if correction && (205.0..210.0).contains(&m) => 10.0 * (210.0 - m) / 5.0,
+                _ => 0.0,
+            };
+            base - dip + jitter * period / std::f64::consts::TAU * (std::f64::consts::TAU * t[i] / period).sin()
+        })
+        .collect();
+    let throttle: Vec<f64> = (0..n)
+        .map(|i| {
+            let m = i as f64;
+            let base = if m < 250.0 { 0.0 } else { (100.0 * (m - 250.0) / 50.0).min(100.0) };
+            if lift && (280.0..285.0).contains(&m) { base - 30.0 } else { base }
+        })
+        .collect();
+    let g = Grid {
+        t,
+        throttle,
+        brake: vec![0.0; n],
+        steer,
+        gear: vec![3.0; n],
+        g_lat: (0..n).map(|i| if (100..400).contains(&i) { 1.0 } else { 0.0 }).collect(),
+        yaw: vec![0.0; n],
+        slip: std::array::from_fn(|_| vec![0.0; n]),
+        speed,
+    };
+    let corner = MapCorner { n: 1, start_m: 0.0, end_m: 500.0, apex_m: 250.0, turn_in_m: 100.0, turn_out_m: 400.0, direction: Direction::L, radius_m: 40.0 };
+    (g, Map { version: 1, frozen: false, agreed: vec![], length_m: 500.0, corners: vec![corner] })
 }

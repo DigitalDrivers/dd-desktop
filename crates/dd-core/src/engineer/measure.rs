@@ -57,6 +57,18 @@ const LOCK_REAR: f64 = 0.005;
 const BALANCE: f64 = 0.25;
 const BALANCE_SAMPLES: u32 = 1000;
 const BALANCE_FUEL_L: f64 = 5.0;
+/// Smoothness ([`corrections`], [`lifts`]) counts while the car corners: above this lateral g and this speed (m/s).
+const SMOOTH_G: f64 = 0.3;
+const SMOOTH_SPEED: f64 = 50.0 / 3.6;
+/// The steering rate (°/s) is taken over 0.1 s, and one within 1 °/s is noise: the game's steering channel moves in
+/// steps of 0.035° (Joe's 935 Moby Dick, 2026-11-01) to 0.045° (Golf 8 RSI) at 60 Hz, so the flicker of one step
+/// reads 2.1 to 2.7 °/s between two samples but 0.35 to 0.45 °/s over 0.1 s; a hand's correction moves the wheel tens
+/// of degrees per second. On that 935 lap (72 corners) the counts barely depend on it: 4.0 corrections per corner
+/// with no threshold, 3.7 at 1 °/s, 3.4 at 3 °/s.
+const STEER_RATE: f64 = 1.0;
+const STEER_RATE_S: f64 = 0.1;
+/// A throttle lift on the exit: the pedal this much (%) below its highest since the pick-up, before full throttle.
+const LIFT: f64 = 20.0;
 
 /// The driver's own standard deviation at a corner over the pace laps, without the lap judged: braking point,
 /// throttle pick-up, minimum speed, exit speed (the order of [`CornerMeasure::pace_numbers`]); None with fewer than 3.
@@ -144,6 +156,12 @@ pub struct CornerMeasure {
     pub balance: [Option<f64>; 3],
     pub lock_s: [f64; 4],
     pub spin_s: [f64; 4],
+    /// Steering corrections and throttle lifts on the exit ([`corrections`], [`lifts`]); 0 in the references of apps
+    /// before 0.27.0
+    #[serde(default)]
+    pub corrections: u32,
+    #[serde(default)]
+    pub lifts: u32,
 }
 
 impl CornerMeasure {
@@ -186,6 +204,53 @@ fn steer_per_yaw(g: &Grid, points: impl Iterator<Item = usize>) -> Option<f64> {
 fn median(mut values: Vec<f64>) -> f64 {
     values.sort_by(f64::total_cmp);
     values[values.len() / 2]
+}
+
+/// The steering corrections over the points `a..b` while the car corners (lateral g above [`SMOOTH_G`], faster than
+/// [`SMOOTH_SPEED`]): the sign changes of the steering rate over [`STEER_RATE_S`], a rate within [`STEER_RATE`] left
+/// out. Turning in and
+/// unwinding again is one sign change of its own; every correction (back, and on again) adds two. So each stretch of
+/// cornering counts half its sign changes, rounded down: a smooth corner 0, one correction 1.
+fn corrections(g: &Grid, a: usize, b: usize) -> u32 {
+    let (mut total, mut changes, mut last, mut j) = (0, 0, 0.0, a);
+    for i in a..b {
+        if g.g_lat[i].abs() <= SMOOTH_G || g.speed[i] <= SMOOTH_SPEED {
+            total += changes / 2;
+            (changes, last) = (0, 0.0);
+            continue;
+        }
+        // the rate over the next STEER_RATE_S
+        while j + 1 < g.t.len() && (j <= i || g.t[j] - g.t[i] < STEER_RATE_S) {
+            j += 1;
+        }
+        let rate = (g.steer[j] - g.steer[i]) / (g.t[j] - g.t[i]);
+        if rate.abs() <= STEER_RATE {
+            continue;
+        }
+        if last != 0.0 && rate.signum() != last {
+            changes += 1;
+        }
+        last = rate.signum();
+    }
+    total + changes / 2
+}
+
+/// The throttle lifts on the exit between the pick-up `pickup` and full throttle `full` (none without full throttle:
+/// a lift then is the driver going back off for what follows): each time the pedal falls more than [`LIFT`] below its
+/// highest since the pick-up or since it came back up after the last lift.
+fn lifts(g: &Grid, pickup: Option<usize>, full: Option<usize>) -> u32 {
+    let (Some(pickup), Some(full)) = (pickup, full) else { return 0 };
+    let (mut lifts, mut peak, mut low) = (0, g.throttle[pickup], None::<f64>);
+    for &throttle in &g.throttle[pickup..full] {
+        match low {
+            // after a lift: once the pedal comes up again, the next lift counts from there
+            Some(l) if throttle > l => (peak, low) = (throttle, None),
+            Some(l) => low = Some(l.min(throttle)),
+            None if peak - throttle > LIFT => (lifts, low) = (lifts + 1, Some(throttle)),
+            None => peak = peak.max(throttle),
+        }
+    }
+    lifts
 }
 
 fn corner(g: &Grid, map: &Map, fit: &Fit, c: usize) -> CornerMeasure {
@@ -254,6 +319,8 @@ fn corner(g: &Grid, map: &Map, fit: &Fit, c: usize) -> CornerMeasure {
         balance: balance.map(|v| v.map(|v| round(v, 3))),
         lock_s: lock_s.map(|s| round(s, 2)),
         spin_s: spin_s.map(|s| round(s, 2)),
+        corrections: corrections(g, a, b),
+        lifts: lifts(g, pickup, full),
     }
 }
 
@@ -421,6 +488,8 @@ pub fn report(id: &str, n: u32, lap: &LocalLap, source: TimeSource, m: &LapMeasu
                 balance: CornerBalance { entry: balance[0], mid: balance[1], exit: balance[2] },
                 lock_s: own.lock_s,
                 spin_s: own.spin_s,
+                corrections: Some(own.corrections),
+                lifts: Some(own.lifts),
             }
         })
         .collect();
@@ -836,6 +905,48 @@ mod tests {
         // a braking that began before the lap's start has no known point
         g.brake[..=10].fill(50.0);
         assert_eq!(corner(&g, &map, &fit, 0).point_m, None);
+    }
+
+    #[test]
+    fn counts_the_steering_corrections_and_throttle_lifts_of_a_corner() {
+        let smooth = |correction: bool, lift: bool, jitter: f64| {
+            let (g, map) = testkit::corner_grid(correction, lift, jitter);
+            let c = corner(&g, &map, &Fit { scale: 1.0, offset: 0.0, matched: 1 }, 0);
+            (c.corrections, c.lifts)
+        };
+        // turning in and unwinding is no correction; lifting before the pick-up is no lift
+        assert_eq!(smooth(false, false, 0.0), (0, 0));
+        assert_eq!(smooth(true, false, 0.0), (1, 0));
+        assert_eq!(smooth(false, true, 0.0), (0, 1));
+        assert_eq!(smooth(true, true, 0.0), (1, 1));
+        // a wobble of up to 1 °/s is noise; one of 5 °/s is the driver sawing at the wheel
+        assert_eq!(smooth(false, false, 1.0), (0, 0));
+        assert!(smooth(false, false, 5.0).0 >= 10, "{:?}", smooth(false, false, 5.0));
+        // below 0.3 g or 50 km/h nothing counts
+        let (mut g, map) = testkit::corner_grid(true, false, 0.0);
+        g.g_lat.fill(0.29);
+        assert_eq!(corner(&g, &map, &Fit { scale: 1.0, offset: 0.0, matched: 1 }, 0).corrections, 0);
+        g.g_lat.fill(1.0);
+        g.speed.fill(13.8);
+        assert_eq!(corner(&g, &map, &Fit { scale: 1.0, offset: 0.0, matched: 1 }, 0).corrections, 0);
+    }
+
+    #[test]
+    fn a_lift_counts_only_between_the_pick_up_and_full_throttle() {
+        let (mut g, _) = testkit::corner_grid(false, false, 0.0);
+        let (pickup, full) = (Some(271), Some(298));
+        // the pedal rises 2 % a metre, 58 % at 279 m: a dip of 20 % below that is none, of 21 % one; two dips with
+        // the pedal back up in between are two
+        g.throttle[280] = 38.0;
+        assert_eq!(lifts(&g, pickup, full), 0);
+        g.throttle[280] = 37.0;
+        assert_eq!(lifts(&g, pickup, full), 1);
+        g.throttle[290] = 40.0;
+        assert_eq!(lifts(&g, pickup, full), 2);
+        // the pedal going down in steps is one lift; without full throttle there is no exit to measure
+        g.throttle[281..286].fill(10.0);
+        assert_eq!(lifts(&g, pickup, full), 2);
+        assert_eq!(lifts(&g, pickup, None), 0);
     }
 
     #[test]
