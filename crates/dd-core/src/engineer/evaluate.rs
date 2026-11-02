@@ -236,7 +236,7 @@ fn numbers(m: &LapMeasures) -> Vec<[Option<f64>; 4]> {
 }
 
 /// Touristenfahrten: the recording starts at the pit exit, the timed lap at the start split.
-fn touristenfahrten(track: &str, layout: &str) -> bool {
+pub(crate) fn touristenfahrten(track: &str, layout: &str) -> bool {
     layout.to_lowercase().contains("touristenfahrt") || track.to_lowercase().contains("touristenfahrt")
 }
 

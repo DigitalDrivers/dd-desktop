@@ -197,8 +197,8 @@ fn evaluates_a_real_session_from_its_beacons_alone() {
 }
 
 /// Runs with `DD_ENGINEER_DIR=<a copy of the app's engineer folder> cargo test -p dd-core --test engineer -- --ignored
-/// --nocapture coach`: the one-off upgrade (the old pressure window out, the digests of the stored sessions) on the
-/// copy, and the coach's profile of it, printed.
+/// --nocapture coach`: the one-off upgrade (the old pressure window out, the digests of the stored sessions, their
+/// version 2) on the copy, and the coach's profile of it, printed.
 #[test]
 #[ignore]
 fn builds_the_coach_s_profile_from_a_copy_of_the_stored_sessions() {
@@ -212,6 +212,11 @@ fn builds_the_coach_s_profile_from_a_copy_of_the_stored_sessions() {
     }
     for w in &p.work_items {
         println!("work item {:?} {} {}: {} against {} ({}), where {:?}", w.metric, w.car, w.layout, w.value, w.best_value, w.best_car, w.r#where);
+    }
+    let d = &p.driver;
+    println!("driver: {} sessions, {} laps, {} cars, {} tracks since {}, focus {:?}", d.sessions, d.laps, d.cars, d.tracks, d.since, p.focus);
+    for s in &d.skills {
+        println!("  {:?} {:?} ({} measured), trend {:?}, best car {:?}, where {:?}", s.key, s.value, s.history.iter().flatten().count(), s.trend, s.cars.first().map(|c| (&c.car, c.value)), s.r#where.as_ref().map(|w| &w.corners));
     }
     let headlines: Vec<String> = p.recent.iter().map(|d| serde_json::to_value(&d.headline).unwrap()["code"].as_str().unwrap().to_string()).collect();
     println!("headlines of the recent: {headlines:?}");

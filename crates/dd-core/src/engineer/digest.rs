@@ -3,7 +3,9 @@
 //! profile ([`super::profile`]). The types are the contract with the platform
 //! (`research/2026-10-21-renningenieur-coach/contract-coach.ts`), which uploads the digests with the driver's `coach`
 //! consent; each line also carries whether it was uploaded (`sent`) and when it was written (`writtenMs`, 0 for the
-//! digests made once from the sessions stored before 0.26.0), for the coach's "new since you last looked".
+//! digests made once from the sessions stored before 0.26.0), for the coach's "new since you last looked". Version 2
+//! (0.27.0, `research/2026-11-02-coach-v2/contract-coach-v2.ts`) adds the skills as per-cent values comparable
+//! across cars and tracks and the smoothness; the digests of version 1 are rewritten once ([`upgrade`]).
 
 use std::fs;
 use std::io;
@@ -12,6 +14,8 @@ use std::sync::{Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
 
+use super::evaluate::touristenfahrten;
+use super::profile::{self, SkillKey};
 use super::{round, store, EngineerLap, EngineerSession, EngineerTrace, Finding, TargetPsi};
 
 pub const FILE: &str = "digests.jsonl";
@@ -23,6 +27,8 @@ const PEDAL: f64 = 5.0;
 const SLOW_KMH: f64 = 30.0;
 /// `engineer_digests` hands out at most this many at once.
 const PENDING_MAX: usize = 50;
+/// On a circuit the tyres are judged after this many laps of the session (the out lap and the first warm lap).
+const WARM_UP_LAPS: u32 = 2;
 
 /// Reading and writing the digests and the coach's state happen under this lock: the evaluation and the page's
 /// commands run on different threads.
@@ -83,6 +89,34 @@ pub struct CoachDigest {
     /// The best lap's findings of the lap (not of its corners)
     pub findings: Vec<Finding>,
     pub headline: CoachHeadline,
+    /// Version 2: the best lap's coasting as a share of its time (%)
+    #[serde(default)]
+    pub coast_pct: f64,
+    /// The front lock share in %, null without a braking time
+    #[serde(default)]
+    pub lock_pct: Option<f64>,
+    /// The rear wheelspin as a share of the lap's time (%)
+    #[serde(default)]
+    pub spin_pct: f64,
+    /// Steering corrections and throttle lifts per corner of the best lap, null for reports before 0.27.0
+    #[serde(default)]
+    pub smooth_per_corner: Option<f64>,
+    /// The best lap's gap to the theoretical best (%), null without one
+    #[serde(default)]
+    pub pace_pct: Option<f64>,
+    /// The spread as a share of the best lap (%), null with one valid lap
+    #[serde(default)]
+    pub spread_pct: Option<f64>,
+    /// Valid laps of the laps, pit laps left out (%)
+    #[serde(default)]
+    pub clean_pct: f64,
+    /// Valid laps after the warm-up (on a circuit the session's first two) with all four end pressures inside their
+    /// window, of those laps (%); null when none of them has a window
+    #[serde(default)]
+    pub tyres_pct: Option<f64>,
+    /// The corners with the most corrections and lifts in the best lap, at most 3
+    #[serde(default)]
+    pub smooth_corners: Vec<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -112,10 +146,12 @@ pub enum CoachHeadline {
     OffBest { delta_ms: i64, preset: Option<String> },
 }
 
-/// `engineer_digests`: the digests not yet uploaded, the oldest first.
+/// `engineer_digests`: the digests not yet uploaded, the oldest first, and the focus the driver chose (uploaded with
+/// them).
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct CoachDigestsPending {
     pub digests: Vec<CoachDigest>,
+    pub focus: Option<SkillKey>,
 }
 
 /// A line of `digests.jsonl`.
@@ -146,6 +182,21 @@ fn most(lap: &EngineerLap, value: impl Fn(&super::CornerResult) -> f64) -> Vec<u
     let mut corners: Vec<(u32, f64)> = lap.corners.iter().map(|c| (c.n, value(c))).collect();
     corners.sort_by(|a, b| b.1.total_cmp(&a.1));
     corners.into_iter().take(3).filter(|(_, v)| *v > 0.0).map(|(n, _)| n).collect()
+}
+
+/// The values of version 2 that follow from a digest's own fields: what a digest of version 1 becomes without its
+/// session. [`digest`] then counts the clean laps without the pit laps, the tyres after the warm-up and the
+/// smoothness from the session's laps.
+fn per_cent(d: &mut CoachDigest) {
+    let lap_s = d.best_ms as f64 / 1000.0;
+    d.version = 2;
+    d.coast_pct = round(d.coast_s / lap_s * 100.0, 2);
+    d.lock_pct = d.lock_front_share.map(|s| round(s * 100.0, 2));
+    d.spin_pct = round(d.spin_s / lap_s * 100.0, 2);
+    d.pace_pct = d.theoretical_best_ms.filter(|t| *t > 0).map(|t| round((d.best_ms as f64 / t as f64 - 1.0) * 100.0, 2));
+    d.spread_pct = d.spread_ms.map(|s| round(s as f64 / d.best_ms as f64 * 100.0, 2));
+    d.clean_pct = round(d.valid_laps as f64 / d.laps as f64 * 100.0, 2);
+    d.tyres_pct = d.laps_in_window.map(|n| round(n as f64 / d.valid_laps as f64 * 100.0, 2));
 }
 
 /// The digest of a session (its laps as they count: a caller drops the laps another session holds), without the
@@ -179,8 +230,16 @@ pub fn digest(s: &EngineerSession, traces: Option<&[EngineerTrace]>) -> Option<C
     findings.extend(front_share.filter(|s| *s > LOCK_FRONT).map(|_| Finding::LockFront));
     findings.extend(rear_share.filter(|s| *s > LOCK_REAR).map(|_| Finding::LockRear));
     findings.sort();
-    Some(CoachDigest {
-        version: 1,
+    // smoothness: every corner of the best lap measured it (reports from 0.27.0 on)
+    let smooth = |c: &super::CornerResult| Some(c.corrections? + c.lifts?);
+    let smooth_sum = best.corners.iter().map(smooth).sum::<Option<u32>>().filter(|_| !best.corners.is_empty());
+    // clean laps without the pit laps; the tyres after the warm-up on a circuit
+    let driven: Vec<&EngineerLap> = s.laps.iter().filter(|l| !l.pit).collect();
+    let clean = driven.iter().filter(|l| l.valid && l.lap_time_ms.is_some()).count();
+    let tf = touristenfahrten(&s.track, &s.layout);
+    let warm: Vec<&&EngineerLap> = valid.iter().filter(|l| tf || l.n > WARM_UP_LAPS).collect();
+    let mut d = CoachDigest {
+        version: 2,
         id: s.id.clone(),
         car: s.car.clone(),
         car_name: s.car_name.clone(),
@@ -214,7 +273,24 @@ pub fn digest(s: &EngineerSession, traces: Option<&[EngineerTrace]>) -> Option<C
         spin_corners: most(best, |c| c.spin_s[2].max(c.spin_s[3])),
         findings,
         headline: CoachHeadline::FirstCar,
-    })
+        coast_pct: 0.0,
+        lock_pct: None,
+        spin_pct: 0.0,
+        smooth_per_corner: None,
+        pace_pct: None,
+        spread_pct: None,
+        clean_pct: 0.0,
+        tyres_pct: None,
+        smooth_corners: Vec::new(),
+    };
+    per_cent(&mut d);
+    d.clean_pct = round(clean as f64 / driven.len().max(1) as f64 * 100.0, 2);
+    d.tyres_pct = warm.iter().any(|l| l.tyres.target_psi.is_some()).then(|| round(warm.iter().filter(|l| in_window(l)).count() as f64 / warm.len() as f64 * 100.0, 2));
+    d.smooth_per_corner = smooth_sum.map(|n| round(n as f64 / best.corners.len() as f64, 2));
+    if smooth_sum.is_some() {
+        d.smooth_corners = most(best, |c| smooth(c).unwrap_or(0) as f64);
+    }
+    Some(d)
 }
 
 /// Fills in the best before this session and the headline, from the digests of the sessions that started before it.
@@ -300,11 +376,36 @@ pub(crate) fn backfill(dir: &Path, sessions: &[EngineerSession]) -> io::Result<u
     Ok(written)
 }
 
-/// The digests not yet uploaded, the oldest first, at most 50.
+/// Version 2 of the digests of version 1: made again from the stored session (each lap once: [`store::physical`])
+/// where the app still keeps it, from the digest's own fields where not (no smoothness then); the best before and the
+/// headline stay, and each goes up again. Called by [`store::upgrade`] under the lock. Answers how many it rewrote.
+pub(crate) fn upgrade(dir: &Path, sessions: &[EngineerSession]) -> io::Result<usize> {
+    let mut all = load(dir);
+    let mut rewritten = 0;
+    for stored in all.iter_mut().filter(|s| s.digest.version < 2) {
+        let old = &stored.digest;
+        let session = sessions.iter().find(|s| s.id == old.id);
+        let traces = session.filter(|s| s.laps.iter().any(|l| l.braking_s.is_none())).and_then(|s| store::traces(dir, &s.id));
+        let mut d = session.and_then(|s| digest(s, traces.as_deref())).unwrap_or_else(|| {
+            let mut d = old.clone();
+            per_cent(&mut d);
+            d
+        });
+        (d.pb_before_ms, d.headline) = (old.pb_before_ms, old.headline.clone());
+        (stored.digest, stored.sent) = (d, false);
+        rewritten += 1;
+    }
+    if rewritten > 0 {
+        save(dir, &all)?;
+    }
+    Ok(rewritten)
+}
+
+/// The digests not yet uploaded, the oldest first, at most 50, and the driver's focus.
 pub fn pending(dir: &Path) -> io::Result<CoachDigestsPending> {
     store::upgrade(dir)?;
     let _lock = lock();
-    Ok(CoachDigestsPending { digests: load(dir).into_iter().filter(|s| !s.sent).take(PENDING_MAX).map(|s| s.digest).collect() })
+    Ok(CoachDigestsPending { digests: load(dir).into_iter().filter(|s| !s.sent).take(PENDING_MAX).map(|s| s.digest).collect(), focus: profile::focus(dir).focus })
 }
 
 /// Deletes the digest of session `id` (the driver deleted the session); nothing when there is none.
@@ -394,6 +495,86 @@ mod tests {
     }
 
     #[test]
+    fn version_2_has_the_skills_in_per_cent_and_the_smoothness_of_the_best_lap() {
+        let mut s: EngineerSession = serde_json::from_str(include_str!("../../tests/fixtures/example-session.json")).unwrap();
+        s.laps[1].lap_time_ms = Some(380_000);
+        let d = digest(&s, None).unwrap();
+        // lap 1 (375.78 s, theoretical best 366.95 s, spread 2.11 s): 0.12 s coasting, 0.15 s spinning, 0.12 s of
+        // 61.3 s braking locked; on Touristenfahrten every valid lap's tyres count, lap 1's in its window, lap 2's not
+        assert_eq!(d.version, 2);
+        assert_eq!((d.coast_pct, d.lock_pct, d.spin_pct, d.pace_pct, d.spread_pct, d.clean_pct, d.tyres_pct), (0.03, Some(0.2), 0.04, Some(2.41), Some(0.56), 100.0, Some(50.0)));
+        // T1 2 corrections, T2 3 and a lift: 6 over 2 corners, T2 the least smooth
+        assert_eq!((d.smooth_per_corner, d.smooth_corners.clone()), (Some(3.0), vec![2, 1]));
+        // a pit lap is no lap; on a circuit the tyres count from the session's third lap
+        s.laps[1].pit = true;
+        s.laps[1].valid = false;
+        assert_eq!((digest(&s, None).unwrap().valid_laps, digest(&s, None).unwrap().clean_pct), (1, 100.0));
+        s.laps[1].pit = false;
+        assert_eq!(digest(&s, None).unwrap().clean_pct, 50.0);
+        s.laps[1].valid = true;
+        s.layout = "GP".into();
+        assert_eq!(digest(&s, None).unwrap().tyres_pct, None, "laps 1 and 2 are the warm-up");
+        s.laps[0].n = 3;
+        s.laps[1].n = 4;
+        assert_eq!(digest(&s, None).unwrap().tyres_pct, Some(50.0));
+        // a report before 0.27.0 has no smoothness
+        s.laps[0].corners[1].lifts = None;
+        let old = digest(&s, None).unwrap();
+        assert_eq!((old.smooth_per_corner, old.smooth_corners), (None, vec![]));
+        let json = serde_json::to_value(digest(&s, None).unwrap()).unwrap();
+        for key in ["coastPct", "lockPct", "spinPct", "smoothPerCorner", "pacePct", "spreadPct", "cleanPct", "tyresPct", "smoothCorners"] {
+            assert!(json.get(key).is_some(), "{key}");
+        }
+    }
+
+    /// `d` as app 0.26 stored it: version 1, without the fields of version 2, uploaded, written at `written_ms`.
+    fn stored_v1(d: &CoachDigest, written_ms: i64) -> String {
+        let mut v = serde_json::to_value(d).unwrap();
+        let o = v.as_object_mut().unwrap();
+        for key in ["coastPct", "lockPct", "spinPct", "smoothPerCorner", "pacePct", "spreadPct", "cleanPct", "tyresPct", "smoothCorners"] {
+            o.remove(key);
+        }
+        o.insert("version".into(), 1.into());
+        o.insert("sent".into(), true.into());
+        o.insert("writtenMs".into(), written_ms.into());
+        v.to_string()
+    }
+
+    #[test]
+    fn rewrites_the_digests_of_version_1_once_from_their_sessions_where_kept() {
+        let dir = temp("upgrade");
+        // kept: its second lap a pit lap, not valid; gone: only its digest is left
+        let mut kept = session("1793100000-dd_x", &[429_000, 431_000], "p");
+        kept.laps[1].pit = true;
+        kept.laps[1].valid = false;
+        let gone = session("1793200000-dd_x", &[428_000, 428_500], "p");
+        store::save_session(&dir, &kept, &[]).unwrap();
+        let (mut a, b) = (digest(&kept, None).unwrap(), digest(&gone, None).unwrap());
+        a.headline = CoachHeadline::NearBest { delta_ms: 7, preset: None };
+        fs::write(dir.join(FILE), format!("{}\n{}\n", stored_v1(&a, 5), stored_v1(&b, 6))).unwrap();
+        let state = store::CoachState { pressures_cleared: true, backfilled: true, pace_seeded: true, ..Default::default() };
+        store::save_coach_state(&dir, &state).unwrap();
+        let read = load(&dir);
+        assert_eq!((read[0].digest.version, read[0].digest.coast_pct, read[0].digest.smooth_per_corner), (1, 0.0, None), "a line of 0.26 reads");
+        store::upgrade(&dir).unwrap();
+        let all = load(&dir);
+        let [x, y] = [&all[0], &all[1]];
+        // made again from its session: the pit lap left out of the clean laps, the smoothness of its corners; the
+        // headline as it was; to upload again, not new to the driver
+        assert_eq!((x.digest.version, x.digest.clean_pct, x.digest.smooth_per_corner, &x.digest.headline), (2, 100.0, Some(1.5), &a.headline));
+        assert_eq!((x.sent, x.written_ms), (false, 5));
+        // from its own fields: 2 valid of 2 laps, no smoothness
+        assert_eq!((y.digest.version, y.digest.clean_pct, y.digest.smooth_per_corner, y.digest.pace_pct, y.sent, y.written_ms), (2, 100.0, None, b.pace_pct, false, 6));
+        assert_eq!(y.digest, CoachDigest { smooth_per_corner: None, smooth_corners: vec![], ..b.clone() });
+        assert!(store::coach_state(&dir).digests_v2);
+        // once
+        mark_sent(&dir, &[a.id.clone(), b.id.clone()]).unwrap();
+        store::upgrade(&dir).unwrap();
+        assert!(pending(&dir).unwrap().digests.is_empty());
+        store::forget(&dir).unwrap();
+    }
+
+    #[test]
     fn an_old_report_s_braking_time_comes_from_its_curves() {
         let mut s: EngineerSession = serde_json::from_str(include_str!("../../tests/fixtures/example-session.json")).unwrap();
         s.laps[1].lap_time_ms = Some(380_000);
@@ -446,9 +627,10 @@ mod tests {
             checked += 1;
         }
         assert_eq!(checked, 23);
-        // and the fixture reads as the contract's digests, every field
+        // and a digest has the fields of the contract's (version 2) digests
         let written = serde_json::to_value(&recent[0]).unwrap();
-        let fixture = profile["recent"].as_array().unwrap().last().unwrap();
+        let v2: Value = serde_json::from_str(include_str!("../../tests/fixtures/example-profile-v2.json")).unwrap();
+        let fixture = v2["recent"].as_array().unwrap().last().unwrap();
         let keys = |v: &Value| v.as_object().unwrap().keys().cloned().collect::<std::collections::BTreeSet<_>>();
         assert_eq!(keys(&written), keys(fixture));
     }
@@ -529,7 +711,7 @@ mod tests {
         // a line in the file is the contract's digest with the two of the PC
         let line = fs::read_to_string(dir.join(FILE)).unwrap().lines().next().unwrap().to_string();
         let value: Value = serde_json::from_str(&line).unwrap();
-        assert_eq!((value["id"].as_str(), value["sent"].as_bool(), value["writtenMs"].as_i64(), value["version"].as_i64()), (Some(s2.id.as_str()), Some(false), Some(30), Some(1)));
+        assert_eq!((value["id"].as_str(), value["sent"].as_bool(), value["writtenMs"].as_i64(), value["version"].as_i64()), (Some(s2.id.as_str()), Some(false), Some(30), Some(2)));
         store::forget(&dir).unwrap();
     }
 }

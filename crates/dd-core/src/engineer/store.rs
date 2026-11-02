@@ -379,6 +379,9 @@ pub struct CoachState {
     /// The references' own spread was seeded from the stored reports
     #[serde(default)]
     pub pace_seeded: bool,
+    /// The digests of version 1 were rewritten as version 2 ([`digest::upgrade`])
+    #[serde(default)]
+    pub digests_v2: bool,
     /// When the driver last opened the coach, unix ms (0: never)
     #[serde(default)]
     pub seen_ms: i64,
@@ -430,7 +433,8 @@ pub fn clear_old_pressures(dir: &Path) -> io::Result<usize> {
 }
 
 /// The engineer's one-off changes to the stored data, each once (remembered in `coach.json`): the old pressure
-/// window out, then from the stored sessions (each lap once) the references' own spread and the coach's digests.
+/// window out, then from the stored sessions (each lap once) the references' own spread, the coach's digests and
+/// version 2 of those written before 0.27.0.
 pub fn upgrade(dir: &Path) -> io::Result<()> {
     let _lock = digest::lock();
     let mut state = coach_state(dir);
@@ -439,7 +443,7 @@ pub fn upgrade(dir: &Path) -> io::Result<()> {
         state.pressures_cleared = true;
         save_coach_state(dir, &state)?;
     }
-    if !state.pace_seeded || !state.backfilled {
+    if !state.pace_seeded || !state.backfilled || !state.digests_v2 {
         let sessions = physical(dir);
         if !state.pace_seeded {
             seed_pace(dir, &sessions)?;
@@ -449,6 +453,11 @@ pub fn upgrade(dir: &Path) -> io::Result<()> {
         if !state.backfilled {
             digest::backfill(dir, &sessions)?;
             state.backfilled = true;
+            save_coach_state(dir, &state)?;
+        }
+        if !state.digests_v2 {
+            digest::upgrade(dir, &sessions)?;
+            state.digests_v2 = true;
             save_coach_state(dir, &state)?;
         }
     }
