@@ -84,7 +84,8 @@ driver can check what the app does on their PC.
   session on its own. Since 0.26.0 it also keeps a digest of each evaluated session for the coach (about 1 KB: best
   lap, theoretical best, spread, coasting, lock-ups, wheelspin, pressures, the costliest corners) in
   `engineer\digests.jsonl`, for ever, whatever the days you chose, and in `engineer\coach.json` when you last opened
-  the coach. "Forget everything" deletes the whole `engineer` folder. Nothing of it leaves the PC: only when you ask
+  the coach (since 0.27.0 the digest also holds the skills as per-cent values and the steering corrections and
+  throttle lifts per corner, and `engineer\focus.json` the skill you chose to work on, uploaded with the digests). "Forget everything" deletes the whole `engineer` folder. Nothing of it leaves the PC: only when you ask
   the AI engineer on the platform, and agreed to the AI evaluation there, the page sends the computed numbers of a
   session (never the curves), and only with your consent to the coach on the platform the page uploads the digests.
   The MoTeC folder and the logs are only read.
@@ -175,8 +176,11 @@ engineer. The coach (since 0.26.0, `digest.rs`, `profile.rs`; the contract is
 `research/2026-10-21-renningenieur-coach/contract-coach.ts` in the workspace, its example
 `crates/dd-core/tests/fixtures/example-profile.json`): `engineer_profile` answers the `CoachProfile` computed from
 the digests, `engineer_seen` notes that the driver opened the coach (`unseen` counts the sessions evaluated since),
-`engineer_digests` answers `{ digests }`, those not yet uploaded, the oldest first, at most 50, and
-`engineer_digests_sent` (`{ ids }`) marks them as uploaded. A MoTeC file's data ends at the car's last lap
+`engineer_digests` answers `{ digests, focus }`, those not yet uploaded, the oldest first, at most 50, and
+`engineer_digests_sent` (`{ ids }`) marks them as uploaded. Coach v2 (0.27.0, digests of version 2 and the profile's
+`driver`; contract `research/2026-11-02-coach-v2/contract-coach-v2.ts`, example
+`crates/dd-core/tests/fixtures/example-profile-v2.json`): `coach_focus_get` answers `{ focus, focusSince }`,
+`coach_focus_set` (`{ focus }`, one of the eight skills or null) sets it. A MoTeC file's data ends at the car's last lap
 completion, which the game's log names to the millisecond (`evOnLapCompleted`), not at the time in its header (the
 game writes the file when the car is back in its box, up to minutes later); the laps of the app's list give the lap
 windows in it, else the game's log, else the beacons of the `.ldx` next to the file (each a lap completion; on
