@@ -116,7 +116,7 @@ asks for them. The race engineer uploads nothing; the coach's digests go up only
 | Part | What |
 | --- | --- |
 | `src/` | Bundled start page: checks that the platform is reachable, then opens it. Offline it shows a system check. |
-| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `remove_setups`, `update_check`, `update_install`, `update_at_start`, `launch_ac_evo`, `car_status`, `install_car`, `fix_game_start`, `live_snapshot`, `take_laps`, `upload_motec`, `motec_status` and the race engineer's `engineer_status`, `engineer_enable`, `engineer_sessions`, `engineer_session`, `engineer_traces`, `engineer_evaluate`, `engineer_forget`, `engineer_forget_session`, `engineer_keep`, and the coach's `engineer_profile`, `engineer_seen`, `engineer_digests` and `engineer_digests_sent`; the team radio's `radio_status`, `radio_set`, `radio_devices`, `radio_download`, `radio_test`, `radio_preview`, `radio_names`, `radio_corner_names`, `radio_download_listen`, `talk_devices`, `talk_capture`, `coach_say`, `coach_done` and `coach_problem`; the replay page's `replay_list`, `replay_keep`, `replay_delete`, `replay_open_folder` and `game_check`; for development builds only `recorder_start` and `recorder_stop`. |
+| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `remove_setups`, `update_check`, `update_install`, `update_at_start`, `launch_ac_evo`, `car_status`, `install_car`, `fix_game_start`, `live_snapshot`, `take_laps`, `upload_motec`, `motec_status` and the race engineer's `engineer_status`, `engineer_enable`, `engineer_sessions`, `engineer_session`, `engineer_traces`, `engineer_evaluate`, `engineer_forget`, `engineer_forget_session`, `engineer_keep`, and the coach's `engineer_profile`, `engineer_seen`, `engineer_digests` and `engineer_digests_sent`; the team radio's `radio_status`, `radio_set`, `radio_devices`, `radio_download`, `radio_test`, `radio_preview`, `radio_names`, `radio_corner_names`, `radio_download_listen`, `talk_devices`, `talk_capture`, `coach_say`, `coach_done` and `coach_problem`; the replay page's `replay_list`, `replay_keep`, `replay_delete`, `replay_open_folder` and `game_check`, and its OBS helper's `obs_status`, `obs_prepare`, `obs_quality_test`, `obs_record_start`, `obs_record_stop`, `obs_restore` and `obs_open_video`; for development builds only `recorder_start` and `recorder_stop`. |
 | `src-tauri/capabilities/` | Which page may call which command. The hosted interface only gets the commands listed in `platform.json`; `dev-localhost.json` is enabled for development builds only. |
 | `crates/dd-core/` | Platform-independent logic (locating Assetto Corsa EVO and the Steam account, car setups, the club's car packages and their saved cars, the race engineer), unit-tested on any machine. |
 | `crates/dd-voice/` | The team radio's voice: Supertonic 3 text to speech on the CPU through ONNX Runtime, linked statically (its README has the build facts and the numbers). |
@@ -300,6 +300,19 @@ holds the values and `loggedAt`, the time of the log line) judged for a recordin
 or `bad`, and `no-video-settings` when no log has them. Without the game folder every command answers
 `ac-evo-not-found`. `DD_REPLAY_FIXTURE=<a Replay folder> cargo test -p dd-core replays -- --ignored --nocapture`
 lists a real folder (`DD_REPLAY_KIT` compares it with a listing of the test kit).
+
+The page records a replay through the driver's OBS Studio (32 or newer; the logic is pure and tested in
+`crates/dd-core/src/obs/`, the shell part in `src-tauri/src/obs.rs`, whose top comment holds the JSON of every
+command and event). `obs_prepare` writes our own profile and scene collection "Digital Drivers" (`basic/profiles/
+DigitalDrivers`, `basic/scenes/DigitalDrivers.json`) while OBS is closed, switches on `server_enabled` in OBS's
+websocket config, and starts OBS minimised with that profile and a websocket port and password of its own (start
+options OBS does not save). `obs_quality_test` records 15 s per settings tier while a replay plays, deletes the clips,
+and keeps the best tier without dropped frames for this PC (`obs-tested.json` in the app's config folder).
+`obs_record_start` / `obs_record_stop` record into `Videos\Digital Drivers` and stop by themselves below 2 GB free.
+`obs_restore` switches OBS back to the driver's profile and collection, closes it (as a click on its X would),
+switches the websocket back off if it was off and resets the four profile keys of OBS's `user.ini`; until then
+`obs-restore.json` in the app's config folder remembers what to put back. The driver's own profiles, collections and
+websocket password are never changed.
 
 ## Recording the game's shared memory
 
