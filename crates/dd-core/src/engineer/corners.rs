@@ -34,7 +34,16 @@ const FREEZE: usize = 3;
 
 /// The curvature at each metre, averaged over ±20 m; > 0 to the left.
 pub fn curvature(speed: &[f64], yaw: &[f64]) -> Vec<f64> {
-    let raw: Vec<f64> = speed.iter().zip(yaw).map(|(v, r)| if *v > MIN_SPEED { r / v } else { 0.0 }).collect();
+    smooth(&speed.iter().zip(yaw).map(|(v, r)| if turning_speed(*v) { r / v } else { 0.0 }).collect::<Vec<f64>>())
+}
+
+/// Whether the car is fast enough (m/s) at a metre for its curvature to count.
+pub(crate) fn turning_speed(v: f64) -> bool {
+    v > MIN_SPEED
+}
+
+/// A curvature at each metre averaged over ±20 m (fewer at the ends), as [`curvature`] averages it.
+pub fn smooth(raw: &[f64]) -> Vec<f64> {
     let mut sum = vec![0.0; raw.len() + 1];
     for (i, k) in raw.iter().enumerate() {
         sum[i + 1] = sum[i] + k;

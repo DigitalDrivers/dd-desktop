@@ -126,7 +126,7 @@ const EN_UNITS: [&str; 20] = [
 const EN_TENS: [&str; 10] = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
 
 /// A number as German counts it ("eins", "einundzwanzig", "einhundertzwölf"); digits from 1,000 on.
-fn de_number(n: u64) -> String {
+pub(crate) fn de_number(n: u64) -> String {
     let prefix = |u: u64| if u == 1 { "ein".to_string() } else { DE_UNITS[u as usize].to_string() };
     match n {
         0..=19 => DE_UNITS[n as usize].to_string(),
@@ -139,7 +139,7 @@ fn de_number(n: u64) -> String {
 }
 
 /// A number in British English ("twenty-one", "one hundred and five"); digits from 1,000 on.
-fn en_number(n: u64) -> String {
+pub(crate) fn en_number(n: u64) -> String {
     match n {
         0..=19 => EN_UNITS[n as usize].to_string(),
         20..=99 if n.is_multiple_of(10) => EN_TENS[(n / 10) as usize].to_string(),
