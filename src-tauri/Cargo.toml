@@ -17,6 +17,8 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 dd-core = { path = "../crates/dd-core" }
+# The team radio's voice (Supertonic 3 through ONNX Runtime, linked statically).
+dd-voice = { path = "../crates/dd-voice" }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -38,3 +40,6 @@ sha2 = "0.10"
 winreg = "0.55"
 # Windows toasts for the show_toast command.
 tauri-winrt-notification = "0.7"
+# Plays the team radio: mixes and sends the samples to the output device the driver chose (WASAPI through cpal).
+# Without its decoders: the app hands it samples.
+kira = { version = "0.12", default-features = false, features = ["cpal"] }

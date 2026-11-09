@@ -7,6 +7,14 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/DigitalDrivers/dd-desktop"
 
+# The radio's sound effect and the voice's text handling run on every call: optimised in development builds too, so
+# a call is not late there.
+[profile.dev.package.dd-core]
+opt-level = 2
+
+[profile.dev.package.dd-voice]
+opt-level = 2
+
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
 codegen-units = 1

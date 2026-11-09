@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-radio-status"
+description = "Enables the radio_status command without any pre-configured scope."
+commands.allow = ["radio_status"]
+
+[[permission]]
+identifier = "deny-radio-status"
+description = "Denies the radio_status command without any pre-configured scope."
+commands.deny = ["radio_status"]

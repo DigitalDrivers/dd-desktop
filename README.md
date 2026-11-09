@@ -109,9 +109,10 @@ asks for them. The race engineer uploads nothing; the coach's digests go up only
 | Part | What |
 | --- | --- |
 | `src/` | Bundled start page: checks that the platform is reachable, then opens it. Offline it shows a system check. |
-| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `remove_setups`, `update_check`, `update_install`, `update_at_start`, `launch_ac_evo`, `car_status`, `install_car`, `fix_game_start`, `live_snapshot`, `take_laps`, `upload_motec`, `motec_status` and the race engineer's `engineer_status`, `engineer_enable`, `engineer_sessions`, `engineer_session`, `engineer_traces`, `engineer_evaluate`, `engineer_forget`, `engineer_forget_session`, `engineer_keep`, and the coach's `engineer_profile`, `engineer_seen`, `engineer_digests` and `engineer_digests_sent`; for development builds only `recorder_start` and `recorder_stop`. |
+| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `remove_setups`, `update_check`, `update_install`, `update_at_start`, `launch_ac_evo`, `car_status`, `install_car`, `fix_game_start`, `live_snapshot`, `take_laps`, `upload_motec`, `motec_status` and the race engineer's `engineer_status`, `engineer_enable`, `engineer_sessions`, `engineer_session`, `engineer_traces`, `engineer_evaluate`, `engineer_forget`, `engineer_forget_session`, `engineer_keep`, and the coach's `engineer_profile`, `engineer_seen`, `engineer_digests` and `engineer_digests_sent`; the team radio's `radio_status`, `radio_set`, `radio_devices`, `radio_download`, `radio_test`, `radio_preview` and `radio_names`; for development builds only `recorder_start` and `recorder_stop`. |
 | `src-tauri/capabilities/` | Which page may call which command. The hosted interface only gets the commands listed in `platform.json`; `dev-localhost.json` is enabled for development builds only. |
 | `crates/dd-core/` | Platform-independent logic (locating Assetto Corsa EVO and the Steam account, car setups, the club's car packages and their saved cars, the race engineer), unit-tested on any machine. |
+| `crates/dd-voice/` | The team radio's voice: Supertonic 3 text to speech on the CPU through ONNX Runtime, linked statically (its README has the build facts and the numbers). |
 
 Commands must be declared in `src-tauri/build.rs` and allowed per origin in a capability file. A hosted page
 cannot call anything that is not listed for its origin.
@@ -198,6 +199,30 @@ the app and starts the new version. An install the Store made, or a build starte
 answers that it does not update itself. `update_at_start` (since 0.18.0) is the update center's switch "App
 updates at start": without an argument it answers whether the start page installs a newer release (on unless
 the driver turned it off), with `{ on }` it changes that for this PC (a marker file in the app's config folder).
+
+## Team radio
+
+With the team radio switched on (off until the driver turns it on in the settings; per PC, `radio.json` in the app's
+config folder), the app reads AC EVO's shared memory twenty times a second while the game runs and speaks: the
+spotter's calls (car left or right, three wide, clear), cars closing from behind, close behind or in the slipstream,
+slow cars ahead. Nothing of this leaves the PC. The logic is pure and tested in `crates/dd-core/src/radio/`
+(`frame`, `spotter`, `queue`, `phrases`, `effect`, `settings`); the shell (`src-tauri/src/radio.rs`) copies the
+pages, keeps the voice and plays the sound (kira over WASAPI) on the output device the driver chose.
+
+The voice is Supertonic 3 (Supertone Inc., BigScience OpenRAIL-M; radio voices are AI-generated). `radio_download`
+fetches its model once (383 MB, 17 files from their pinned addresses at Hugging Face, each checked against its
+SHA-256, event `radio-download` `{ done, total }`) into the app's local data folder (`radio\model`); a development
+build takes the folder from `DD_SUPERTONIC_MODEL` when it is set. With the model there, the app renders the phrase
+library for the chosen voice and language once (27 clips, about 13 s, event `radio-library`) into `radio\clips` and
+puts the radio sound on a clip when it plays it, so volume and effect strength apply at once. `radio_status`
+answers `{ settings, voices, modelReady, modelBytes, downloading, rendering, libraryReady, licence }`; `radio_set`
+takes `{ changes }` with any of `enabled`, `voice` (`M1`..`M5`, `F1`..`F5`), `language` (`de`, `en`), `volume` and
+`effect` (0 to 100), `device` (an id of `radio_devices`, null for the PC's default) and `groups`
+(`spotter`, `traffic`, `fuel`, `laps`, `car`) and answers the status. `radio_test` says the radio check.
+`radio_preview` (`{ name }`) says a radio name in the preview's two sentences. `radio_names`
+(`{ names: [{ carIds, name, respelling: { de, en } }] }`) takes what the coach calls the drivers on the driver's
+server from the platform (`GET /api/radio/names`); the app renders their named calls itself, so "car left" becomes
+"Max left" on the club's servers.
 
 ## Recording the game's shared memory
 

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-radio-set"
+description = "Enables the radio_set command without any pre-configured scope."
+commands.allow = ["radio_set"]
+
+[[permission]]
+identifier = "deny-radio-set"
+description = "Denies the radio_set command without any pre-configured scope."
+commands.deny = ["radio_set"]

@@ -182,8 +182,13 @@ impl Queue {
         if call.priority != Priority::Spotter {
             self.last_busy = now;
         }
+        // A car the spotter calls alongside is there: a warning about it that still waits is over.
+        if call.priority == Priority::Spotter && call.car.is_some() {
+            self.waiting.retain(|(c, _)| c.car != call.car);
+        }
         if interrupt {
-            if let Some(cut) = playing.filter(|p| p.priority != Priority::Spotter && p.expires > now) {
+            // What was cut off comes back unless it is over: a warning is about a moment, the engineer's call is not.
+            if let Some(cut) = playing.filter(|p| p.priority >= Priority::Tactical && p.expires > now) {
                 self.push(cut.clone());
             }
             Next::Interrupt(call)
@@ -264,6 +269,29 @@ mod tests {
         queue.push(call(&Event::ClosingFast { car: (0, 1), gap_s: 1.0 }, 1.0));
         assert!(matches!(queue.next(1.0, Some(&lap), CALM), Next::Interrupt(Call { key: "closing_fast", .. })));
         assert_eq!(queue.waiting().count(), 0);
+    }
+
+    #[test]
+    fn a_warning_the_spotter_cut_off_does_not_come_back() {
+        // heard live on 2026-11-09: "closing fast" came back 1.5 s late, after "car right" about the same car
+        let mut queue = Queue::new();
+        queue.push(call(&Event::ClosingFast { car: (0, 1), gap_s: 1.0 }, 0.0));
+        let closing = played(queue.next(0.0, None, CALM));
+        queue.push(call(&Event::CarRight { car: (0, 1) }, 0.3));
+        assert!(matches!(queue.next(0.3, Some(&closing), ALONGSIDE), Next::Interrupt(Call { key: "car_right", .. })));
+        assert_eq!(queue.waiting().count(), 0, "the car is alongside: the warning is over");
+    }
+
+    #[test]
+    fn a_car_called_alongside_takes_what_waited_about_it_off_the_queue() {
+        let mut queue = Queue::new();
+        let clear = call(&Event::ClearLeft, 0.0);
+        queue.push(call(&Event::ClosingFast { car: (0, 1), gap_s: 1.0 }, 0.1));
+        queue.push(call(&Event::SlowCarAhead { car: (0, 2) }, 0.1));
+        queue.push(call(&Event::CarRight { car: (0, 1) }, 0.2));
+        assert_eq!(queue.next(0.2, Some(&clear), ALONGSIDE), Next::Nothing, "the spotter is speaking");
+        assert!(matches!(queue.next(0.4, None, ALONGSIDE), Next::Play(Call { key: "car_right", .. })));
+        assert_eq!(queue.waiting().map(|c| c.key).collect::<Vec<_>>(), ["slow_car_ahead"], "only the call about the other car waits on");
     }
 
     #[test]

@@ -28,6 +28,11 @@ fn clip_path(cache_dir: &Path, voice: &str, lang: &str, text: &str) -> PathBuf {
     cache_dir.join(format!("{}.wav", phrases::cache_name(voice, lang, text)))
 }
 
+/// Whether the sound of `text` is in `cache_dir` already.
+pub fn is_rendered(cache_dir: &Path, voice: &str, lang: &str, text: &str) -> bool {
+    clip_path(cache_dir, voice, lang, text).is_file()
+}
+
 const HEADER: usize = 44;
 
 fn wav_bytes(samples: &[f32]) -> Vec<u8> {

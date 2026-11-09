@@ -22,6 +22,8 @@ use serde::Serialize;
 use tauri::{Emitter, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
+mod radio;
+
 /// Address of the hosted interface: the platform for a release build, a platform on this PC for a development
 /// build (`npm run dev`). `DD_PLATFORM_URL` overrides it.
 const DEFAULT_PLATFORM_URL: &str = if cfg!(debug_assertions) { "http://localhost:3000" } else { "https://digitaldrivers.club" };
@@ -1457,6 +1459,51 @@ fn recorder_stop(state: tauri::State<'_, Recording>) -> Result<Recorded, String>
     Ok(recorded)
 }
 
+/// The team radio as the settings page shows it: the settings on this PC, the voices, whether the voice's model is
+/// downloaded and whether the calls are rendered for the chosen voice. Since 0.28.0.
+#[tauri::command]
+fn radio_status(app: tauri::AppHandle) -> radio::RadioStatus {
+    radio::status(&app)
+}
+
+/// Changes the team radio's settings on this PC: an object with any of `enabled`, `voice`, `language`, `volume`,
+/// `effect`, `device` and `groups`. Answers the status that holds now.
+#[tauri::command]
+fn radio_set(app: tauri::AppHandle, changes: serde_json::Value) -> Result<radio::RadioStatus, String> {
+    radio::set(&app, &changes)
+}
+
+/// The output devices of this PC for the settings' picker.
+#[tauri::command]
+fn radio_devices() -> Vec<radio::OutputDevice> {
+    radio::devices()
+}
+
+/// Downloads the voice's model; the event `radio-download` (`{ done, total }`, bytes) tells how far it is.
+#[tauri::command]
+async fn radio_download(app: tauri::AppHandle) -> Result<(), String> {
+    radio::download(&app).await
+}
+
+/// Says the radio check with the driver's voice, volume, effect and device.
+#[tauri::command]
+async fn radio_test(app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || radio::test(&app)).await.map_err(|_| "failed".to_string())?
+}
+
+/// Says a radio name in the preview's two sentences: `name` is the name or its respelling for the voice's language.
+#[tauri::command]
+async fn radio_preview(app: tauri::AppHandle, name: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || radio::preview(&app, &name)).await.map_err(|_| "failed".to_string())?
+}
+
+/// Takes what the coach calls the drivers on the driver's server (`[{ carIds, name, respelling }]`, from the
+/// platform's `/api/radio/names`); the app renders their named calls.
+#[tauri::command]
+fn radio_names(app: tauri::AppHandle, names: Vec<radio::DriverName>) {
+    radio::set_names(&app, names);
+}
+
 /// `--record <file> [--hz <n>] [--seconds <n>] [--label <text>]` records the game's shared memory without opening
 /// the app, until Enter is pressed or the seconds are over, and prints a status line every second: what the test
 /// scripts start. Answers the exit code, None without `--record`. A release build has no console and ignores it.
@@ -1830,11 +1877,17 @@ pub fn run() {
         .manage(MotecUploading::default())
         .manage(Engineer::default())
         .manage(Recording::default())
+        .manage(radio::Radio::default())
         .setup(|app| {
             // The race engineer keeps its lap list whenever the game runs while its switch is on, and evaluates
             // ended sessions every 5 minutes.
             if engineer_on(app.handle()) {
                 start_sampler(app.handle(), "engineer");
+            }
+            // The team radio speaks whenever the game runs while its switch is on.
+            if radio::enabled(app.handle()) {
+                radio::start(app.handle());
+                radio::prepare_voice(app.handle());
             }
             let handle = app.handle().clone();
             std::thread::spawn(move || engineer_loop(handle));
@@ -1864,7 +1917,7 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status, engineer_status, engineer_enable, engineer_sessions, engineer_session, engineer_traces, engineer_evaluate, engineer_forget, engineer_forget_session, engineer_keep, engineer_profile, engineer_seen, engineer_digests, engineer_digests_sent, coach_focus_get, coach_focus_set, recorder_start, recorder_stop])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status, engineer_status, engineer_enable, engineer_sessions, engineer_session, engineer_traces, engineer_evaluate, engineer_forget, engineer_forget_session, engineer_keep, engineer_profile, engineer_seen, engineer_digests, engineer_digests_sent, coach_focus_get, coach_focus_set, recorder_start, recorder_stop, radio_status, radio_set, radio_devices, radio_download, radio_test, radio_preview, radio_names])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

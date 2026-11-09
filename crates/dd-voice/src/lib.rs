@@ -24,7 +24,7 @@ use ort::session::Session;
 use ort::value::TensorRef;
 use serde::Deserialize;
 
-pub use library::{load_clip, render_library, render_names, Rendered};
+pub use library::{is_rendered, load_clip, render_library, render_names, Rendered};
 pub use model::{verify, ModelFile, LICENCE_NOTICE, MODEL_FILES, MODEL_REVISION};
 
 /// The voices the model ships with.
