@@ -162,6 +162,8 @@ impl Drive {
                         brake: 0.0,
                         in_pit_lane: (self.pit_lane)(t),
                         in_pit_box: false,
+                        lap_count: 0,
+                        lap_valid: true,
                     },
                     others,
                 }
