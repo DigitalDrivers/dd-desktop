@@ -58,6 +58,10 @@
 //!   starts (if above 15 s), then at every 30 s mark at least 10 s after the last call, then "ten", "five" and "go".
 //!   A lock of 0 does not count down (the game putting the car in its box).
 //! - Nothing else is said while the car is in the pit lane, except the calls of a lap that ended before it.
+//! - **Into the pit entry and back onto the track** (the pit lane flag set, `car_location` never past the pit entry;
+//!   twice in A2 of 2026-11-09) is no stop: the stint and the tyres go on. The lap recorder sums that lap only from
+//!   where the car left the pit lane, so the lap gets no call and its fuel does not count, like a lap through the
+//!   pit lane.
 //!
 //! Every call has [`Priority::Engineer`] and expires after [`EXPIRES_S`] unless its rule says otherwise. The timing between calls of one key lives
 //! here, so the queue needs no cooldowns for them.
@@ -239,6 +243,10 @@ pub struct Engineer {
     /// The previous live sample's lap count, validity and pit lane flag
     last: Option<(i32, bool, bool)>,
     pit_exit_at: Option<f64>,
+    /// The car's stay in the pit lane has not got past the pit entry
+    pit_entry_only: bool,
+    /// The lap count at the last exit from a stay that never got past the pit entry: the lap after it is cut
+    cut_lap: Option<i32>,
     // fuel
     fuel_used: VecDeque<f32>,
     /// The lowest fuel since the last refuelling
@@ -297,6 +305,8 @@ impl Engineer {
             laps: LapRecorder::new(),
             last: None,
             pit_exit_at: None,
+            pit_entry_only: false,
+            cut_lap: None,
             fuel_used: VecDeque::new(),
             fuel_floor: None,
             fuel_said: None,
@@ -383,13 +393,21 @@ impl Engineer {
         self.in_box = s.pit_box;
         let (lap_count, was_valid, was_in_pit) = self.last.unwrap_or((s.lap_count, s.valid, s.pit_lane));
         self.last = Some((s.lap_count, s.valid, s.pit_lane));
+        if s.pit_lane {
+            self.pit_entry_only = s.location == PIT_ENTRY && (self.pit_entry_only || !was_in_pit);
+        }
         if was_in_pit && !s.pit_lane {
             self.pit_exit_at = Some(t);
-            self.stint.clear();
-            self.stint_taken = false;
             self.invalid_said = false;
-            self.tyres_cold_seen = false;
-            self.tyres_said = false;
+            if self.pit_entry_only {
+                self.cut_lap = Some(s.lap_count);
+            } else {
+                self.cut_lap = None;
+                self.stint.clear();
+                self.stint_taken = false;
+                self.tyres_cold_seen = false;
+                self.tyres_said = false;
+            }
         }
         if s.lap_count != lap_count || !s.timed {
             self.invalid_said = false;
@@ -496,7 +514,8 @@ impl Engineer {
         if let Some((_, since)) = &mut self.fuel_said {
             *since += 1;
         }
-        if lap.pit {
+        let cut = self.cut_lap.is_some_and(|count| self.last.is_some_and(|(now, ..)| now == count + 1));
+        if lap.pit || cut {
             return;
         }
         self.stint.push(lap.clone());
@@ -935,6 +954,55 @@ mod tests {
         // 45.6 l at the line over the 4 l of the flying laps: 11.4 laps (with the in-lap's 3 l and the out-lap's
         // 1 l in the mean, 17.1)
         assert_eq!(texts(&pages.lap(&mut e, 4.0, 95_000)), ["Eins fünfunddreißig null.", "Sprit für noch elf Runden."]);
+    }
+
+    #[test]
+    fn into_the_pit_entry_and_back_onto_the_track_is_no_stop() {
+        // the recording of 2026-11-09 (A2 180129, 862.4 and 868.1 s): twice into the pit entry and straight back
+        // onto the track; the tyres were "in the window" again after each, and the lap, its fuel summed only from
+        // the second exit (0.36 l), made "fuel for 38.5 laps" after 28 a lap before (A7 183730, 934.15 s: 0.43 l)
+        let (mut e, mut pages) = (engineer(), Pages::new());
+        pages.fuel(60.6);
+        on_a_flying_lap(&mut e, &mut pages);
+        assert_eq!(texts(&pages.lap(&mut e, 4.0, 95_000))[1], "Sprit für noch dreizehn Runden.", "53.6 l / 4");
+        let mut said = pages.burn(&mut e, 100, 2.0);
+        pages.location(PIT_ENTRY);
+        pages.pit(true);
+        said.extend(pages.burn(&mut e, 40, 0.2));
+        pages.location(TRACK);
+        pages.pit(false);
+        pages.tyres([68.0, 85.0, 85.0, 85.0]);
+        said.extend(pages.burn(&mut e, 20, 0.4));
+        pages.tyres([85.0; 4]);
+        said.extend(pages.burn(&mut e, 120, 1.4));
+        pages.count_lap(111_573);
+        said.extend(pages.drive(&mut e, 21));
+        assert!(keys(&said).is_empty(), "{:?}", texts(&said));
+        // the next lap: 45.6 l over the 4 l of the flying laps, 11.4 laps as the last call let expect (with the 1.8 l
+        // after the exit in the mean, 14: said)
+        assert_eq!(texts(&pages.lap(&mut e, 4.0, 95_000)), ["Eins fünfunddreißig null."]);
+        assert!((e.context()["fuelPerLapL"].as_f64().unwrap() - 4.0).abs() < 0.01);
+        assert_eq!(e.context()["stintLaps"].as_array().unwrap().len(), 2, "the stint goes on, without the cut lap");
+        // A1 174240: into the pit entry and out (341.25 s), into the pit lane (350.4 s), a restart from there with
+        // the lap count kept (380.85 s): the first lap of the restarted race counts
+        pages.burn(&mut e, 100, 2.0);
+        pages.location(PIT_ENTRY);
+        pages.pit(true);
+        pages.drive(&mut e, 20);
+        pages.location(TRACK);
+        pages.pit(false);
+        pages.drive(&mut e, 20);
+        pages.location(PIT_ENTRY);
+        pages.pit(true);
+        pages.drive(&mut e, 20);
+        pages.location(PIT_LANE);
+        pages.drive(&mut e, 100);
+        pages.location(TRACK);
+        pages.pit(false);
+        pages.grid();
+        pages.drive(&mut e, 100);
+        pages.go();
+        assert_eq!(keys(&pages.lap(&mut e, 4.0, 95_000)), ["lap_time", "fuel_laps"]);
     }
 
     #[test]
