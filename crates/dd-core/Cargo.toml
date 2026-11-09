@@ -18,6 +18,9 @@ minisign-verify = "0.2"
 # Parses the addresses the app window navigates to (only the platform and Steam's sign-in stay in it). Already in
 # the app's build through Tauri, which hands the shell those addresses as url::Url.
 url = "2"
+# Decodes OBS's screenshots and encodes the obs-websocket login (replay videos). Already in the app's build through
+# Tauri and reqwest (same version).
+base64 = "0.22"
 
 [dev-dependencies]
 # Gunzips the shared memory recordings for examples/spotter_replay.rs; already in the app's build (the shell writes

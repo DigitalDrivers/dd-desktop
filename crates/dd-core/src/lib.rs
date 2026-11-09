@@ -10,6 +10,7 @@ pub mod garage;
 pub mod laps;
 pub mod links;
 pub mod motec;
+pub mod obs;
 pub mod radio;
 pub mod recorder;
 pub mod replays;
