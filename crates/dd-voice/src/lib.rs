@@ -18,6 +18,7 @@ mod model;
 mod text;
 
 use std::path::Path;
+use std::sync::Mutex;
 
 use ort::session::builder::GraphOptimizationLevel;
 use ort::session::Session;
@@ -78,6 +79,17 @@ impl VoiceError {
 
 fn runtime(e: impl std::fmt::Display) -> VoiceError {
     VoiceError::Runtime(e.to_string())
+}
+
+/// ONNX Runtime's environment, shared by everything that loads a model: ort allows one per process, and not a second
+/// one even after the first is dropped, so it is made on the first load and kept. Telemetry (Windows ETW events) off.
+fn environment() -> Result<ort::environment::Environment, VoiceError> {
+    static ENV: Mutex<Option<ort::environment::Environment>> = Mutex::new(None);
+    let mut env = ENV.lock().unwrap_or_else(|e| e.into_inner());
+    if env.is_none() {
+        *env = Some(ort::init().with_name("dd-voice").with_telemetry(false).build().map_err(runtime)?);
+    }
+    Ok(env.clone().expect("made above"))
 }
 
 /// A voice as the model takes it: the style vectors of the text-to-latent model and of the duration predictor.
@@ -192,8 +204,7 @@ impl Engine {
             let ((ttl, ttl_shape), (dp, dp_shape)) = style.style_ttl.flat().zip(style.style_dp.flat()).ok_or(VoiceError::ModelDamaged(file))?;
             styles.push(Style { ttl, ttl_shape, dp, dp_shape });
         }
-        // ONNX Runtime's telemetry (Windows ETW events) off.
-        let env = ort::init().with_name("dd-voice").with_telemetry(false).build().map_err(runtime)?;
+        let env = environment()?;
         let session = |file: &str| -> Result<Session, VoiceError> {
             Session::builder(&env)
                 .map_err(runtime)?
@@ -335,6 +346,13 @@ mod tests {
         assert_eq!(check("M1", "fr"), Err(VoiceError::UnknownLanguage("fr".into())));
         assert_eq!(check("m1", "de"), Err(VoiceError::UnknownVoice("m1".into())));
         assert_eq!(check("F5", "en"), Ok(9));
+    }
+
+    #[test]
+    fn the_environment_is_made_once_and_shared() {
+        // ort refuses a second `build()` in a process, even after the first environment is dropped.
+        let (a, b) = (environment().unwrap(), environment().unwrap());
+        assert_eq!(format!("{a:?}"), format!("{b:?}"));
     }
 
     #[test]
