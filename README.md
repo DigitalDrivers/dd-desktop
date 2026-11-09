@@ -109,7 +109,7 @@ asks for them. The race engineer uploads nothing; the coach's digests go up only
 | Part | What |
 | --- | --- |
 | `src/` | Bundled start page: checks that the platform is reachable, then opens it. Offline it shows a system check. |
-| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `remove_setups`, `update_check`, `update_install`, `update_at_start`, `launch_ac_evo`, `car_status`, `install_car`, `fix_game_start`, `live_snapshot`, `take_laps`, `upload_motec`, `motec_status` and the race engineer's `engineer_status`, `engineer_enable`, `engineer_sessions`, `engineer_session`, `engineer_traces`, `engineer_evaluate`, `engineer_forget`, `engineer_forget_session`, `engineer_keep`, and the coach's `engineer_profile`, `engineer_seen`, `engineer_digests` and `engineer_digests_sent`; the team radio's `radio_status`, `radio_set`, `radio_devices`, `radio_download`, `radio_test`, `radio_preview` and `radio_names`; for development builds only `recorder_start` and `recorder_stop`. |
+| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `remove_setups`, `update_check`, `update_install`, `update_at_start`, `launch_ac_evo`, `car_status`, `install_car`, `fix_game_start`, `live_snapshot`, `take_laps`, `upload_motec`, `motec_status` and the race engineer's `engineer_status`, `engineer_enable`, `engineer_sessions`, `engineer_session`, `engineer_traces`, `engineer_evaluate`, `engineer_forget`, `engineer_forget_session`, `engineer_keep`, and the coach's `engineer_profile`, `engineer_seen`, `engineer_digests` and `engineer_digests_sent`; the team radio's `radio_status`, `radio_set`, `radio_devices`, `radio_download`, `radio_test`, `radio_preview`, `radio_names` and `radio_corner_names`; for development builds only `recorder_start` and `recorder_stop`. |
 | `src-tauri/capabilities/` | Which page may call which command. The hosted interface only gets the commands listed in `platform.json`; `dev-localhost.json` is enabled for development builds only. |
 | `crates/dd-core/` | Platform-independent logic (locating Assetto Corsa EVO and the Steam account, car setups, the club's car packages and their saved cars, the race engineer), unit-tested on any machine. |
 | `crates/dd-voice/` | The team radio's voice: Supertonic 3 text to speech on the CPU through ONNX Runtime, linked statically (its README has the build facts and the numbers). |
@@ -223,6 +223,14 @@ takes `{ changes }` with any of `enabled`, `voice` (`M1`..`M5`, `F1`..`F5`), `la
 (`{ names: [{ carIds, name, respelling: { de, en } }] }`) takes what the coach calls the drivers on the driver's
 server from the platform (`GET /api/radio/names`); the app renders their named calls itself, so "car left" becomes
 "Max left" on the club's servers.
+
+The engineer's calls come from the driver's own car: fuel for X laps (fuel now by the mean of the last three flying
+laps), fuel low, lap times and personal bests, an invalid lap, hot brakes, tyres in their window. Sentences with
+numbers are built and spoken when they come up (about a second), beside the loop, so the spotter never waits.
+Live tips (`liveTips` in the settings, off until the driver switches them on) compare each corner with the driver's
+best lap, which the app records itself from the shared memory and keeps in `engineer\live\`, and say one short
+sentence on the straight after it. `radio_corner_names` (`{ track, layout, names }`, names by the race engineer's
+corner numbers) gives the corners their names.
 
 ## Recording the game's shared memory
 

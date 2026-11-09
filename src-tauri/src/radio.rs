@@ -123,6 +123,7 @@ use dd_core::laps;
 use dd_core::radio::effect::{self, Shape};
 use dd_core::radio::engineer::{self, Engineer, Group};
 use dd_core::radio::frame::{self, CarId};
+use dd_core::radio::live_tips::{self, LiveTips};
 use dd_core::radio::queue::{self, Call, Next, Priority, Queue, Situation};
 use dd_core::radio::settings::{self, Settings};
 use dd_core::radio::spotter::{Config, Spotter};
@@ -180,6 +181,11 @@ pub struct Radio {
     names: Mutex<HashMap<CarId, DriverName>>,
     /// Clips ready to play (trimmed, levelled), by their cache name
     clips: Mutex<HashMap<String, Arc<Vec<f32>>>>,
+    /// The corners' names by track and layout, as the platform's page hands them over, by the race engineer's
+    /// corner numbers
+    corner_names: Mutex<HashMap<(String, String), std::collections::BTreeMap<u32, String>>>,
+    /// Counts up when corner names arrive, so the live tips take them
+    corner_names_version: std::sync::atomic::AtomicU32,
     looping: AtomicBool,
     rendering: Mutex<Option<Progress>>,
     downloading: Mutex<Option<Progress>>,
@@ -377,6 +383,45 @@ fn session_of(graphics: &[u8], statics: Option<&[u8]>) -> Vec<u8> {
     session
 }
 
+/// The live tips of one car on one track, and where their reference lap is kept.
+struct Tipping {
+    tips: LiveTips,
+    dir: PathBuf,
+    car: String,
+    preset: Option<String>,
+    track: String,
+    layout: String,
+}
+
+impl Tipping {
+    /// For the car the game's log names and the track of the pages; None while either is unknown (the menus).
+    fn of(app: &tauri::AppHandle, graphics: &[u8], lang: &str) -> Option<Self> {
+        let statics = crate::read_shared_memory("Local\\acevo_pmf_static", evo_memory::STATIC_SIZE)?;
+        let live = evo_memory::read(graphics, &statics)?;
+        let (car, preset) = laps::current_car(&crate::newest_game_log(app)?)?;
+        let preset = Some(preset).filter(|preset| preset.encode_utf16().count() <= laps::PRESET_MAX);
+        let dir = config_dir(app)?.join(dd_core::engineer::store::DIR);
+        let mut tips = LiveTips::new(live_tips::Config::for_layout(&live.track, &live.layout), lang);
+        let reference = live_tips::load_reference(&dir, &car, preset.as_deref(), &live.track, &live.layout);
+        log(&format!("radio: live tips for {car} at {} {}: {}", live.track, live.layout, if reference.is_some() { "with the best lap kept from before" } else { "the first clean lap becomes the reference" }));
+        tips.set_reference(reference);
+        // corners carry the race engineer's numbers once it has evaluated a session here
+        let names = app.state::<Radio>().corner_names.lock().unwrap().get(&(live.track.clone(), live.layout.clone())).cloned().unwrap_or_default();
+        tips.set_names(dd_core::engineer::corners::load(&dir, &live.track, &live.layout), names);
+        Some(Self { tips, dir, car, preset, track: live.track, layout: live.layout })
+    }
+
+    /// Keeps a lap that just became the reference.
+    fn keep_reference(&mut self) {
+        if let Some(reference) = self.tips.take_new_reference() {
+            match live_tips::save_reference(&self.dir, &self.car, self.preset.as_deref(), &self.track, &self.layout, reference) {
+                Ok(()) => log(&format!("radio: live tips: a new reference lap for {} at {} {}", self.car, self.track, self.layout)),
+                Err(error) => log(&format!("radio: live tips: keeping the reference lap failed: {error}")),
+            }
+        }
+    }
+}
+
 fn run(app: tauri::AppHandle) {
     let radio = app.state::<Radio>();
     let started = Instant::now();
@@ -389,6 +434,10 @@ fn run(app: tauri::AppHandle) {
     let mut engineer: Option<(Vec<u8>, String, Engineer)> = None;
     let mut session: Vec<u8> = Vec::new();
     let mut ticks = 0u32;
+    // The live tips for the car and the track of the moment, with what names them in the engineer's folder.
+    let mut tips: Option<(Vec<u8>, Tipping)> = None;
+    let mut names_version = 0;
+    let mut tips_tried = Instant::now() - Duration::from_secs(60);
     // Sentences the engineer builds are spoken beside the loop, so the spotter never waits for the voice; a
     // sentence joins the queue when its sound is there.
     let (spoken, sentences) = std::sync::mpsc::channel::<(Call, Arc<Vec<f32>>)>();
@@ -447,6 +496,34 @@ fn run(app: tauri::AppHandle) {
                     queue.push(call);
                 }
             }
+        }
+        // Live tips: one short sentence after a corner that cost time against the driver's best lap.
+        if settings.live_tips {
+            // corner names that arrived meanwhile: the tips start again with them (their reference lap is kept on disk)
+            let version = radio.corner_names_version.load(Ordering::SeqCst);
+            if version != names_version {
+                names_version = version;
+                tips = None;
+                tips_tried = Instant::now() - Duration::from_secs(60);
+            }
+            if tips.as_ref().is_none_or(|(of, _)| *of != session) && tips_tried.elapsed() >= Duration::from_secs(5) {
+                tips_tried = Instant::now();
+                tips = Tipping::of(&app, &graphics, &settings.language).map(|tipping| (session.clone(), tipping));
+            }
+            if let (Some((of, tipping)), Some(frame)) = (tips.as_mut(), &frame) {
+                if *of == session {
+                    if let Some(tip) = tipping.tips.step(frame) {
+                        let (app, settings, spoken) = (app.clone(), settings.clone(), spoken.clone());
+                        std::thread::spawn(move || match speak(&app, &settings, &tip.text) {
+                            Ok(clip) => drop(spoken.send((tip.call, Arc::new(clip)))),
+                            Err(error) => log(&format!("radio: a live tip is not said: {error}")),
+                        });
+                    }
+                    tipping.keep_reference();
+                }
+            }
+        } else if tips.is_some() {
+            tips = None;
         }
         if playing.is_some() && !radio.speaker.lock().unwrap().busy() {
             playing = None;
@@ -560,6 +637,20 @@ pub fn set_names(app: &tauri::AppHandle, names: Vec<DriverName>) {
     if changed {
         log(&format!("radio: {} cars with a driver's name", radio.names.lock().unwrap().len()));
         prepare_voice(app);
+    }
+}
+
+/// Takes the names of a track's corners from the platform's page, by the race engineer's corner numbers, so a live
+/// tip says "Hatzenbach" instead of "corner four".
+pub fn set_corner_names(app: &tauri::AppHandle, track: String, layout: String, names: std::collections::BTreeMap<u32, String>) {
+    let radio = app.state::<Radio>();
+    let names: std::collections::BTreeMap<u32, String> = names.into_iter().filter(|(_, name)| !name.is_empty() && name.chars().count() <= 60).take(400).collect();
+    let mut known = radio.corner_names.lock().unwrap();
+    let key = (track, layout);
+    if known.get(&key) != Some(&names) {
+        log(&format!("radio: {} corner names for {} {}", names.len(), key.0, key.1));
+        known.insert(key, names);
+        radio.corner_names_version.fetch_add(1, Ordering::SeqCst);
     }
 }
 

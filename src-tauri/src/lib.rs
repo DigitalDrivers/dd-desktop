@@ -1504,6 +1504,13 @@ fn radio_names(app: tauri::AppHandle, names: Vec<radio::DriverName>) {
     radio::set_names(&app, names);
 }
 
+/// Takes the names of a track's corners (`{ track, layout, names: { "<corner number>": name } }`, the numbers of
+/// the race engineer's corners) for the live tips.
+#[tauri::command]
+fn radio_corner_names(app: tauri::AppHandle, track: String, layout: String, names: std::collections::BTreeMap<u32, String>) {
+    radio::set_corner_names(&app, track, layout, names);
+}
+
 /// `--record <file> [--hz <n>] [--seconds <n>] [--label <text>]` records the game's shared memory without opening
 /// the app, until Enter is pressed or the seconds are over, and prints a status line every second: what the test
 /// scripts start. Answers the exit code, None without `--record`. A release build has no console and ignores it.
@@ -1917,7 +1924,7 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status, engineer_status, engineer_enable, engineer_sessions, engineer_session, engineer_traces, engineer_evaluate, engineer_forget, engineer_forget_session, engineer_keep, engineer_profile, engineer_seen, engineer_digests, engineer_digests_sent, coach_focus_get, coach_focus_set, recorder_start, recorder_stop, radio_status, radio_set, radio_devices, radio_download, radio_test, radio_preview, radio_names])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status, engineer_status, engineer_enable, engineer_sessions, engineer_session, engineer_traces, engineer_evaluate, engineer_forget, engineer_forget_session, engineer_keep, engineer_profile, engineer_seen, engineer_digests, engineer_digests_sent, coach_focus_get, coach_focus_set, recorder_start, recorder_stop, radio_status, radio_set, radio_devices, radio_download, radio_test, radio_preview, radio_names, radio_corner_names])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

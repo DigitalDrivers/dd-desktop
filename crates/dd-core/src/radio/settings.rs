@@ -50,11 +50,14 @@ pub struct Settings {
     /// The output device's id as the sound system names it; None for the PC's default device
     pub device: Option<String>,
     pub groups: Groups,
+    /// Live tips: after a corner the coach says where it cost time against the driver's best lap. Off until the
+    /// driver switches it on.
+    pub live_tips: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { enabled: false, voice: VOICES[0].to_string(), language: LANGUAGES[0].to_string(), volume: 80, effect: 100, device: None, groups: Groups::default() }
+        Self { enabled: false, voice: VOICES[0].to_string(), language: LANGUAGES[0].to_string(), volume: 80, effect: 100, device: None, groups: Groups::default(), live_tips: false }
     }
 }
 
@@ -121,6 +124,13 @@ mod tests {
         assert!(!settings.enabled);
         assert_eq!((settings.voice.as_str(), settings.language.as_str(), settings.volume, settings.effect), ("M1", "de", 80, 100));
         assert_eq!(settings.groups, Groups { spotter: true, traffic: true, fuel: true, laps: true, car: true });
+        assert!(!settings.live_tips);
+        // a file of a version before the live tips reads as before
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(FILE), br#"{ "enabled": true, "voice": "F2" }"#).unwrap();
+        assert_eq!(load(&dir), Settings { enabled: true, voice: "F2".into(), ..Settings::default() });
+        assert!(change(&dir, &json!({ "liveTips": true })).unwrap().live_tips);
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

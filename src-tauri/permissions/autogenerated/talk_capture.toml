@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-talk-capture"
+description = "Enables the talk_capture command without any pre-configured scope."
+commands.allow = ["talk_capture"]
+
+[[permission]]
+identifier = "deny-talk-capture"
+description = "Denies the talk_capture command without any pre-configured scope."
+commands.deny = ["talk_capture"]
