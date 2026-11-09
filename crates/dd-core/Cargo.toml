@@ -23,6 +23,6 @@ url = "2"
 base64 = "0.22"
 
 [dev-dependencies]
-# Gunzips the shared memory recordings for examples/spotter_replay.rs; already in the app's build (the shell writes
-# the recordings with it).
+# Gunzips the shared memory recordings for examples/spotter_replay.rs and tests/radio_fixtures.rs, and writes the
+# fixtures' slices in examples/cut_recording.rs; already in the app's build (the shell writes the recordings with it).
 flate2 = "1"
