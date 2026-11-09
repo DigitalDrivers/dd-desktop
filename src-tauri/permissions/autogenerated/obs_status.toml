@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-obs-status"
+description = "Enables the obs_status command without any pre-configured scope."
+commands.allow = ["obs_status"]
+
+[[permission]]
+identifier = "deny-obs-status"
+description = "Denies the obs_status command without any pre-configured scope."
+commands.deny = ["obs_status"]

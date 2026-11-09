@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-obs-record-stop"
+description = "Enables the obs_record_stop command without any pre-configured scope."
+commands.allow = ["obs_record_stop"]
+
+[[permission]]
+identifier = "deny-obs-record-stop"
+description = "Denies the obs_record_stop command without any pre-configured scope."
+commands.deny = ["obs_record_stop"]
