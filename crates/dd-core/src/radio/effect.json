@@ -1,0 +1,75 @@
+{
+  "prepare": {
+    "silenceThresholdDb": -45,
+    "silenceWindowMs": 20,
+    "padMs": 30,
+    "loudnessDbfs": -24
+  },
+  "voice": {
+    "highpassHz": 300,
+    "lowpassHz": 3200,
+    "presenceHz": 1800,
+    "presenceOctaves": 1.2,
+    "presenceGainDb": 5,
+    "compressorThresholdDb": -20,
+    "compressorRatio": 8,
+    "compressorKneeDb": 9.03,
+    "compressorAttackMs": 3,
+    "compressorReleaseMs": 60,
+    "compressorMakeupDb": 9.54,
+    "clipThreshold": 0.6,
+    "postHighpassHz": 300,
+    "postLowpassHz": 3400,
+    "gainDb": 6.02
+  },
+  "noiseBed": {
+    "levelDbfs": -61,
+    "highpassHz": 400,
+    "lowpassHz": 3000,
+    "fadeMs": 10
+  },
+  "click": {
+    "levelDbfs": -14.5,
+    "highpassHz": 800,
+    "lowpassHz": 4000,
+    "lengthMs": 6
+  },
+  "talkPermitBeep": {
+    "hz": 1250,
+    "startMs": 30,
+    "lengthMs": 70,
+    "fadeMs": 5,
+    "peakDbfs": -12
+  },
+  "rogerBeep": {
+    "firstHz": 1000,
+    "secondHz": 1500,
+    "toneMs": 50,
+    "fadeMs": 4,
+    "peakDbfs": -14,
+    "gapMs": 80
+  },
+  "squelchTail": {
+    "levelDbfs": -30.3,
+    "highpassHz": 500,
+    "lowpassHz": 3500,
+    "lengthMs": 140,
+    "decayDb": 100
+  },
+  "limiter": {
+    "limit": 0.89,
+    "attackMs": 5,
+    "releaseMs": 50
+  },
+  "engineer": {
+    "voiceStartMs": 160
+  },
+  "spotter": {
+    "voiceStartMs": 20,
+    "tailGapMs": 20
+  },
+  "clean": {
+    "voiceGainDb": 8,
+    "beepGainDb": -12
+  }
+}
