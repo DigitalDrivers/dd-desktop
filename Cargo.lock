@@ -681,6 +681,7 @@ dependencies = [
 name = "dd-core"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "minisign-verify",
  "serde",
  "serde_json",
