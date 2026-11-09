@@ -36,6 +36,11 @@
 //!   assist's at the start of the pit lane); `pitLimiterOn` of the physics page is only on while the limiter holds
 //!   the car near the limit. A change while the car stands is the game putting it in its box or on the grid, and is
 //!   not said.
+//! - **Pit entry, slow down** at once ([`Priority::Safety`]) when `car_location` goes from the track to the pit
+//!   entry (or straight into the pit lane) with `pitspeeding_delta` above 0. The delta is the speed against the pit
+//!   limit everywhere, on track too ((speed - 60 km/h) / 30 km/h at Brands Hatch, held at -1 and 1), so nothing tells
+//!   earlier that the entry is near: this is the earliest honest warning. The entry zone lasted 4 s (about 70 m)
+//!   before the pit lane proper on 2026-11-09.
 //! - Nothing else is said while the car is in the pit lane, except the calls of a lap that ended before it.
 //!
 //! Every call has [`Priority::Engineer`] and expires after [`EXPIRES_S`]. The timing between calls of one key lives
@@ -44,7 +49,7 @@
 use std::collections::VecDeque;
 
 use super::phrases;
-use super::queue::{Call, Priority};
+use super::queue::{Call, Priority, SAFETY_EXPIRES_S};
 use crate::engineer::measure::{HOT, VERY_HOT};
 use crate::evo_memory::{self, f32_at, GRAPHICS_SIZE, STATIC_SIZE};
 use crate::laps::{self, i32_at, f32s_at, LapRecorder, LapSummary, PHYSICS_SIZE};
@@ -67,6 +72,15 @@ const CURRENT_LAPTIME_MS: usize = 188;
 const IS_PITLIMITER_ON: usize = 1910;
 /// Physics page, `speedKmh`
 const SPEED_KMH: usize = 28;
+/// Graphics page, `car_location` (`ACEVO_CAR_LOCATION`) and its values
+const CAR_LOCATION: usize = 1388;
+const PIT_LANE: i32 = 1;
+const PIT_ENTRY: i32 = 2;
+#[cfg(test)]
+const PIT_EXIT: i32 = 3;
+const TRACK: i32 = 4;
+/// Graphics page, `pitspeeding_delta`: above 0 over the pit limit
+const PITSPEEDING_DELTA: usize = 64;
 /// m/s: below this the car stands, and a limiter switched is the game's doing
 const ROLLING_MS: f32 = 1.0;
 
@@ -144,6 +158,8 @@ struct Sample {
     /// m/s
     speed: f32,
     limiter: bool,
+    location: i32,
+    over_pit_limit: bool,
     /// FL FR RL RR
     brake_temp: [f32; 4],
     core_temp: [f32; 4],
@@ -161,6 +177,8 @@ impl Sample {
             pit_box: graphics[evo_memory::IS_IN_PIT_BOX] != 0,
             speed: f32_at(physics, SPEED_KMH) / 3.6,
             limiter: graphics[IS_PITLIMITER_ON] != 0,
+            location: i32_at(graphics, CAR_LOCATION),
+            over_pit_limit: f32_at(graphics, PITSPEEDING_DELTA) > 0.0,
             brake_temp: f32s_at(physics, laps::BRAKE_TEMP),
             core_temp: f32s_at(physics, laps::TYRE_CORE_TEMPERATURE),
         })
@@ -195,6 +213,8 @@ pub struct Engineer {
     // pit
     /// The limiter as the driver knows it: the last said, or what it was while the car stood
     limiter: Option<bool>,
+    /// `car_location` of the last live sample (kept through a pause)
+    location: Option<i32>,
     // for the coach
     /// The laps since the car left the pits, without the ones through the pit lane
     stint: Vec<LapSummary>,
@@ -239,6 +259,7 @@ impl Engineer {
             tyres_cold_seen: false,
             tyres_said: false,
             limiter: None,
+            location: None,
             stint: Vec::new(),
             stint_taken: false,
             in_box: false,
@@ -329,6 +350,11 @@ impl Engineer {
         self.watch_brakes(t, &s, &mut out);
         self.watch_tyres(t, &s, &mut out);
         self.watch_limiter(t, &s, &mut out);
+        let was_at = self.location.replace(s.location);
+        if was_at == Some(TRACK) && matches!(s.location, PIT_ENTRY | PIT_LANE) && s.over_pit_limit {
+            let warning = say_within("pit_entry_speed", Group::Car, t, SAFETY_EXPIRES_S, None);
+            out.push(Say { call: Call { priority: Priority::Safety, ..warning.call }, ..warning });
+        }
         out
     }
 
@@ -501,6 +527,15 @@ mod tests {
 
         fn limiter(&mut self, on: bool) {
             self.graphics[IS_PITLIMITER_ON] = on as u8;
+        }
+
+        fn location(&mut self, location: i32) {
+            self.i32(CAR_LOCATION, location);
+        }
+
+        /// `pitspeeding_delta`: above 0 over the pit limit
+        fn pit_speeding(&mut self, delta: f32) {
+            self.graphics[PITSPEEDING_DELTA..PITSPEEDING_DELTA + 4].copy_from_slice(&delta.to_le_bytes());
         }
 
         fn brakes(&mut self, c: [f32; 4]) {
@@ -989,6 +1024,62 @@ mod tests {
         pages.pit(false);
         pages.limiter(true);
         assert_eq!(keys(&pages.drive(&mut e, 5)), ["limiter_on"]);
+    }
+
+    #[test]
+    fn too_fast_into_the_pit_entry_is_warned_at_once() {
+        // A2 337.8 s: car_location 4 to 2 (the pit entry) at 81 km/h, pitspeeding_delta +0.72. The delta is the
+        // speed against the pit limit everywhere, on track too, so it does not tell that the pit entry is near.
+        let (mut e, mut pages) = (engineer(), Pages::new());
+        pages.pit(false);
+        pages.location(TRACK);
+        pages.pit_speeding(1.0);
+        pages.drive(&mut e, 20);
+        pages.location(PIT_ENTRY);
+        pages.pit(true);
+        pages.pit_speeding(0.7);
+        let said = pages.drive(&mut e, 20);
+        assert_eq!(keys(&said), ["pit_entry_speed"]);
+        assert_eq!((said[0].group, said[0].call.priority, said[0].text.as_deref()), (Group::Car, Priority::Safety, None));
+        assert!((said[0].call.expires - said[0].call.at - SAFETY_EXPIRES_S).abs() < 1e-9);
+        pages.location(PIT_LANE);
+        assert!(pages.drive(&mut e, 20).is_empty(), "once an entry");
+        // slow enough: nothing
+        let (mut e, mut pages) = (engineer(), Pages::new());
+        pages.location(TRACK);
+        pages.pit_speeding(1.0);
+        pages.drive(&mut e, 5);
+        pages.pit_speeding(-0.3);
+        pages.location(PIT_ENTRY);
+        assert!(pages.drive(&mut e, 20).is_empty());
+        // brushing the entry and back on track (A2 862.4 s), then in: twice; a pit lane without an entry zone too
+        pages.location(TRACK);
+        pages.drive(&mut e, 5);
+        pages.pit_speeding(0.9);
+        pages.location(PIT_ENTRY);
+        pages.drive(&mut e, 5);
+        pages.location(TRACK);
+        pages.drive(&mut e, 5);
+        pages.location(PIT_ENTRY);
+        pages.drive(&mut e, 5);
+        pages.location(TRACK);
+        pages.drive(&mut e, 5);
+        pages.location(PIT_LANE);
+        pages.drive(&mut e, 5);
+        assert_eq!(keys(&pages.said), ["pit_entry_speed"; 3]);
+        // from the pit exit back into the pit lane (the game put the car in its box): nothing
+        pages.location(PIT_EXIT);
+        pages.drive(&mut e, 5);
+        pages.location(PIT_LANE);
+        assert!(pages.drive(&mut e, 5).is_empty());
+        // a pause between the track and the entry does not hide it
+        pages.location(TRACK);
+        pages.drive(&mut e, 5);
+        pages.i32(laps::STATUS, 3);
+        pages.drive(&mut e, 5);
+        pages.i32(laps::STATUS, laps::LIVE);
+        pages.location(PIT_ENTRY);
+        assert_eq!(keys(&pages.drive(&mut e, 5)), ["pit_entry_speed"]);
     }
 
     #[test]
