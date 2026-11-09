@@ -206,6 +206,63 @@ fn lap_time_words(lap_ms: i64, lang: &str) -> String {
     }
 }
 
+/// A sentence of the coach's model with its numbers spelled out, so the voice says them as an engineer does: a lap
+/// time "1:12,4" becomes "eins zwölf vier", a decimal "26,4" "sechsundzwanzig Komma vier" ("point" in English),
+/// a whole number up to 999 its word. Larger numbers and everything else stay as written.
+pub fn spoken(text: &str, lang: &str) -> String {
+    let number: fn(u64) -> String = if lang == "de" { de_number } else { en_number };
+    let chars: Vec<char> = text.chars().collect();
+    let digits_from = |at: usize| chars[at..].iter().take_while(|c| c.is_ascii_digit()).count();
+    let value = |at: usize, len: usize| chars[at..at + len].iter().collect::<String>().parse::<u64>().ok();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < chars.len() {
+        let whole = digits_from(i);
+        // a number that continues a word ("T13") or is too long to say stays
+        let inside_word = i > 0 && chars[i - 1].is_alphanumeric();
+        let Some(n) = (whole > 0 && whole <= 3 && !inside_word).then(|| value(i, whole)).flatten() else {
+            let skip = whole.max(1);
+            out.extend(&chars[i..i + skip]);
+            i += skip;
+            continue;
+        };
+        let after = i + whole;
+        let seconds = if chars.get(after) == Some(&':') { digits_from(after + 1) } else { 0 };
+        if seconds == 2 {
+            // a lap time, with or without its tenths
+            let s = value(after + 1, 2).unwrap_or(0);
+            let end = after + 3;
+            let decimals = if matches!(chars.get(end), Some(',') | Some('.')) { digits_from(end + 1) } else { 0 };
+            if decimals > 0 {
+                let tenth = chars[end + 1].to_digit(10).unwrap_or(0) as i64;
+                out.push_str(&lap_time_words((n as i64 * 60 + s as i64) * 1000 + tenth * 100, lang));
+                i = end + 1 + decimals;
+            } else {
+                let zero = if lang == "de" { "null" } else { "oh" };
+                out.push_str(&match s {
+                    0 => format!("{} {zero} {zero}", number(n)),
+                    1..=9 => format!("{} {zero} {}", number(n), number(s)),
+                    _ => format!("{} {}", number(n), number(s)),
+                });
+                i = end;
+            }
+            continue;
+        }
+        let decimals = if matches!(chars.get(after), Some(',') | Some('.')) { digits_from(after + 1) } else { 0 };
+        out.push_str(&number(n));
+        i = after;
+        if decimals > 0 && decimals <= 2 {
+            out.push_str(if lang == "de" { " Komma" } else { " point" });
+            for digit in &chars[after + 1..after + 1 + decimals] {
+                out.push(' ');
+                out.push_str(&number(digit.to_digit(10).unwrap_or(0) as u64));
+            }
+            i = after + 1 + decimals;
+        }
+    }
+    out
+}
+
 /// A lap time on its own, as the engineer calls it after a lap: "Acht zwölf vier." / "Eight twelve four."
 pub fn lap_time(lap_ms: i64, lang: &str) -> String {
     format!("{}.", capitalised(&lap_time_words(lap_ms, lang)))
@@ -220,6 +277,19 @@ pub fn personal_best(lap_ms: i64, lang: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_coach_s_numbers_are_spelled_out_for_the_voice() {
+        assert_eq!(spoken("Deine letzte Runde war 1:12,4, die beste 1:05,37.", "de"), "Deine letzte Runde war eins zwölf vier, die beste eins null fünf drei.");
+        assert_eq!(spoken("Your last lap was 8:12.4.", "en"), "Your last lap was eight twelve four.");
+        assert_eq!(spoken("Sprit für 4 Runden, 26,4 Liter im Tank.", "de"), "Sprit für vier Runden, sechsundzwanzig Komma vier Liter im Tank.");
+        assert_eq!(spoken("Fronts at 27.5 psi, 85 degrees.", "en"), "Fronts at twenty-seven point five psi, eighty-five degrees.");
+        assert_eq!(spoken("Noch 12 Minuten, also 1:30 pro Runde.", "de"), "Noch zwölf Minuten, also eins dreißig pro Runde.");
+        assert_eq!(spoken("Bremsen bei 640 Grad in Runde 3.", "de"), "Bremsen bei sechshundertvierzig Grad in Runde drei.");
+        assert_eq!(spoken("In T13 und nach 1500 Metern.", "de"), "In T13 und nach 1500 Metern.", "part of a word, and too long to say, stay");
+        assert_eq!(spoken("Alles gut.", "de"), "Alles gut.");
+        assert_eq!(spoken("", "en"), "");
+    }
 
     fn all_keys() -> Vec<&'static str> {
         FIXED.iter().chain(&NAMED).chain(&PREVIEW).copied().collect()
