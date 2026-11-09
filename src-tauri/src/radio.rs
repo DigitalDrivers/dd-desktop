@@ -348,6 +348,13 @@ pub fn prepare_voice(app: &tauri::AppHandle) {
         }
         *radio.rendering.lock().unwrap() = None;
         let _ = app.emit("radio-library", Progress { done: 0, total: 0 });
+        // For tests without a settings page: a development build started with DD_RADIO_CHECK says the radio check
+        // once its calls are rendered.
+        if cfg!(debug_assertions) && std::env::var_os("DD_RADIO_CHECK").is_some() && rendered_for.is_some() {
+            if let Err(error) = test(&app) {
+                log(&format!("radio: the radio check failed: {error}"));
+            }
+        }
     });
 }
 
