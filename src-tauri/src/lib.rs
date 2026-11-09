@@ -2028,6 +2028,9 @@ pub fn run() {
             }
             let handle = app.handle().clone();
             std::thread::spawn(move || engineer_loop(handle));
+            // The OBS helper puts back what a run that ended without its exit left in the driver's OBS.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || obs::at_start(&handle));
             // The window is built here instead of by the configuration alone, so that links which open a new
             // window (a stream, a download) go to the browser: the app has no tabs, and without this they did
             // nothing at all.
@@ -2055,8 +2058,14 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status, engineer_status, engineer_enable, engineer_sessions, engineer_session, engineer_traces, engineer_evaluate, engineer_forget, engineer_forget_session, engineer_keep, engineer_profile, engineer_seen, engineer_digests, engineer_digests_sent, coach_focus_get, coach_focus_set, recorder_start, recorder_stop, radio_status, radio_set, radio_devices, radio_download, radio_test, radio_preview, radio_names, radio_corner_names, talk_devices, talk_capture, coach_say, coach_done, coach_problem, radio_download_listen, replay_list, replay_keep, replay_delete, replay_open_folder, game_check, obs_status, obs_prepare, obs_quality_test, obs_record_start, obs_record_stop, obs_restore, obs_open_video])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // The app's OBS must not record on unwatched, with the driver's profile and websocket switched.
+            if let tauri::RunEvent::Exit = event {
+                obs::on_exit(app);
+            }
+        });
 }
 
 #[cfg(test)]

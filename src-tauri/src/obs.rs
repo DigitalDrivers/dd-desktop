@@ -4,15 +4,19 @@
 //! `dd_core::obs`; this side finds OBS (`HKLM\SOFTWARE\OBS Studio`), writes its files only while it is closed,
 //! starts it with our profile and a websocket password of its own, controls it through obs-websocket 5, and closes
 //! it gracefully (WM_CLOSE to its window after the recording stopped: obs-websocket has no quit request, and OBS 32+
-//! offers Safe Mode, without the websocket, after an unclean exit). The mechanics are those of
-//! research/2026-11-09-testabend/replay/03-obs-*.ps1, proven against OBS 33.0.1 on Joe's PC.
+//! offers Safe Mode, without the websocket, after an unclean exit). Proven by research/2026-11-09-testabend/replay/
+//! 03-obs-*.ps1 against a running OBS 33.0.1 on Joe's PC: the profile and collection files, websocket control
+//! (switching profile and collection, creating the sources, recording) and the statistics. NOT proven until Joe's
+//! live test: starting OBS with `--profile`/`--collection`/`--websocket_port`/`--websocket_password` (the scripts
+//! connected to an OBS Joe had started), closing it with WM_CLOSE, and the BMP screenshots.
 //!
 //! What it changes in the driver's OBS, all put back by `obs_restore`: our profile folder
 //! `basic/profiles/DigitalDrivers` and collection `basic/scenes/DigitalDrivers.json` stay; `server_enabled` in the
 //! websocket's `config.json` is switched on while the app uses OBS (port and password come as start options, which
 //! OBS does not save); OBS remembers the profile it was started with in `user.ini`, so the app switches back to the
 //! driver's before closing and resets those four keys after. What it changed is remembered in `obs-restore.json` in
-//! the app's config folder until it is put back, also over a restart of the app. The tier the quality test chose and
+//! the app's config folder until it is put back, also over a restart of the app: the app puts it back when it quits
+//! (stopping a recording first), and at its start when no OBS runs. The tier the quality test chose and
 //! the rate it measured are kept in `obs-tested.json` and tested again when the graphics card, its driver, OBS's
 //! version or the game's resolution change.
 //!
@@ -41,7 +45,7 @@
 //! Tested = { tier: Tier, mbps: 95.5, gbPerHour: 43.0, testedAt: <unix s>,
 //!            fingerprint: { gpu, driver, obs, canvas } }
 //! ```
-//! Errors: none (an unknown value is null).
+//! Errors: none (an unknown value is null). `ours` is false once the app's OBS is gone (closed, crashed).
 //!
 //! `obs_prepare()` -> Status. OBS must be closed. Writes the profile (the tested tier, else the start tier) and the
 //! collection, switches the websocket on, starts OBS minimised to the tray, checks that our profile and collection
@@ -50,8 +54,9 @@
 //! Errors: `obs-not-found`, `obs-too-old`, `obs-running` (the driver's own OBS runs: close it first),
 //! `ac-evo-not-found`, `no-video-settings` (start the game once), `no-hardware-encoder`, `obs-config-unreadable`
 //! (the websocket's config.json is no JSON), `obs-not-reachable` (no websocket within 30 s, e.g. Safe Mode),
-//! `obs-exited`, `obs-auth-failed`, `obs-profile-not-loaded`. On an error after OBS started, it is closed and put
-//! back.
+//! `obs-exited`, `obs-auth-failed`, `obs-profile-not-loaded`, `obs-restore-unreadable` (obs-restore.json in the
+//! app's config folder does not read). On an error after OBS started, it is closed and put back. When the app's OBS
+//! of an earlier prepare is gone, its files are put back first.
 //!
 //! `obs_quality_test()` -> QualityTest. Needs `obs_prepare` and a replay playing in the game. Records 15 s per
 //! tier (the clip is deleted), judges the numbers, steps down on encoding lag (P7 -> P5 -> smaller output -> H.264)
@@ -60,20 +65,23 @@
 //! ```text
 //! { passed: bool,
 //!   tier: Tier,                  // the chosen tier; when none passed, the one OBS is left on
-//!   reason: null | "capture-black" | "rendering-lag" | "encoding-lag" | "unknown",
+//!   reason: null | "capture-black" | "rendering-lag" | "encoding-lag" | "no-recording" | "unknown",
 //!                                // why it stopped without a passing tier, or why it did not go further down:
 //!                                // capture-black = no game image (no replay running, hook failed);
 //!                                // rendering-lag = the game takes the card: cap its fps, lower its settings;
-//!                                // encoding-lag = even H.264 at 1080p dropped frames; unknown = no numbers
+//!                                // encoding-lag = even H.264 at 1080p dropped frames; no-recording = OBS
+//!                                // recorded nothing even with H.264 (encoder does not start); unknown = no numbers
 //!   mbps: 95.5 | null, gbPerHour: 43.0 | null, minutesLeft: 51 | null,   // of the chosen tier
 //!   capture: { width, height } | null,       // the game image's real size (canvas should match)
 //!   attempts: [ { tier: Tier,
-//!                 verdict: "pass" | "encoding-lag" | "rendering-lag" | "capture-black" | "unknown",
+//!                 verdict: "pass" | "encoding-lag" | "rendering-lag" | "capture-black" | "no-recording" | "unknown",
 //!                 checks: { renderSkipped: bool|null, outputSkipped: bool|null, fps: bool, renderTime: bool,
-//!                           captureNotBlack: bool|null } | null,
+//!                           captureNotBlack: bool|null, recorded: bool } | null,
 //!                 summary: Summary | null } ] }
 //! Summary = { seconds, bytes, mbps: number|null, fpsAvg, fpsMin, renderMs, renderSkipped, renderTotal,
-//!             outputSkipped: number|null, outputTotal: number|null, freeBytes }
+//!             outputSkipped: number|null, outputTotal: number|null, freeBytes: number|null }
+//! A tier that records nothing (no duration, no bytes, no file: the encoder did not start) fails as "no-recording";
+//! rendering lag is judged before encoding lag (when the game takes the card both skip).
 //! ```
 //! Event `obs-test` while it runs: `{ attempt: 1, tier: Tier, second: 0..15, seconds: 15 }` (second 0: OBS
 //! (re)starts or the capture is checked).
@@ -86,22 +94,26 @@
 //! Errors: `obs-not-prepared`, `already-recording`, `disk-full`, `capture-black`, `bad-watermark`.
 //! Event `obs-recording` every second:
 //! ```text
-//! { seconds, bytes, mbps: number|null, fps, renderSkipped, outputSkipped: number|null, freeBytes,
+//! { seconds, bytes, mbps: number|null, fps, renderSkipped, outputSkipped: number|null, freeBytes: number|null,
 //!   minutesLeft: number|null, done: false }
 //! ```
-//! and once at the end the same with `done: true, stopped: "driver" | "disk-low" | "outside", path: string|null`
-//! (disk-low: stopped by itself below 2 GB free; outside: stopped in OBS).
+//! and once at the end the same with `done: true, stopped: "driver" | "disk-low" | "outside" | "error",
+//! path: string|null` (disk-low: stopped by itself below 2 GB free; outside: stopped in OBS; error: OBS did not
+//! answer 5 times in a row, the app stopped the recording if OBS still could).
 //!
 //! `obs_record_stop()` -> Recorded, also after the recording stopped by itself:
 //! ```text
 //! { path: string | null, bytes, seconds, mbps: number|null, gbPerHour: number|null, fpsAvg, renderSkipped,
-//!   renderTotal, outputSkipped: number|null, outputTotal: number|null, stopped: "driver" | "disk-low" | "outside" }
+//!   renderTotal, outputSkipped: number|null, outputTotal: number|null,
+//!   stopped: "driver" | "disk-low" | "outside" | "error" }
 //! ```
 //! Errors: `obs-not-prepared`, `not-recording`.
 //!
 //! `obs_restore()` -> null. Stops a recording, switches OBS back to the driver's profile and collection, closes it,
-//! switches the websocket back off (if it was) and resets `user.ini`. Nothing to do is no error.
-//! Errors: `obs-running` (the driver's own OBS runs: close it, then again), `obs-not-closing` (OBS did not close
+//! switches the websocket back off (if it was; a websocket config the app made is removed) and resets `user.ini`
+//! (the driver's profile and collection; for an OBS that had none, our keys are removed and OBS opens on its
+//! "Untitled"). Nothing to do is no error.
+//! Errors: `obs-restore-unreadable`, `obs-running` (the driver's own OBS runs: close it, then again), `obs-not-closing` (OBS did not close
 //! within 20 s: close it by hand, then again).
 //!
 //! `obs_open_video({ path })` -> null. Opens a recording (an .mp4 in the recording folder) with the default player.
@@ -119,7 +131,7 @@ use std::time::{Duration, Instant};
 use dd_core::obs::config::{self, Paths, UserChoice};
 use dd_core::obs::profile::{self, Corner};
 use dd_core::obs::stats::{self, Checks, OutputStatus, RecordStatus, Sample, Stats, Summary, Verdict};
-use dd_core::obs::tiers::{self, Canvas, Gpu, Hardware, Lag, Tier};
+use dd_core::obs::tiers::{self, Canvas, Gpu, Hardware, Ladder, Tier};
 use dd_core::obs::websocket::{self, Message};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -138,6 +150,8 @@ const CLOSE_TIMEOUT: Duration = Duration::from_secs(20);
 const HOOK_TIMEOUT: Duration = Duration::from_secs(20);
 const STOP_TIMEOUT: Duration = Duration::from_secs(30);
 const REPLY_TIMEOUT: Duration = Duration::from_secs(15);
+/// Seconds in a row without statistics after which a recording is given up (each may wait `REPLY_TIMEOUT`).
+const MAX_FAILED_SAMPLES: u32 = 5;
 /// The folder below the driver's Videos the recordings go to.
 const RECORD_FOLDER: &str = "Digital Drivers";
 const RESTORE_FILE: &str = "obs-restore.json";
@@ -201,6 +215,9 @@ pub struct Tested {
 struct Before {
     choice: UserChoice,
     server_enabled: bool,
+    /// Whether the websocket's config.json was there; one the app made is removed again.
+    #[serde(default = "yes")]
+    websocket_existed: bool,
     pid: Option<u32>,
     port: Option<u16>,
     password: Option<String>,
@@ -232,7 +249,7 @@ pub struct Status {
 pub struct QualityTest {
     passed: bool,
     tier: Tier,
-    reason: Option<&'static str>,
+    reason: Option<Verdict>,
     mbps: Option<f64>,
     gb_per_hour: Option<f64>,
     minutes_left: Option<u64>,
@@ -283,13 +300,17 @@ struct RecordingTick {
     fps: f64,
     render_skipped: u64,
     output_skipped: Option<u64>,
-    free_bytes: u64,
+    free_bytes: Option<u64>,
     minutes_left: Option<u64>,
     done: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     stopped: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     path: Option<Option<String>>,
+}
+
+fn yes() -> bool {
+    true
 }
 
 fn failed(what: &str, error: impl std::fmt::Display) -> String {
@@ -398,38 +419,47 @@ fn find_install() -> Option<Install> {
     None
 }
 
-/// Whether `tasklist` lists obs64.exe under `filter`.
+/// Whether `tasklist` lists obs64.exe, with `pid` when given. Only the image name and the pid are filtered on:
+/// tasklist says "Unknown" for the status of a process it cannot ask (OBS as administrator, in the tray).
 #[cfg(windows)]
-fn obs_listed(filter: &str) -> bool {
+fn obs_listed(pid: Option<u32>) -> bool {
     use std::os::windows::process::CommandExt;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let out = std::process::Command::new("tasklist").args(["/FI", filter, "/FI", "IMAGENAME eq obs64.exe", "/NH"]).creation_flags(CREATE_NO_WINDOW).output();
-    out.map(|o| String::from_utf8_lossy(&o.stdout).contains("obs64.exe")).unwrap_or(false)
+    let mut command = std::process::Command::new("tasklist");
+    command.args(["/FI", "IMAGENAME eq obs64.exe", "/NH"]).creation_flags(CREATE_NO_WINDOW);
+    if let Some(pid) = pid {
+        command.args(["/FI", &format!("PID eq {pid}")]);
+    }
+    command.output().map(|o| String::from_utf8_lossy(&o.stdout).contains("obs64.exe")).unwrap_or(false)
 }
 
 #[cfg(not(windows))]
-fn obs_listed(_filter: &str) -> bool {
+fn obs_listed(_pid: Option<u32>) -> bool {
     false
 }
 
 fn obs_running() -> bool {
-    obs_listed("STATUS ne UNKNOWN")
+    obs_listed(None)
 }
 
 fn obs_alive(pid: u32) -> bool {
-    obs_listed(&format!("PID eq {pid}"))
+    obs_listed(Some(pid))
 }
 
-/// Asks OBS's main window to close, as the driver's click on its X would.
+/// Asks OBS's main window to close, as the driver's click on its X would. A message box OBS shows (e.g. "starting
+/// the recording failed") disables the main window; then OBS's other visible windows get a WM_CLOSE first, which
+/// dismisses such a box. Floating docks are left alone while the main window is enabled.
 #[cfg(windows)]
 fn post_close(pid: u32) -> bool {
     use windows::core::BOOL;
     use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
-    use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowTextW, GetWindowThreadProcessId, PostMessageW, WM_CLOSE};
+    use windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
+    use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, PostMessageW, WM_CLOSE};
 
     struct Search {
         pid: u32,
-        posted: bool,
+        main: Vec<HWND>,
+        dialogs: Vec<HWND>,
     }
     unsafe extern "system" fn each(window: HWND, data: LPARAM) -> BOOL {
         // SAFETY: `data` is the `Search` below, alive for the whole EnumWindows call.
@@ -440,17 +470,30 @@ fn post_close(pid: u32) -> bool {
         if pid == search.pid {
             let mut title = [0u16; 256];
             let len = unsafe { GetWindowTextW(window, &mut title) };
-            // The main window is "OBS 33.0.1 - Profil: ... - Szenen: ..."; Qt's helper windows have other titles.
-            if String::from_utf16_lossy(&title[..len.max(0) as usize]).starts_with("OBS ") && unsafe { PostMessageW(Some(window), WM_CLOSE, WPARAM(0), LPARAM(0)) }.is_ok() {
-                search.posted = true;
+            // The main window is "OBS 33.0.1 - Profil: ... - Szenen: ..."; Qt's hidden helper windows are skipped.
+            if String::from_utf16_lossy(&title[..len.max(0) as usize]).starts_with("OBS ") {
+                search.main.push(window);
+            } else if unsafe { IsWindowVisible(window) }.as_bool() {
+                search.dialogs.push(window);
             }
         }
         BOOL(1)
     }
-    let mut search = Search { pid, posted: false };
+    let mut search = Search { pid, main: Vec::new(), dialogs: Vec::new() };
     // SAFETY: the callback only touches `search` through the pointer, during this call.
     let _ = unsafe { EnumWindows(Some(each), LPARAM(&mut search as *mut Search as isize)) };
-    search.posted
+    // SAFETY: posting a message to a window of OBS's; a window gone in between only makes the call fail.
+    let post = |window: HWND| unsafe { PostMessageW(Some(window), WM_CLOSE, WPARAM(0), LPARAM(0)) }.is_ok();
+    // SAFETY: asks about a window of OBS's.
+    let blocked = search.main.iter().any(|&window| !unsafe { IsWindowEnabled(window) }.as_bool());
+    if blocked && !search.dialogs.is_empty() {
+        search.dialogs.iter().for_each(|&dialog| {
+            post(dialog);
+        });
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    // every main window gets it (count, not any: no short circuit)
+    search.main.iter().filter(|&&window| post(window)).count() > 0
 }
 
 #[cfg(not(windows))]
@@ -518,9 +561,28 @@ fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Option<T> {
     serde_json::from_slice(&fs::read(path).ok()?).ok()
 }
 
+/// Written to a temporary file and moved over the old one, so a crash never leaves half a file.
 fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     fs::create_dir_all(path.parent().expect("a file in a folder")).map_err(|e| failed("config folder", e))?;
-    fs::write(path, serde_json::to_vec_pretty(value).expect("JSON")).map_err(|e| failed(&path.display().to_string(), e))
+    let temp = path.with_extension("json.tmp");
+    fs::write(&temp, serde_json::to_vec_pretty(value).expect("JSON")).map_err(|e| failed(&temp.display().to_string(), e))?;
+    fs::rename(&temp, path).map_err(|e| failed(&path.display().to_string(), e))
+}
+
+/// What the app changed in the driver's OBS; None when nothing is to be put back. A file that does not read is an
+/// error, never "nothing to put back".
+fn read_before(config: &Path) -> Result<Option<Before>, String> {
+    match fs::read(config.join(RESTORE_FILE)) {
+        Ok(bytes) => serde_json::from_slice(&bytes).map(Some).map_err(|_| "obs-restore-unreadable".to_string()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(failed(RESTORE_FILE, error)),
+    }
+}
+
+/// Our profile and collection as `user.ini [Basic]` names them.
+fn ours() -> UserChoice {
+    let file = profile::COLLECTION_FILE.trim_end_matches(".json");
+    UserChoice { profile: Some(profile::PROFILE_NAME.into()), profile_dir: Some(profile::PROFILE_DIR.into()), collection: Some(profile::COLLECTION_NAME.into()), collection_file: Some(file.into()) }
 }
 
 fn write_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
@@ -532,7 +594,7 @@ fn write_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
 /// remembered them already (those are the driver's own).
 fn remember_before(config: &Path, paths: &Paths) -> Result<(), String> {
     let file = config.join(RESTORE_FILE);
-    if file.exists() {
+    if read_before(config)?.is_some() {
         return Ok(());
     }
     let mut choice = config::user_choice(&fs::read_to_string(&paths.user_ini).unwrap_or_default());
@@ -543,19 +605,25 @@ fn remember_before(config: &Path, paths: &Paths) -> Result<(), String> {
         (choice.collection, choice.collection_file) = (None, None);
     }
     let server_enabled = config::server_enabled(fs::read_to_string(&paths.websocket).ok().as_deref());
-    write_json(&file, &Before { choice, server_enabled, pid: None, port: None, password: None })
+    write_json(&file, &Before { choice, server_enabled, websocket_existed: paths.websocket.exists(), pid: None, port: None, password: None })
 }
 
-/// Puts the driver's files back while OBS is closed: the websocket switch and the four keys of `user.ini`.
+/// Puts the driver's files back while OBS is closed: the websocket switch (or no config at all, as before) and the
+/// four keys of `user.ini`.
 fn restore_files(paths: &Paths, before: &Before) -> Result<(), String> {
-    if let Ok(text) = fs::read_to_string(&paths.websocket) {
+    if !before.websocket_existed {
+        match fs::remove_file(&paths.websocket) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => return Err(failed(&paths.websocket.display().to_string(), error)),
+            _ => {}
+        }
+    } else if let Ok(text) = fs::read_to_string(&paths.websocket) {
         if config::server_enabled(Some(&text)) != before.server_enabled {
             let back = config::with_server_enabled(Some(&text), before.server_enabled).ok_or("obs-config-unreadable")?;
             write_file(&paths.websocket, back.as_bytes())?;
         }
     }
     if let Ok(text) = fs::read_to_string(&paths.user_ini) {
-        if let Some(back) = config::with_user_choice(&text, &before.choice) {
+        if let Some(back) = config::with_user_choice(&text, &before.choice, &ours()) {
             write_file(&paths.user_ini, back.as_bytes())?;
         }
     }
@@ -736,12 +804,13 @@ fn start_obs(config: &Path, install: &Install, canvas: Canvas) -> Result<(u32, C
     let (port, password) = (free_port()?, new_password());
     let pid = launch(install, port, &password)?;
     log(&format!("obs: started OBS {} (pid {pid}, websocket port {port})", install.version.as_deref().unwrap_or("?")));
-    if let Some(mut before) = read_json::<Before>(&config.join(RESTORE_FILE)) {
+    if let Some(mut before) = read_before(config)? {
         (before.pid, before.port, before.password) = (Some(pid), Some(port), Some(password.clone()));
         write_json(&config.join(RESTORE_FILE), &before)?;
     }
+    let mut connected = None;
     let checked = (|| {
-        let mut client = connect_when_up(port, &password, pid)?;
+        let client = connected.insert(connect_when_up(port, &password, pid)?);
         let version = client.call("GetVersion", None)?;
         if version["obsVersion"].as_str().and_then(major).is_some_and(|m| m < MIN_MAJOR) {
             return Err("obs-too-old".to_string());
@@ -752,27 +821,31 @@ fn start_obs(config: &Path, install: &Install, canvas: Canvas) -> Result<(u32, C
             log(&format!("obs: OBS loaded profile {profile:?} and collection {collection:?}, not ours"));
             return Err("obs-profile-not-loaded".to_string());
         }
-        set_up_sources(&mut client, canvas, &mark_file(config, canvas)?)?;
-        Ok(client)
+        set_up_sources(client, canvas, &mark_file(config, canvas)?)
     })();
-    match checked {
-        Ok(client) => Ok((pid, client)),
-        Err(error) => {
+    match (checked, connected) {
+        (Ok(()), Some(client)) => Ok((pid, client)),
+        (result, mut client) => {
+            let error = result.err().unwrap_or_else(|| failed("obs-websocket", "no connection"));
             log(&format!("obs: start failed: {error}"));
-            // Ours, but not usable: close it, so the driver's files can be put back.
-            let _ = close_obs(None, pid, config);
+            // Ours, but not usable: back to the driver's profile when connected, closed, so the files can be put back.
+            let before = read_before(config).ok().flatten();
+            if let Err(also) = close_obs(client.as_mut(), pid, before.as_ref()) {
+                log(&format!("obs: closing it failed too: {also}"));
+            }
             Err(error)
         }
     }
 }
 
-/// Switches OBS back to the driver's profile and collection (when connected) and closes it gracefully.
-fn close_obs(client: Option<&mut Client>, pid: u32, config: &Path) -> Result<(), String> {
+/// Closes OBS gracefully: stops a recording, switches back to the driver's profile and collection of `before`
+/// (when connected; not between two tiers of a test, which would load the driver's sources for nothing), closes.
+fn close_obs(client: Option<&mut Client>, pid: u32, before: Option<&Before>) -> Result<(), String> {
     if let Some(client) = client {
         if client.call("GetRecordStatus", None).ok().is_some_and(|status| status["outputActive"] == true) {
             let _ = stop_record(client);
         }
-        if let Some(before) = read_json::<Before>(&config.join(RESTORE_FILE)) {
+        if let Some(before) = before {
             let listed = |client: &mut Client, request: &str, list: &str, name: &str| client.call(request, None).ok().is_some_and(|v| v[list].as_array().is_some_and(|names| names.iter().any(|n| n == name)));
             if let Some(collection) = before.choice.collection.as_deref().filter(|c| listed(client, "GetSceneCollectionList", "sceneCollections", c)) {
                 let _ = client.call("SetCurrentSceneCollection", Some(json!({ "sceneCollectionName": collection })));
@@ -804,7 +877,7 @@ fn close_obs(client: Option<&mut Client>, pid: u32, config: &Path) -> Result<(),
 
 /// Closes the session's OBS, rewrites the profile for `tier` and starts it again.
 fn relaunch(session: &mut Session, tier: Tier) -> Result<(), String> {
-    close_obs(Some(&mut *lock(&session.client)), session.pid, &session.config)?;
+    close_obs(Some(&mut *lock(&session.client)), session.pid, None)?;
     write_obs_files(&session.paths, tier, session.gpu, session.canvas, &session.folder)?;
     let (pid, client) = start_obs(&session.config, &session.install, session.canvas)?;
     (session.pid, session.client, session.tier) = (pid, Arc::new(Mutex::new(client)), tier);
@@ -880,73 +953,42 @@ fn test_once(app: &tauri::AppHandle, session: &Session, attempt: usize) -> Resul
         progress(second);
     }
     let path = stop_record(&mut client);
+    let file = path.as_deref().is_some_and(Path::is_file);
     let summary = stats::summarize(&baseline, &samples).map(|s| with_file(s, path.as_deref()));
     if let Some(path) = path.filter(|p| inside(p, &session.folder)) {
         let _ = fs::remove_file(path);
     }
     let summary = summary.ok_or_else(|| failed("quality test", "no samples"))?;
-    let (checks, verdict) = stats::judge(&summary, seen);
+    let (checks, verdict) = stats::judge(&summary, seen, Some(file));
     log(&format!("obs: test {attempt} {:?} -> {verdict:?}, {:?} Mb/s, render {}/{}, output {:?}/{:?}, {:.1} fps", session.tier, summary.mbps, summary.render_skipped, summary.render_total, summary.output_skipped, summary.output_total, summary.fps_avg));
     Ok((Attempt { tier: session.tier, verdict, checks: Some(checks), summary: Some(summary) }, capture))
 }
 
-fn verdict_reason(verdict: Verdict) -> &'static str {
-    match verdict {
-        Verdict::Pass => "pass",
-        Verdict::EncodingLag => "encoding-lag",
-        Verdict::RenderingLag => "rendering-lag",
-        Verdict::CaptureBlack => "capture-black",
-        Verdict::Unknown => "unknown",
-    }
-}
-
 fn run_ladder(app: &tauri::AppHandle, session: &mut Session) -> Result<QualityTest, String> {
     let mut attempts = Vec::new();
-    let mut chosen: Option<(Tier, f64)> = None;
-    let (mut going_up, mut went_down, mut reason, mut capture) = (false, false, None, None);
-    let mut tier = session.tier;
+    let mut capture = None;
+    let mut ladder = Ladder::new(session.tier);
     for attempt in 1..=MAX_ATTEMPTS {
-        if tier != session.tier {
-            let _ = app.emit("obs-test", TestProgress { attempt, tier, second: 0, seconds: TEST_SECONDS });
-            relaunch(session, tier)?;
+        if ladder.tier != session.tier {
+            let _ = app.emit("obs-test", TestProgress { attempt, tier: ladder.tier, second: 0, seconds: TEST_SECONDS });
+            relaunch(session, ladder.tier)?;
         }
         let (result, seen) = test_once(app, session, attempt)?;
         capture = seen.or(capture);
-        let verdict = result.verdict;
-        let rate = result.summary.as_ref().and_then(|s| s.mbps);
+        let (verdict, rate) = (result.verdict, result.summary.as_ref().and_then(|s| s.mbps));
         attempts.push(result);
-        match verdict {
-            Verdict::Pass => {
-                chosen = Some((tier, rate.unwrap_or(0.0)));
-                reason = None;
-                match tiers::step_up(tier, session.gpu, session.canvas).filter(|_| !went_down) {
-                    Some(up) => (going_up, tier) = (true, up),
-                    None => break,
-                }
-            }
-            Verdict::CaptureBlack | Verdict::Unknown => {
-                reason = Some(verdict_reason(verdict));
-                break;
-            }
-            Verdict::EncodingLag | Verdict::RenderingLag => {
-                if going_up {
-                    break;
-                }
-                let lag = if verdict == Verdict::EncodingLag { Lag::Encoding } else { Lag::Rendering };
-                reason = Some(verdict_reason(verdict));
-                match tiers::step_down(tier, lag) {
-                    Some(down) => (went_down, tier) = (true, down),
-                    None => break,
-                }
-            }
+        if ladder.after(verdict, rate, session.gpu, session.canvas).is_none() {
+            break;
         }
     }
+    let chosen = ladder.chosen;
+    // Back to the tier that passed (a failed step up is never left on); when none passed, the lowest tried stays.
     let left_on = chosen.map_or(session.tier, |(tier, _)| tier);
     if left_on != session.tier {
         relaunch(session, left_on)?;
     }
     let free = disk_free(&session.folder);
-    let mbps = chosen.map(|(_, rate)| rate).filter(|&r| r > 0.0);
+    let mbps = chosen.and_then(|(_, rate)| rate).filter(|&r| r > 0.0);
     if let (Some((tier, _)), Some(mbps)) = (chosen, mbps) {
         let tested = Tested { tier, mbps, gb_per_hour: stats::gb_per_hour(mbps), tested_at: unix_now(), fingerprint: session.fingerprint.clone() };
         write_json(&session.config.join(TESTED_FILE), &tested)?;
@@ -954,7 +996,7 @@ fn run_ladder(app: &tauri::AppHandle, session: &mut Session) -> Result<QualityTe
     Ok(QualityTest {
         passed: chosen.is_some(),
         tier: left_on,
-        reason,
+        reason: ladder.reason,
         mbps,
         gb_per_hour: mbps.map(stats::gb_per_hour),
         minutes_left: free.zip(mbps).and_then(|(free, mbps)| stats::minutes_left(free, mbps)),
@@ -963,27 +1005,39 @@ fn run_ladder(app: &tauri::AppHandle, session: &mut Session) -> Result<QualityTe
     })
 }
 
-/// The recording's loop: a tick every second, until the driver stops it, the drive is nearly full or OBS stopped.
-fn record_loop(app: tauri::AppHandle, client: Arc<Mutex<Client>>, baseline: Stats, stop: Arc<AtomicBool>) -> Result<Recorded, String> {
+/// The recording's loop: a tick every second, until the driver stops it, the drive is nearly full, OBS stopped, or
+/// OBS did not answer for `MAX_FAILED_SAMPLES` seconds in a row (then the recording is stopped if OBS still can).
+fn record_loop(app: tauri::AppHandle, client: Arc<Mutex<Client>>, baseline: Stats, folder: PathBuf, stop: Arc<AtomicBool>) -> Result<Recorded, String> {
     let started = Instant::now();
     let mut samples: Vec<Sample> = Vec::new();
-    let mut second = 0;
+    let (mut second, mut failures) = (0, 0);
+    // obs-websocket says 0 free when it cannot tell: the app asks the drive itself then.
+    let free = |summary: &Summary| summary.free_bytes.or_else(|| disk_free(&folder));
     let stopped = loop {
         second += 1;
-        while Instant::now() < started + Duration::from_secs(second) {
-            if stop.load(Ordering::Relaxed) {
-                break;
-            }
+        while Instant::now() < started + Duration::from_secs(second) && !stop.load(Ordering::Relaxed) {
             std::thread::sleep(Duration::from_millis(100));
         }
         if stop.load(Ordering::Relaxed) {
             break "driver";
         }
-        let now = sample(&mut lock(&client))?;
+        let now = match sample(&mut lock(&client)) {
+            Ok(now) => now,
+            Err(error) => {
+                failures += 1;
+                log(&format!("obs: no statistics at {second} s ({failures} in a row): {error}"));
+                if failures >= MAX_FAILED_SAMPLES {
+                    break "error";
+                }
+                continue;
+            }
+        };
+        failures = 0;
         samples.push(now);
         if let Some(summary) = stats::summarize(&baseline, &samples) {
-            let _ = app.emit("obs-recording", tick(&summary, now.stats.active_fps, false, None, None));
-            if summary.free_bytes < stats::STOP_BELOW_BYTES {
+            let free = free(&summary);
+            let _ = app.emit("obs-recording", tick(&summary, now.stats.active_fps, free, false, None, None));
+            if free.is_some_and(|f| f < stats::STOP_BELOW_BYTES) {
                 break "disk-low";
             }
         }
@@ -997,6 +1051,7 @@ fn record_loop(app: tauri::AppHandle, client: Arc<Mutex<Client>>, baseline: Stat
             let done = |data: &Value| websocket::record_state(data).is_some_and(|(state, _)| state == websocket::OUTPUT_STOPPED);
             client.wait_event("RecordStateChanged", done, STOP_TIMEOUT).and_then(|data| data["outputPath"].as_str().map(PathBuf::from))
         } else {
+            // also after "error": OBS may answer again; a recording nobody watches must not fill the drive
             stop_record(&mut client)
         }
     };
@@ -1004,29 +1059,24 @@ fn record_loop(app: tauri::AppHandle, client: Arc<Mutex<Client>>, baseline: Stat
     let path = path.map(|p| p.display().to_string());
     log(&format!("obs: recording stopped ({stopped}) after {second} s: {path:?}"));
     let fps = samples.last().map_or(0.0, |s| s.stats.active_fps);
-    let recorded = match &summary {
-        Some(s) => Recorded {
-            path: path.clone(),
-            bytes: s.bytes,
-            seconds: s.seconds,
-            mbps: s.mbps,
-            gb_per_hour: s.mbps.map(stats::gb_per_hour),
-            fps_avg: s.fps_avg,
-            render_skipped: s.render_skipped,
-            render_total: s.render_total,
-            output_skipped: s.output_skipped,
-            output_total: s.output_total,
-            stopped,
-        },
-        None => Recorded { path: path.clone(), bytes: 0, seconds: 0.0, mbps: None, gb_per_hour: None, fps_avg: 0.0, render_skipped: 0, render_total: 0, output_skipped: None, output_total: None, stopped },
-    };
-    if let Some(summary) = &summary {
-        let _ = app.emit("obs-recording", tick(summary, fps, true, Some(stopped), Some(path)));
-    }
-    Ok(recorded)
+    let summary = summary.unwrap_or(Summary { seconds: 0.0, bytes: 0, mbps: None, fps_avg: 0.0, fps_min: 0.0, render_ms: 0.0, render_skipped: 0, render_total: 0, output_skipped: None, output_total: None, free_bytes: None });
+    let _ = app.emit("obs-recording", tick(&summary, fps, free(&summary), true, Some(stopped), Some(path.clone())));
+    Ok(Recorded {
+        path,
+        bytes: summary.bytes,
+        seconds: summary.seconds,
+        mbps: summary.mbps,
+        gb_per_hour: summary.mbps.map(stats::gb_per_hour),
+        fps_avg: summary.fps_avg,
+        render_skipped: summary.render_skipped,
+        render_total: summary.render_total,
+        output_skipped: summary.output_skipped,
+        output_total: summary.output_total,
+        stopped,
+    })
 }
 
-fn tick(summary: &Summary, fps: f64, done: bool, stopped: Option<&'static str>, path: Option<Option<String>>) -> RecordingTick {
+fn tick(summary: &Summary, fps: f64, free_bytes: Option<u64>, done: bool, stopped: Option<&'static str>, path: Option<Option<String>>) -> RecordingTick {
     RecordingTick {
         seconds: summary.seconds,
         bytes: summary.bytes,
@@ -1034,8 +1084,8 @@ fn tick(summary: &Summary, fps: f64, done: bool, stopped: Option<&'static str>, 
         fps,
         render_skipped: summary.render_skipped,
         output_skipped: summary.output_skipped,
-        free_bytes: summary.free_bytes,
-        minutes_left: summary.mbps.and_then(|mbps| stats::minutes_left(summary.free_bytes, mbps)),
+        free_bytes,
+        minutes_left: free_bytes.zip(summary.mbps).and_then(|(free, mbps)| stats::minutes_left(free, mbps)),
         done,
         stopped,
         path,
@@ -1078,7 +1128,8 @@ pub fn status(app: &tauri::AppHandle) -> Status {
         minutes_left: None,
     };
     let current = match state(app).0.try_lock() {
-        Ok(session) => session.as_ref().map(|s| (s.tier, s.recording.is_some())),
+        // a session whose OBS is gone (closed by the driver, crashed) is not ours any more
+        Ok(session) => session.as_ref().filter(|s| status.running && obs_alive(s.pid)).map(|s| (s.tier, s.recording.as_ref().is_some_and(|r| !r.thread.is_finished()))),
         Err(TryLockError::WouldBlock) => {
             status.busy = true;
             None
@@ -1102,6 +1153,11 @@ pub fn status(app: &tauri::AppHandle) -> Status {
 pub fn prepare(app: &tauri::AppHandle) -> Result<Status, String> {
     {
         let mut slot = state(app).0.lock().map_err(|_| failed("state", "poisoned"))?;
+        // OBS of an earlier prepare that is gone (closed by the driver, crashed): put its files back first
+        if let Some(dead) = slot.take_if(|session| !obs_alive(session.pid)) {
+            log(&format!("obs: OBS (pid {}) is gone; putting its files back", dead.pid));
+            restore_session(app, Some(dead))?;
+        }
         if slot.is_none() {
             *slot = Some(open_session(app)?);
         }
@@ -1135,7 +1191,7 @@ fn open_session(app: &tauri::AppHandle) -> Result<Session, String> {
         Err(error) => {
             // OBS is closed again (start_obs closes what it started): put the driver's files back.
             if !obs_running() {
-                if let Some(before) = read_json::<Before>(&config.join(RESTORE_FILE)) {
+                if let Ok(Some(before)) = read_before(&config) {
                     if restore_files(&paths, &before).is_ok() {
                         let _ = fs::remove_file(config.join(RESTORE_FILE));
                     }
@@ -1151,7 +1207,7 @@ fn open_session(app: &tauri::AppHandle) -> Result<Session, String> {
 pub fn quality_test(app: &tauri::AppHandle) -> Result<QualityTest, String> {
     let mut slot = state(app).0.lock().map_err(|_| failed("state", "poisoned"))?;
     let session = slot.as_mut().ok_or("obs-not-prepared")?;
-    if session.recording.is_some() {
+    if session.recording.as_ref().is_some_and(|r| !r.thread.is_finished()) {
         return Err("already-recording".to_string());
     }
     match run_ladder(app, session) {
@@ -1179,6 +1235,10 @@ pub fn record_start(app: &tauri::AppHandle, watermark: Option<String>, seconds: 
     if session.recording.as_ref().is_some_and(|r| !r.thread.is_finished()) {
         return Err("already-recording".to_string());
     }
+    // a recording that stopped by itself and was not collected: its loop is done, its result was in the event
+    if let Some(done) = session.recording.take() {
+        let _ = done.thread.join();
+    }
     let mbps = tested_for(&session.config, &session.fingerprint).filter(|t| t.tier == session.tier).map_or_else(|| stats::estimated_mbps(session.tier, session.canvas), |t| t.mbps);
     if let Some(free) = disk_free(&session.folder) {
         if free < stats::bytes_needed(mbps, seconds.unwrap_or(0.0)) {
@@ -1196,8 +1256,8 @@ pub fn record_start(app: &tauri::AppHandle, watermark: Option<String>, seconds: 
     };
     log(&format!("obs: recording {:?}, watermark {corner:?}", session.tier));
     let stop = Arc::new(AtomicBool::new(false));
-    let (app, client, flag) = (app.clone(), session.client.clone(), stop.clone());
-    let thread = std::thread::spawn(move || record_loop(app, client, baseline, flag));
+    let (app, client, folder, flag) = (app.clone(), session.client.clone(), session.folder.clone(), stop.clone());
+    let thread = std::thread::spawn(move || record_loop(app, client, baseline, folder, flag));
     session.recording = Some(Recording { stop, thread });
     Ok(())
 }
@@ -1219,21 +1279,23 @@ pub fn restore(app: &tauri::AppHandle) -> Result<(), String> {
 /// files back.
 fn restore_session(app: &tauri::AppHandle, session: Option<Session>) -> Result<(), String> {
     let config = config_dir(app)?;
-    let before = read_json::<Before>(&config.join(RESTORE_FILE));
+    let before = read_before(&config)?;
     let mut session = session;
     if let Some(recording) = session.as_mut().and_then(|s| s.recording.take()) {
         recording.stop.store(true, Ordering::Relaxed);
         let _ = recording.thread.join();
     }
-    let pid = session.as_ref().map(|s| s.pid).or(before.as_ref().and_then(|b| b.pid)).filter(|&pid| obs_alive(pid));
+    // each pid on its own: a session's OBS that is gone must not hide a live one an earlier start left
+    let alive = |pid: Option<u32>| pid.filter(|&pid| obs_alive(pid));
+    let pid = alive(session.as_ref().map(|s| s.pid)).or_else(|| alive(before.as_ref().and_then(|b| b.pid)));
     if let Some(pid) = pid {
         let client = match &session {
             Some(s) => Some(s.client.clone()),
             None => before.as_ref().and_then(|b| Client::connect(b.port?, b.password.as_deref()?).ok()).map(|c| Arc::new(Mutex::new(c))),
         };
         match &client {
-            Some(client) => close_obs(Some(&mut *lock(client)), pid, &config)?,
-            None => close_obs(None, pid, &config)?,
+            Some(client) => close_obs(Some(&mut *lock(client)), pid, before.as_ref())?,
+            None => close_obs(None, pid, before.as_ref())?,
         }
     } else if before.is_some() && obs_running() {
         return Err("obs-running".to_string());
@@ -1244,6 +1306,39 @@ fn restore_session(app: &tauri::AppHandle, session: Option<Session>) -> Result<(
     fs::remove_file(config.join(RESTORE_FILE)).map_err(|e| failed("obs-restore.json", e))?;
     log("obs: put back as it was");
     Ok(())
+}
+
+/// When the app quits: stops a recording, switches the app's OBS back to the driver's profile, closes it and puts
+/// the files back (blocking, up to ~1 min), so nothing records unwatched with the websocket left on.
+pub fn on_exit(app: &tauri::AppHandle) {
+    let session = state(app).0.lock().ok().and_then(|mut slot| slot.take());
+    let pending = config_dir(app).is_ok_and(|config| config.join(RESTORE_FILE).exists());
+    if session.is_none() && !pending {
+        return;
+    }
+    log("obs: the app quits, putting OBS back");
+    if let Err(error) = restore_session(app, session) {
+        log(&format!("obs: putting OBS back at the app's exit failed: {error}"));
+    }
+}
+
+/// When the app starts: what an earlier run left (it was killed, the PC went off) is put back when no OBS runs.
+/// With an OBS running the page shows `restorePending` and the driver closes it.
+pub fn at_start(app: &tauri::AppHandle) {
+    let Ok(config) = config_dir(app) else { return };
+    let before = match read_before(&config) {
+        Ok(Some(before)) => before,
+        Ok(None) => return,
+        Err(error) => return log(&format!("obs: {error}")),
+    };
+    if before.pid.is_some_and(obs_alive) || obs_running() {
+        return;
+    }
+    let Some(paths) = find_install().as_ref().and_then(obs_paths) else { return };
+    match restore_files(&paths, &before).and_then(|()| fs::remove_file(config.join(RESTORE_FILE)).map_err(|e| failed(RESTORE_FILE, e))) {
+        Ok(()) => log("obs: put back what an earlier run left"),
+        Err(error) => log(&format!("obs: putting back what an earlier run left failed: {error}")),
+    }
 }
 
 pub fn open_video(app: &tauri::AppHandle, path: &str) -> Result<(), String> {
@@ -1364,6 +1459,45 @@ mod tests {
         assert!(inside(&folder.join("DD 2026-11-09 20-58-01.mp4"), &folder));
         assert!(!inside(&paths.user_ini, &folder));
         assert!(!inside(&folder.join("..").join("..").join("obs-studio").join("user.ini"), &folder));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn puts_a_fresh_obs_back_to_its_defaults() {
+        let dir = temp_dir("fresh");
+        let paths = config::paths(&dir, None, false, |_| true);
+        let config = dir.join("app");
+        // an OBS that never ran: no user.ini, no websocket config
+        remember_before(&config, &paths).unwrap();
+        let gpu = tiers::gpu(dd_core::game_check::Vendor::Nvidia, "NVIDIA GeForce RTX 3070").unwrap();
+        let canvas = Canvas { width: 1920, height: 1080 };
+        write_obs_files(&paths, tiers::start(gpu, canvas), gpu, canvas, &dir.join("Videos")).unwrap();
+        assert!(config::server_enabled(fs::read_to_string(&paths.websocket).ok().as_deref()));
+        // OBS made its user.ini with ours
+        write_file(&paths.user_ini, "[General]\nPre31Migrated=true\n\n[Basic]\nProfile=Digital Drivers\nProfileDir=DigitalDrivers\nSceneCollection=Digital Drivers\nSceneCollectionFile=DigitalDrivers\n".as_bytes()).unwrap();
+        let before = read_before(&config).unwrap().unwrap();
+        assert!(!before.websocket_existed);
+        restore_files(&paths, &before).unwrap();
+        assert!(!paths.websocket.exists(), "the config the app made is gone again");
+        assert_eq!(fs::read_to_string(&paths.user_ini).unwrap(), "[General]\nPre31Migrated=true\n\n[Basic]\n");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn never_takes_an_unreadable_restore_file_for_nothing_to_do() {
+        let dir = temp_dir("unreadable");
+        assert_eq!(read_before(&dir).unwrap().map(|b| b.server_enabled), None);
+        let before = Before { choice: UserChoice::default(), server_enabled: false, websocket_existed: true, pid: Some(7), port: Some(4466), password: Some("pw".into()) };
+        write_json(&dir.join(RESTORE_FILE), &before).unwrap();
+        assert!(!dir.join("obs-restore.json.tmp").exists(), "written through a temporary file");
+        assert_eq!(read_before(&dir).unwrap().and_then(|b| b.pid), Some(7));
+        // a file of an older build without websocketExisted
+        fs::write(dir.join(RESTORE_FILE), br#"{"choice":{},"serverEnabled":false,"pid":null,"port":null,"password":null}"#).unwrap();
+        assert!(read_before(&dir).unwrap().unwrap().websocket_existed);
+        fs::write(dir.join(RESTORE_FILE), b"{\"choice\":").unwrap();
+        assert_eq!(read_before(&dir).err().as_deref(), Some("obs-restore-unreadable"));
+        let paths = config::paths(&dir, None, false, |_| true);
+        assert_eq!(remember_before(&dir, &paths).err().as_deref(), Some("obs-restore-unreadable"), "never overwritten with the app's own state");
         fs::remove_dir_all(dir).unwrap();
     }
 
