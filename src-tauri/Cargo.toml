@@ -43,3 +43,6 @@ tauri-winrt-notification = "0.7"
 # Plays the team radio: mixes and sends the samples to the output device the driver chose (WASAPI through cpal).
 # Without its decoders: the app hands it samples.
 kira = { version = "0.12", default-features = false, features = ["cpal"] }
+# The coach's push-to-talk: reads the wheel's buttons with DirectInput 8 and keys with GetAsyncKeyState while the
+# game has the focus. In the build already (tauri, wry, cpal use the same version); only these features are added.
+windows = { version = "0.62", features = ["Win32_Devices_HumanInterfaceDevice", "Win32_System_LibraryLoader", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }

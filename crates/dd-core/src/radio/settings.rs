@@ -35,6 +35,40 @@ impl Default for Groups {
     }
 }
 
+/// The button the driver holds to ask the coach: a key of the keyboard or a button of a game controller.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum Button {
+    /// `code` is the key's Windows virtual-key code, `name` how the keyboard names it
+    Key { code: u32, name: String },
+    /// `device` is the controller's id as the app lists it, `button` its button's number from 0
+    #[serde(rename_all = "camelCase")]
+    Controller { device: String, device_name: String, button: u32 },
+}
+
+impl Button {
+    /// Whether it names something that can exist: a key that is not a mouse button, one of a controller's 128
+    /// buttons, ids and names of a sane length.
+    fn sane(&self) -> bool {
+        let text = |text: &str, max: usize| !text.is_empty() && text.len() <= max;
+        match self {
+            Button::Key { code, name } => (0x08..=0xFE).contains(code) && text(name, 100),
+            Button::Controller { device, device_name, button } => *button < 128 && text(device, 300) && text(device_name, 300),
+        }
+    }
+}
+
+/// The coach the driver asks by holding a button: the microphone is open only while it is held.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Coach {
+    /// Off until the driver switches the coach's microphone on
+    pub enabled: bool,
+    pub button: Option<Button>,
+    /// The input device's id as the sound system names it; None for the PC's default microphone
+    pub microphone: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
@@ -53,11 +87,12 @@ pub struct Settings {
     /// Live tips: after a corner the coach says where it cost time against the driver's best lap. Off until the
     /// driver switches it on.
     pub live_tips: bool,
+    pub coach: Coach,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { enabled: false, voice: VOICES[0].to_string(), language: LANGUAGES[0].to_string(), volume: 80, effect: 100, device: None, groups: Groups::default(), live_tips: false }
+        Self { enabled: false, voice: VOICES[0].to_string(), language: LANGUAGES[0].to_string(), volume: 80, effect: 100, device: None, groups: Groups::default(), live_tips: false, coach: Coach::default() }
     }
 }
 
@@ -74,6 +109,8 @@ impl Settings {
         self.volume = self.volume.min(100);
         self.effect = self.effect.min(100);
         self.device = self.device.filter(|device| !device.is_empty() && device.len() <= 300);
+        self.coach.button = self.coach.button.filter(Button::sane);
+        self.coach.microphone = self.coach.microphone.filter(|device| !device.is_empty() && device.len() <= 300);
         self
     }
 }
@@ -86,6 +123,10 @@ pub fn load(dir: &Path) -> Settings {
 /// Changes the settings the page names (a JSON object with any of the settings' fields) and answers what holds now.
 pub fn change(dir: &Path, changes: &serde_json::Value) -> io::Result<Settings> {
     let mut merged = serde_json::to_value(load(dir))?;
+    // a button replaces the one before as a whole: a key's fields and a controller's do not mix
+    if changes.pointer("/coach/button").is_some() {
+        merged["coach"]["button"] = serde_json::Value::Null;
+    }
     merge(&mut merged, changes);
     let settings = serde_json::from_value::<Settings>(merged).map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?.sane();
     fs::create_dir_all(dir)?;
@@ -159,6 +200,59 @@ mod tests {
         // a broken file counts as no file
         fs::write(dir.join(FILE), b"{").unwrap();
         assert_eq!(load(&dir), Settings::default());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_coach_s_microphone_is_off_without_a_button_until_the_driver_chooses() {
+        let dir = dir("coach-defaults");
+        assert_eq!(load(&dir).coach, Coach { enabled: false, button: None, microphone: None });
+        // a file from before the coach keeps its settings and gets the coach's defaults
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(FILE), br#"{ "enabled": true, "voice": "F2", "volume": 40 }"#).unwrap();
+        let settings = load(&dir);
+        assert_eq!((settings.enabled, settings.voice.as_str(), settings.volume), (true, "F2", 40));
+        assert_eq!(settings.coach, Coach::default());
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_button_is_kept_with_its_kind_and_a_new_one_replaces_it_whole() {
+        let dir = dir("coach-button");
+        let wheel = json!({ "kind": "controller", "device": "C29B046D-0000-0000-0000-504944564944/1A2B", "deviceName": "Logitech G25 Racing Wheel USB", "button": 4 });
+        let settings = change(&dir, &json!({ "coach": { "enabled": true, "button": wheel, "microphone": "wasapi:{0.0.1.00000000}.{mic}" } })).unwrap();
+        assert_eq!(settings.coach.button, Some(Button::Controller { device: "C29B046D-0000-0000-0000-504944564944/1A2B".into(), device_name: "Logitech G25 Racing Wheel USB".into(), button: 4 }));
+        assert_eq!(settings.coach.microphone.as_deref(), Some("wasapi:{0.0.1.00000000}.{mic}"));
+        let file: serde_json::Value = serde_json::from_slice(&fs::read(dir.join(FILE)).unwrap()).unwrap();
+        assert_eq!(file["coach"]["button"], wheel, "as the page sends it");
+        // the key takes the controller's place: nothing of the controller stays
+        let settings = change(&dir, &json!({ "coach": { "button": { "kind": "key", "code": 0x7C, "name": "F13" } } })).unwrap();
+        assert_eq!(settings.coach.button, Some(Button::Key { code: 0x7C, name: "F13".into() }));
+        let file: serde_json::Value = serde_json::from_slice(&fs::read(dir.join(FILE)).unwrap()).unwrap();
+        assert_eq!(file["coach"]["button"], json!({ "kind": "key", "code": 0x7C, "name": "F13" }));
+        assert!(settings.coach.enabled && settings.coach.microphone.is_some(), "the rest of the coach stays");
+        assert_eq!(load(&dir), settings);
+        assert_eq!(change(&dir, &json!({ "coach": { "button": null, "microphone": null } })).unwrap().coach, Coach { enabled: true, button: None, microphone: None });
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_button_of_a_wrong_shape_is_refused_and_one_that_cannot_exist_is_dropped() {
+        let dir = dir("coach-sane");
+        assert!(change(&dir, &json!({ "coach": { "button": { "kind": "mouse", "code": 1 } } })).is_err());
+        assert!(change(&dir, &json!({ "coach": { "button": { "kind": "key", "name": "F13" } } })).is_err(), "no code");
+        assert!(change(&dir, &json!({ "coach": { "button": "F13" } })).is_err());
+        assert!(change(&dir, &json!({ "coach": { "enabled": "yes" } })).is_err());
+        for button in [
+            json!({ "kind": "key", "code": 1, "name": "Left mouse button" }),
+            json!({ "kind": "key", "code": 0x7C, "name": "" }),
+            json!({ "kind": "key", "code": 0x7C, "name": "x".repeat(101) }),
+            json!({ "kind": "controller", "device": "id", "deviceName": "G25", "button": 128 }),
+            json!({ "kind": "controller", "device": "", "deviceName": "G25", "button": 0 }),
+        ] {
+            assert_eq!(change(&dir, &json!({ "coach": { "button": button } })).unwrap().coach.button, None, "{button}");
+        }
+        assert_eq!(change(&dir, &json!({ "coach": { "microphone": "" } })).unwrap().coach.microphone, None);
         fs::remove_dir_all(&dir).unwrap();
     }
 }

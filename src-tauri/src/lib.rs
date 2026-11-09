@@ -23,6 +23,7 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
 mod radio;
+pub mod talk;
 
 /// Address of the hosted interface: the platform for a release build, a platform on this PC for a development
 /// build (`npm run dev`). `DD_PLATFORM_URL` overrides it.
@@ -1467,7 +1468,7 @@ fn radio_status(app: tauri::AppHandle) -> radio::RadioStatus {
 }
 
 /// Changes the team radio's settings on this PC: an object with any of `enabled`, `voice`, `language`, `volume`,
-/// `effect`, `device` and `groups`. Answers the status that holds now.
+/// `effect`, `device`, `groups` and `coach`. Answers the status that holds now.
 #[tauri::command]
 fn radio_set(app: tauri::AppHandle, changes: serde_json::Value) -> Result<radio::RadioStatus, String> {
     radio::set(&app, &changes)
@@ -1509,6 +1510,29 @@ fn radio_names(app: tauri::AppHandle, names: Vec<radio::DriverName>) {
 #[tauri::command]
 fn radio_corner_names(app: tauri::AppHandle, track: String, layout: String, names: std::collections::BTreeMap<u32, String>) {
     radio::set_corner_names(&app, track, layout, names);
+}
+
+/// What `talk_devices` answers: the game controllers and the microphones of this PC.
+#[derive(Serialize)]
+struct TalkDevices {
+    controllers: Vec<talk::Controller>,
+    microphones: Vec<talk::Microphone>,
+}
+
+/// The game controllers and microphones the coach's push-to-talk can use, for the settings page.
+#[tauri::command]
+fn talk_devices() -> TalkDevices {
+    TalkDevices { controllers: talk::controllers(), microphones: talk::inputs() }
+}
+
+/// Waits up to 10 s for the driver to press the button he wants to ask the coach with (a controller button or a
+/// key; Escape cancels) and answers it as `{ kind: "key", code, name }` or `{ kind: "controller", device,
+/// deviceName, button }`; errors `timeout` and `cancelled`. The page saves it with `radio_set`.
+#[tauri::command]
+async fn talk_capture() -> Result<dd_core::radio::settings::Button, String> {
+    let result = tauri::async_runtime::spawn_blocking(|| talk::capture(Duration::from_secs(10))).await.map_err(|_| "failed".to_string())?;
+    log(&format!("talk_capture -> {result:?}"));
+    result
 }
 
 /// `--record <file> [--hz <n>] [--seconds <n>] [--label <text>]` records the game's shared memory without opening
@@ -1924,7 +1948,7 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status, engineer_status, engineer_enable, engineer_sessions, engineer_session, engineer_traces, engineer_evaluate, engineer_forget, engineer_forget_session, engineer_keep, engineer_profile, engineer_seen, engineer_digests, engineer_digests_sent, coach_focus_get, coach_focus_set, recorder_start, recorder_stop, radio_status, radio_set, radio_devices, radio_download, radio_test, radio_preview, radio_names, radio_corner_names])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status, engineer_status, engineer_enable, engineer_sessions, engineer_session, engineer_traces, engineer_evaluate, engineer_forget, engineer_forget_session, engineer_keep, engineer_profile, engineer_seen, engineer_digests, engineer_digests_sent, coach_focus_get, coach_focus_set, recorder_start, recorder_stop, radio_status, radio_set, radio_devices, radio_download, radio_test, radio_preview, radio_names, radio_corner_names, talk_devices, talk_capture])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

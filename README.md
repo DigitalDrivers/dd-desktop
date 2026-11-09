@@ -232,6 +232,31 @@ best lap, which the app records itself from the shared memory and keeps in `engi
 sentence on the straight after it. `radio_corner_names` (`{ track, layout, names }`, names by the race engineer's
 corner numbers) gives the corners their names.
 
+The driver asks the coach by holding a button on his wheel or a key (push-to-talk; no wake word): the microphone
+is open only while it is held, at most 20 s, and a press shorter than 0.3 s is taken as an accidental touch. The
+recording stays in memory on the PC. `src-tauri/src/talk.rs` reads the buttons while the game has the focus:
+game controllers through DirectInput 8 (background, nonexclusive, so the game keeps its own access for force
+feedback; XInput does not see DirectInput wheels and Windows.Gaming.Input needs the focus), keys with
+`GetAsyncKeyState`, both every 15 ms; a bound controller that is unplugged is looked for again every 2 s. The
+settings keep it under `coach`: `{ enabled, button, microphone }`, `button` either `{ kind: "key", code, name }`
+(a Windows virtual-key code) or `{ kind: "controller", device, deviceName, button }` (`device` as `talk_devices`
+lists it, `button` from 0), `microphone` an input device's id (null for the PC's default); the page saves them
+with `radio_set` (`{ changes: { coach: { button } } }`; a new button replaces the old one whole).
+`talk_devices` answers `{ controllers: [{ id, name, buttons }], microphones: [{ id, name }] }`. `talk_capture`
+waits up to 10 s for the next button or key going down (what is held already, mouse buttons and the generic
+Shift/Ctrl/Alt do not count; Escape cancels) and answers it as a `button`, or the error `timeout` or
+`cancelled`. No command hands recorded audio to the page.
+
+`ptt-probe` checks the push-to-talk on a PC without the app: it lists the controllers and microphones, prints
+every controller button and hat that goes down or up, the focused window and the first axes, and with
+`--record` prints for every press how long the microphone took to deliver, the length, peak and RMS (nothing is
+written unless `--keep <file.wav>` names a file; `--bind` runs the app's own capture and watcher instead):
+
+```powershell
+cargo build -p dd-desktop --example ptt-probe
+target\debug\examples\ptt-probe.exe [--record] [--mic <id>] [--key <code>] [--keep <file.wav>] [--bind] [--seconds <n>]
+```
+
 ## Recording the game's shared memory
 
 For tests of what the app reads live (the spotter, the engineer's calls), a development build records AC EVO's three
