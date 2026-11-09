@@ -109,7 +109,7 @@ asks for them. The race engineer uploads nothing; the coach's digests go up only
 | Part | What |
 | --- | --- |
 | `src/` | Bundled start page: checks that the platform is reachable, then opens it. Offline it shows a system check. |
-| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `remove_setups`, `update_check`, `update_install`, `update_at_start`, `launch_ac_evo`, `car_status`, `install_car`, `fix_game_start`, `live_snapshot`, `take_laps`, `upload_motec`, `motec_status` and the race engineer's `engineer_status`, `engineer_enable`, `engineer_sessions`, `engineer_session`, `engineer_traces`, `engineer_evaluate`, `engineer_forget`, `engineer_forget_session`, `engineer_keep`, and the coach's `engineer_profile`, `engineer_seen`, `engineer_digests` and `engineer_digests_sent`. |
+| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `remove_setups`, `update_check`, `update_install`, `update_at_start`, `launch_ac_evo`, `car_status`, `install_car`, `fix_game_start`, `live_snapshot`, `take_laps`, `upload_motec`, `motec_status` and the race engineer's `engineer_status`, `engineer_enable`, `engineer_sessions`, `engineer_session`, `engineer_traces`, `engineer_evaluate`, `engineer_forget`, `engineer_forget_session`, `engineer_keep`, and the coach's `engineer_profile`, `engineer_seen`, `engineer_digests` and `engineer_digests_sent`; for development builds only `recorder_start` and `recorder_stop`. |
 | `src-tauri/capabilities/` | Which page may call which command. The hosted interface only gets the commands listed in `platform.json`; `dev-localhost.json` is enabled for development builds only. |
 | `crates/dd-core/` | Platform-independent logic (locating Assetto Corsa EVO and the Steam account, car setups, the club's car packages and their saved cars, the race engineer), unit-tested on any machine. |
 
@@ -198,6 +198,22 @@ the app and starts the new version. An install the Store made, or a build starte
 answers that it does not update itself. `update_at_start` (since 0.18.0) is the update center's switch "App
 updates at start": without an argument it answers whether the start page installs a newer release (on unless
 the driver turned it off), with `{ on }` it changes that for this PC (a marker file in the app's config folder).
+
+## Recording the game's shared memory
+
+For tests of what the app reads live (the spotter, the engineer's calls), a development build records AC EVO's three
+shared memory pages into one gzipped file (`crates/dd-core/src/recorder.rs` describes the stream and reads it back).
+Nothing is uploaded, and a release build offers neither way:
+
+```powershell
+target\debug\dd-desktop.exe --record C:\somewhere\drive.ddsm.gz [--hz 20] [--seconds 60] [--label text]
+```
+
+records without opening the app until Enter is pressed (or the seconds are over) and prints a status line every
+second: the game's status, new packets per second of the physics and graphics page, the cars in the slots, the
+driver's own slot. `--hz` goes from 1 to 240. A page from `http://localhost:3000` may also call
+`recorder_start` (`{ label, hz }`, answers the path in the app's config folder, `recordings\`) and `recorder_stop`
+(answers `{ path, frames, seconds, bytes }`).
 
 ## Development
 

@@ -14,6 +14,7 @@ use dd_core::garage;
 use dd_core::laps::{self, LapRecorder, LapSummary};
 use dd_core::links;
 use dd_core::motec;
+use dd_core::recorder;
 use dd_core::settings;
 use dd_core::setups::{self, SetupError, SetupFile};
 use dd_core::stamp;
@@ -1320,8 +1321,14 @@ async fn send_motec(
 }
 
 /// A copy of a named shared memory page of another program, if it exists.
-#[cfg(windows)]
 fn read_shared_memory(name: &str, size: usize) -> Option<Vec<u8>> {
+    copy_shared_memory(name, size).map(|(page, _)| page)
+}
+
+/// A copy of a named shared memory page of another program, if it exists, and whether the page's first four bytes
+/// (the `packetId` of the game's physics and graphics pages) changed while it was copied: nothing locks the pages.
+#[cfg(windows)]
+fn copy_shared_memory(name: &str, size: usize) -> Option<(Vec<u8>, bool)> {
     use std::ffi::c_void;
     #[link(name = "kernel32")]
     extern "system" {
@@ -1340,7 +1347,12 @@ fn read_shared_memory(name: &str, size: usize) -> Option<Vec<u8>> {
             return None;
         }
         let view = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, size);
-        let copy = (!view.is_null()).then(|| std::slice::from_raw_parts(view as *const u8, size).to_vec());
+        let copy = (!view.is_null()).then(|| {
+            let page = std::slice::from_raw_parts(view as *const u8, size);
+            let copy = page.to_vec();
+            let moved = size >= 4 && page[..4] != copy[..4];
+            (copy, moved)
+        });
         if !view.is_null() {
             UnmapViewOfFile(view);
         }
@@ -1350,8 +1362,167 @@ fn read_shared_memory(name: &str, size: usize) -> Option<Vec<u8>> {
 }
 
 #[cfg(not(windows))]
-fn read_shared_memory(_name: &str, _size: usize) -> Option<Vec<u8>> {
+fn copy_shared_memory(_name: &str, _size: usize) -> Option<(Vec<u8>, bool)> {
     None
+}
+
+/// What a recording of the game's shared memory came to.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct Recorded {
+    path: String,
+    frames: u64,
+    seconds: f64,
+    /// Size of the file
+    bytes: u64,
+}
+
+/// Copies the game's three shared memory pages `hz` times a second into the gzipped recording `out`
+/// (`dd_core::recorder`) until `stop` is set. Once a second it hands the file what it has, so a recording cut short
+/// keeps all but its last second, and tells `each_second` the frames so far and the newest one at a glance (None
+/// while the game publishes no pages).
+fn record_shared_memory(out: &Path, label: &str, hz: u32, stop: &std::sync::atomic::AtomicBool, mut each_second: impl FnMut(u64, Option<recorder::Glance>)) -> std::io::Result<Recorded> {
+    use std::io::Write;
+    let hz = hz.clamp(1, recorder::MAX_HZ);
+    let header = recorder::Header { started_unix_ms: unix_now_ms() as u64, hz, label: label.to_string(), app: env!("CARGO_PKG_VERSION").to_string() };
+    let file = std::io::BufWriter::new(fs::File::create(out)?);
+    let mut writer = recorder::Writer::new(flate2::write::GzEncoder::new(file, flate2::Compression::default()), &header)?;
+    let start = std::time::Instant::now();
+    let period = Duration::from_micros(1_000_000 / u64::from(hz));
+    let mut seconds = 0u64;
+    while !stop.load(std::sync::atomic::Ordering::SeqCst) {
+        let t = start.elapsed();
+        let physics = copy_shared_memory("Local\\acevo_pmf_physics", laps::PHYSICS_SIZE);
+        let graphics = copy_shared_memory("Local\\acevo_pmf_graphics", evo_memory::GRAPHICS_SIZE);
+        let statics = read_shared_memory("Local\\acevo_pmf_static", evo_memory::STATIC_SIZE);
+        fn copied(page: &Option<(Vec<u8>, bool)>) -> Option<recorder::Copied<'_>> {
+            page.as_ref().map(|(page, moved)| recorder::Copied { page, moved: *moved })
+        }
+        writer.sample(t.as_micros() as u64, copied(&physics), copied(&graphics), statics.as_deref())?;
+        if t.as_secs() > seconds {
+            seconds = t.as_secs();
+            writer.flush()?;
+            each_second(writer.frames(), physics.zip(graphics).and_then(|((physics, _), (graphics, _))| recorder::glance(&physics, &graphics)));
+        }
+        // the next sample on the grid of the recording's start; a sample that came late skips the ones it missed
+        let samples = (start.elapsed().as_micros() / period.as_micros()) as u32 + 1;
+        if let Some(wait) = (period * samples).checked_sub(start.elapsed()) {
+            std::thread::sleep(wait);
+        }
+    }
+    let frames = writer.frames();
+    writer.into_inner().finish()?.flush()?;
+    Ok(Recorded { path: out.to_string_lossy().to_string(), frames, seconds: start.elapsed().as_secs_f64(), bytes: fs::metadata(out)?.len() })
+}
+
+/// The recording `recorder_start` began: its stop flag and its thread.
+#[derive(Default)]
+struct Recording(Mutex<Option<(std::sync::Arc<std::sync::atomic::AtomicBool>, std::thread::JoinHandle<std::io::Result<Recorded>>)>>);
+
+/// Starts a recording of the game's shared memory into the app's config folder (`recordings\<time>-<label>.ddsm.gz`),
+/// `hz` times a second (20 unless given), and answers the file's path. For tests of the spotter and the engineer's
+/// calls: only a development build's page may call it, and nothing is uploaded.
+#[tauri::command]
+fn recorder_start(app: tauri::AppHandle, state: tauri::State<'_, Recording>, label: String, hz: Option<u32>) -> Result<String, String> {
+    if label.is_empty() || label.len() > 40 || !label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return Err("label".to_string());
+    }
+    let mut recording = state.0.lock().unwrap();
+    if recording.is_some() {
+        return Err("recording".to_string());
+    }
+    let dir = app.path().app_config_dir().map_err(|_| "failed".to_string())?.join("recordings");
+    fs::create_dir_all(&dir).map_err(|_| "failed".to_string())?;
+    let path = dir.join(format!("{}-{label}.{}", stamp::utc_stamp(unix_now()).replace(':', ""), recorder::EXTENSION));
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let thread = {
+        let (path, stop) = (path.clone(), stop.clone());
+        std::thread::spawn(move || record_shared_memory(&path, &label, hz.unwrap_or(20), &stop, |_, _| {}))
+    };
+    *recording = Some((stop, thread));
+    log(&format!("recorder_start -> {}", path.display()));
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// Ends the recording `recorder_start` began and answers what it came to.
+#[tauri::command]
+fn recorder_stop(state: tauri::State<'_, Recording>) -> Result<Recorded, String> {
+    let (stop, thread) = state.0.lock().unwrap().take().ok_or_else(|| "not-recording".to_string())?;
+    stop.store(true, std::sync::atomic::Ordering::SeqCst);
+    let recorded = thread.join().map_err(|_| "failed".to_string())?.map_err(|error| {
+        log(&format!("recorder_stop failed: {error}"));
+        "failed".to_string()
+    })?;
+    log(&format!("recorder_stop -> {} frames in {:.1} s, {} bytes", recorded.frames, recorded.seconds, recorded.bytes));
+    Ok(recorded)
+}
+
+/// `--record <file> [--hz <n>] [--seconds <n>] [--label <text>]` records the game's shared memory without opening
+/// the app, until Enter is pressed or the seconds are over, and prints a status line every second: what the test
+/// scripts start. Answers the exit code, None without `--record`. A release build has no console and ignores it.
+fn record_from_args(args: &[String]) -> Option<i32> {
+    use std::io::Write;
+    let value = |name: &str| args.iter().position(|arg| arg == name).and_then(|at| args.get(at + 1));
+    let out = PathBuf::from(value("--record")?);
+    let hz = value("--hz").and_then(|hz| hz.parse().ok()).unwrap_or(20);
+    let seconds: Option<u64> = value("--seconds").and_then(|seconds| seconds.parse().ok());
+    let label = value("--label").cloned().unwrap_or_default();
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    match seconds {
+        Some(seconds) => println!("Recording {seconds} s at {hz} Hz into {}", out.display()),
+        None => {
+            println!("Recording at {hz} Hz into {}; press Enter to stop", out.display());
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                let _ = std::io::stdin().read_line(&mut String::new());
+                stop.store(true, std::sync::atomic::Ordering::SeqCst);
+            });
+        }
+    }
+    let mut before: Option<(i32, i32)> = None;
+    let mut second = 0u64;
+    let recorded = record_shared_memory(&out, &label, hz, &stop, |frames, glance| {
+        second += 1;
+        let line = match &glance {
+            None => format!("{second:>5} s  {frames:>7} frames  the game publishes no pages"),
+            Some(g) => {
+                let status = match g.status {
+                    0 => "off",
+                    1 => "replay",
+                    2 => "live",
+                    3 => "pause",
+                    _ => "?",
+                };
+                let rate = before.map_or_else(|| "-/-".to_string(), |(physics, graphics)| format!("{}/{}", g.physics_packet.wrapping_sub(physics), g.graphics_packet.wrapping_sub(graphics)));
+                format!(
+                    "{second:>5} s  {frames:>7} frames  status {} ({status})  packets/s physics/graphics {rate}  cars {}  own slot {}  {:.0} km/h  total_drivers {}  active_cars {}",
+                    g.status,
+                    g.cars,
+                    g.own_slot.map_or_else(|| "-".to_string(), |slot| slot.to_string()),
+                    g.speed_kmh,
+                    g.total_drivers,
+                    g.active_cars
+                )
+            }
+        };
+        before = glance.map(|g| (g.physics_packet, g.graphics_packet));
+        print!("\r{line:<150}");
+        let _ = std::io::stdout().flush();
+        if seconds.is_some_and(|seconds| second >= seconds) {
+            stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    });
+    println!();
+    match recorded {
+        Ok(recorded) => {
+            println!("{} frames in {:.1} s, {} bytes: {}", recorded.frames, recorded.seconds, recorded.bytes, recorded.path);
+            Some(0)
+        }
+        Err(error) => {
+            eprintln!("recording failed: {error}");
+            Some(1)
+        }
+    }
 }
 
 #[tauri::command]
@@ -1638,6 +1809,11 @@ fn active_steam_user() -> u32 {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if cfg!(debug_assertions) {
+        if let Some(code) = record_from_args(&std::env::args().collect::<Vec<_>>()) {
+            std::process::exit(code);
+        }
+    }
     tauri::Builder::default()
         // First, as the plugin asks: a second start only brings the running app's window to the front.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -1653,6 +1829,7 @@ pub fn run() {
         .manage(Laps::default())
         .manage(MotecUploading::default())
         .manage(Engineer::default())
+        .manage(Recording::default())
         .setup(|app| {
             // The race engineer keeps its lap list whenever the game runs while its switch is on, and evaluates
             // ended sessions every 5 minutes.
@@ -1687,7 +1864,7 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status, engineer_status, engineer_enable, engineer_sessions, engineer_session, engineer_traces, engineer_evaluate, engineer_forget, engineer_forget_session, engineer_keep, engineer_profile, engineer_seen, engineer_digests, engineer_digests_sent, coach_focus_get, coach_focus_set])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status, engineer_status, engineer_enable, engineer_sessions, engineer_session, engineer_traces, engineer_evaluate, engineer_forget, engineer_forget_session, engineer_keep, engineer_profile, engineer_seen, engineer_digests, engineer_digests_sent, coach_focus_get, coach_focus_set, recorder_start, recorder_stop])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
