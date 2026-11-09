@@ -1267,7 +1267,7 @@ mod tests {
         pages.drive(&mut e, 5);
         let t0 = pages.t;
         let said = pages.stop(&mut e, 33_982.0);
-        assert_eq!(texts(&said), ["Noch vierunddreißig Sekunden.", "Zehn Sekunden.", "Fünf.", "Los, los, los!"], "the 30 s mark only 4 s after the first call: left out");
+        assert_eq!(texts(&said), ["Noch vierunddreißig Sekunden.", "Zehn Sekunden.", "Fünf.", "Freigabe. Los."], "the 30 s mark only 4 s after the first call: left out");
         assert_eq!(keys(&said), ["pit_stop_time", "pit_ten", "pit_five", "pit_go"]);
         let at: Vec<f64> = said.iter().map(|s| ((s.call.at - t0) * 100.0).round() / 100.0).collect();
         assert_eq!(at, [0.0, 24.0, 29.0, 34.0]);
@@ -1277,7 +1277,7 @@ mod tests {
         // A2 483.3 s, back to the pits: 84,983 ms
         assert_eq!(
             texts(&pages.stop(&mut e, 84_983.0)),
-            ["Noch fünfundachtzig Sekunden.", "Noch sechzig Sekunden.", "Noch dreißig Sekunden.", "Zehn Sekunden.", "Fünf.", "Los, los, los!"]
+            ["Noch fünfundachtzig Sekunden.", "Noch sechzig Sekunden.", "Noch dreißig Sekunden.", "Zehn Sekunden.", "Fünf.", "Freigabe. Los."]
         );
         // short stops: only the marks still ahead
         assert_eq!(keys(&pages.stop(&mut e, 12_000.0)), ["pit_ten", "pit_five", "pit_go"]);
@@ -1291,7 +1291,7 @@ mod tests {
         let (mut e, mut pages) = (Engineer::new(Config::default(), "en"), Pages::new());
         let said = pages.stop(&mut e, 31_000.0);
         let en: Vec<String> = said.iter().map(|s| s.text.clone().unwrap_or_else(|| phrases::text(s.call.key, "en", None, 0).unwrap())).collect();
-        assert_eq!(en, ["Thirty-one seconds.", "Ten seconds.", "Five.", "Go, go, go!"]);
+        assert_eq!(en, ["Thirty-one seconds.", "Ten seconds.", "Five.", "Release. Go."]);
     }
 
     #[test]
