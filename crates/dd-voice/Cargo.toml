@@ -1,0 +1,21 @@
+[package]
+name = "dd-voice"
+version = "0.1.0"
+description = "The team radio's voice: Supertonic 3 text to speech on the CPU through ONNX Runtime."
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+dd-core = { path = "../dd-core" }
+# ONNX Runtime 1.31 (pre-approved 2026-11-09). Linked statically from pyke's prebuilt binaries, which the build
+# script downloads once (cdn.pyke.io, SHA-256 pinned in ort-sys); no DLL ships with the app. CPU only: no
+# execution provider features. No ndarray/tracing: tensors are built from plain slices.
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "download-binaries", "tls-native", "api-31"] }
+# Unicode NFKD, as the Supertonic SDK normalises text before the model sees it. Already part of the app's build
+# (url -> idna -> idna_adapter -> icu_normalizer), so it adds no new code.
+icu_normalizer = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# SHA-256 of the model files.
+sha2 = "0.10"
