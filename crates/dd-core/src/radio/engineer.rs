@@ -24,7 +24,9 @@
 //! - **Lap time** at the line after a valid lap; **new personal best** when it beats the best known lap (the one
 //!   the shell gives, or this session's best). Without a best given, the first valid lap only sets it.
 //! - **Lap invalid** once a lap when `is_valid_lap` goes from 1 to 0, not in the pit lane, not at the sample that
-//!   counts a lap, and not in the first seconds after the pit exit (what the flag does there is not known).
+//!   counts a lap, not in the first seconds after the pit exit (what the flag does there is not known), and not
+//!   while the lap timer stands at 0: the game drops the flag when it puts the car on the grid and raises it at the
+//!   countdown, before any lap is timed.
 //! - **Brakes very hot** when any brake is above the coach's 800 °C for 2 s; again only after all cooled below the
 //!   coach's 700 °C and at most once every three minutes.
 //! - **Tyres in the window** once a stint (the stint starts at the pit exit) when all four core temperatures are
@@ -51,6 +53,9 @@ const NO_FUEL_USE_L: f32 = 0.1;
 /// The lap recorder takes the static page for the car's track and whether it is online, which the calls do not
 /// need: an empty page.
 const NO_STATICS: [u8; STATIC_SIZE] = [0; STATIC_SIZE];
+/// Graphics page, `current_lap_time_ms`: 0 while no lap is timed (on the grid until the start); seen working in the
+/// recording of 2026-11-09
+const CURRENT_LAPTIME_MS: usize = 188;
 
 /// The settings' call groups, so the shell can leave out what the driver switched off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,6 +124,8 @@ struct Sample {
     lap_count: i32,
     fuel: f32,
     valid: bool,
+    /// The lap timer runs (`current_lap_time_ms` above 0)
+    timed: bool,
     pit_lane: bool,
     pit_box: bool,
     /// FL FR RL RR
@@ -133,6 +140,7 @@ impl Sample {
             lap_count: i32_at(graphics, laps::TOTAL_LAP_COUNT),
             fuel: f32_at(graphics, laps::FUEL),
             valid: graphics[laps::IS_VALID_LAP] != 0,
+            timed: i32_at(graphics, CURRENT_LAPTIME_MS) > 0,
             pit_lane: graphics[laps::IS_IN_PIT_LANE] != 0,
             pit_box: graphics[evo_memory::IS_IN_PIT_BOX] != 0,
             brake_temp: f32s_at(physics, laps::BRAKE_TEMP),
@@ -288,7 +296,7 @@ impl Engineer {
             self.lap_done(t, &lap, s.fuel, &mut out);
         }
         let after_exit = self.pit_exit_at.is_none_or(|exit| t - exit >= self.config.invalid_grace_s);
-        if was_valid && !s.valid && s.lap_count == lap_count && !s.pit_lane && !was_in_pit && after_exit && !self.invalid_said {
+        if was_valid && !s.valid && s.timed && s.lap_count == lap_count && !s.pit_lane && !was_in_pit && after_exit && !self.invalid_said {
             self.invalid_said = true;
             out.push(say("lap_invalid", Group::Laps, t, None));
         }
@@ -404,6 +412,8 @@ mod tests {
         physics: Vec<u8>,
         graphics: Vec<u8>,
         t: f64,
+        /// The game's lap timer runs (it stands at 0 on the grid until the start)
+        timing: bool,
         /// Everything said, with the time
         said: Vec<Say>,
     }
@@ -411,7 +421,7 @@ mod tests {
     impl Pages {
         /// Live, in the pit lane, a valid lap, 30 l, cold tyres, cool brakes.
         fn new() -> Pages {
-            let mut pages = Pages { physics: vec![0; PHYSICS_SIZE], graphics: vec![0; GRAPHICS_SIZE], t: 0.0, said: Vec::new() };
+            let mut pages = Pages { physics: vec![0; PHYSICS_SIZE], graphics: vec![0; GRAPHICS_SIZE], t: 0.0, timing: true, said: Vec::new() };
             pages.graphics[laps::STATUS..laps::STATUS + 4].copy_from_slice(&laps::LIVE.to_le_bytes());
             pages.valid(true);
             pages.pit(true);
@@ -460,10 +470,25 @@ mod tests {
             let count = i32_at(&self.graphics, laps::TOTAL_LAP_COUNT);
             self.i32(laps::TOTAL_LAP_COUNT, count + 1);
             self.i32(laps::LAST_LAPTIME_MS, ms);
+            self.i32(CURRENT_LAPTIME_MS, 0);
         }
 
-        /// One sample; what it said.
+        /// On the grid: the lap timer stands at 0 until `go`.
+        fn grid(&mut self) {
+            self.timing = false;
+            self.i32(CURRENT_LAPTIME_MS, 0);
+        }
+
+        fn go(&mut self) {
+            self.timing = true;
+        }
+
+        /// One sample; what it said. The lap timer counts on when it runs.
         fn step(&mut self, engineer: &mut Engineer) -> Vec<Say> {
+            if self.timing {
+                let ms = i32_at(&self.graphics, CURRENT_LAPTIME_MS);
+                self.i32(CURRENT_LAPTIME_MS, ms + 50);
+            }
             let said = engineer.step(self.t, &self.physics, &self.graphics);
             self.t += DT;
             self.said.extend(said.clone());
@@ -741,6 +766,31 @@ mod tests {
         pages.drive(&mut e, 20);
         pages.valid(false);
         assert_eq!(keys(&pages.drive(&mut e, 10)), ["lap_invalid"]);
+    }
+
+    #[test]
+    fn no_invalid_lap_on_the_grid_before_the_lap_timer_runs_and_the_first_cut_of_the_race_is_called() {
+        // the recording of 2026-11-09 (Brands Hatch, an offline race): the game drops the flag when it puts the car
+        // on the grid and raises it at the countdown, with the lap timer at 0 all along
+        let (mut e, mut pages) = (engineer(), Pages::new());
+        pages.pit(false);
+        pages.grid();
+        pages.drive(&mut e, 30);
+        pages.valid(false);
+        pages.drive(&mut e, 100);
+        pages.valid(true);
+        pages.drive(&mut e, 100);
+        // a restart puts the car on the grid again
+        pages.valid(false);
+        pages.drive(&mut e, 100);
+        pages.valid(true);
+        pages.drive(&mut e, 100);
+        assert!(pages.said.is_empty(), "{:?}", keys(&pages.said));
+        // the lights go out, the lap timer runs: a cut on the first lap is called
+        pages.go();
+        pages.drive(&mut e, 4);
+        pages.valid(false);
+        assert_eq!(keys(&pages.drive(&mut e, 20)), ["lap_invalid"]);
     }
 
     #[test]
