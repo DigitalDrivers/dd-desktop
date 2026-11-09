@@ -5,8 +5,8 @@
 //!
 //! It reads the pages itself rather than a [`super::frame::Frame`]: a frame needs the own car's slot in
 //! `car_coordinates`, which the engineer does not, so it keeps talking when the slots are empty. Only fields seen
-//! working in the game are read ([`Sample`]); the pit limiter, `best_laptime_ms`, the game's own fuel averages and the
-//! session's time and laps left join that one struct once a recording has confirmed them.
+//! working in the game are read ([`Sample`]); `best_laptime_ms`, the game's own fuel averages and the session's time
+//! and laps left join that one struct once a recording has confirmed them.
 //!
 //! Laps are the app's lap list's: [`LapRecorder`] decides when a lap ends, its time, whether it was valid, whether
 //! it went through the pit lane, and the fuel it burnt (refuelling and the pit lane do not count). A lap through
@@ -31,7 +31,12 @@
 //!   coach's 700 °C and at most once every three minutes.
 //! - **Tyres in the window** once a stint (the stint starts at the pit exit) when all four core temperatures are
 //!   in the window after one of them was seen below it: warm tyres after a short stop get no call.
-//! - Nothing is said while the car is in the pit lane, except the calls of a lap that ended before it.
+//! - **Limiter on / off** when `electronics.is_pitlimiter_on` changes while the car rolls (above 1 m/s), in the pit
+//!   lane and on track. The recordings of 2026-11-09 show it following the switch (the driver's and the auto limiter
+//!   assist's at the start of the pit lane); `pitLimiterOn` of the physics page is only on while the limiter holds
+//!   the car near the limit. A change while the car stands is the game putting it in its box or on the grid, and is
+//!   not said.
+//! - Nothing else is said while the car is in the pit lane, except the calls of a lap that ended before it.
 //!
 //! Every call has [`Priority::Engineer`] and expires after [`EXPIRES_S`]. The timing between calls of one key lives
 //! here, so the queue needs no cooldowns for them.
@@ -46,6 +51,8 @@ use crate::laps::{self, i32_at, f32s_at, LapRecorder, LapSummary, PHYSICS_SIZE};
 
 /// An engineer's call is still worth saying this long (research §3: 20 to 30 s).
 pub const EXPIRES_S: f64 = 25.0;
+/// A pit call (the limiter, the stop's countdown) is wrong a few seconds later.
+pub const PIT_EXPIRES_S: f64 = 5.0;
 /// The fuel per lap is the mean of this many laps.
 const FUEL_LAPS: usize = 3;
 /// A lap that burnt less (litres) says fuel use is off in this session.
@@ -56,6 +63,12 @@ const NO_STATICS: [u8; STATIC_SIZE] = [0; STATIC_SIZE];
 /// Graphics page, `current_lap_time_ms`: 0 while no lap is timed (on the grid until the start); seen working in the
 /// recording of 2026-11-09
 const CURRENT_LAPTIME_MS: usize = 188;
+/// Graphics page, `electronics.is_pitlimiter_on`: the limiter's switch (recordings of 2026-11-09)
+const IS_PITLIMITER_ON: usize = 1910;
+/// Physics page, `speedKmh`
+const SPEED_KMH: usize = 28;
+/// m/s: below this the car stands, and a limiter switched is the game's doing
+const ROLLING_MS: f32 = 1.0;
 
 /// The settings' call groups, so the shell can leave out what the driver switched off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,6 +141,9 @@ struct Sample {
     timed: bool,
     pit_lane: bool,
     pit_box: bool,
+    /// m/s
+    speed: f32,
+    limiter: bool,
     /// FL FR RL RR
     brake_temp: [f32; 4],
     core_temp: [f32; 4],
@@ -143,6 +159,8 @@ impl Sample {
             timed: i32_at(graphics, CURRENT_LAPTIME_MS) > 0,
             pit_lane: graphics[laps::IS_IN_PIT_LANE] != 0,
             pit_box: graphics[evo_memory::IS_IN_PIT_BOX] != 0,
+            speed: f32_at(physics, SPEED_KMH) / 3.6,
+            limiter: graphics[IS_PITLIMITER_ON] != 0,
             brake_temp: f32s_at(physics, laps::BRAKE_TEMP),
             core_temp: f32s_at(physics, laps::TYRE_CORE_TEMPERATURE),
         })
@@ -174,6 +192,9 @@ pub struct Engineer {
     brakes_said_at: Option<f64>,
     tyres_cold_seen: bool,
     tyres_said: bool,
+    // pit
+    /// The limiter as the driver knows it: the last said, or what it was while the car stood
+    limiter: Option<bool>,
     // for the coach
     /// The laps since the car left the pits, without the ones through the pit lane
     stint: Vec<LapSummary>,
@@ -188,7 +209,11 @@ pub struct Engineer {
 pub const STINT_LAPS: usize = 3;
 
 fn say(key: &'static str, group: Group, t: f64, text: Option<String>) -> Say {
-    Say { call: Call { key, car: None, priority: Priority::Engineer, at: t, expires: t + EXPIRES_S }, text, group }
+    say_within(key, group, t, EXPIRES_S, text)
+}
+
+fn say_within(key: &'static str, group: Group, t: f64, life: f64, text: Option<String>) -> Say {
+    Say { call: Call { key, car: None, priority: Priority::Engineer, at: t, expires: t + life }, text, group }
 }
 
 impl Engineer {
@@ -213,6 +238,7 @@ impl Engineer {
             brakes_said_at: None,
             tyres_cold_seen: false,
             tyres_said: false,
+            limiter: None,
             stint: Vec::new(),
             stint_taken: false,
             in_box: false,
@@ -302,7 +328,15 @@ impl Engineer {
         }
         self.watch_brakes(t, &s, &mut out);
         self.watch_tyres(t, &s, &mut out);
+        self.watch_limiter(t, &s, &mut out);
         out
+    }
+
+    fn watch_limiter(&mut self, t: f64, s: &Sample, out: &mut Vec<Say>) {
+        let known = self.limiter.replace(s.limiter);
+        if s.speed >= ROLLING_MS && known.is_some_and(|known| known != s.limiter) {
+            out.push(say_within(if s.limiter { "limiter_on" } else { "limiter_off" }, Group::Car, t, PIT_EXPIRES_S, None));
+        }
     }
 
     fn watch_fuel(&mut self, fuel: f32) {
@@ -459,6 +493,14 @@ mod tests {
 
         fn tyres(&mut self, c: [f32; 4]) {
             self.physics(laps::TYRE_CORE_TEMPERATURE, c);
+        }
+
+        fn speed(&mut self, kmh: f32) {
+            self.physics[SPEED_KMH..SPEED_KMH + 4].copy_from_slice(&kmh.to_le_bytes());
+        }
+
+        fn limiter(&mut self, on: bool) {
+            self.graphics[IS_PITLIMITER_ON] = on as u8;
         }
 
         fn brakes(&mut self, c: [f32; 4]) {
@@ -914,6 +956,39 @@ mod tests {
         assert!(pages.drive(&mut e, 20).is_empty(), "one tyre above the window");
         pages.tyres([75.0; 4]);
         assert_eq!(keys(&pages.drive(&mut e, 20)), ["tyres_in_window"]);
+    }
+
+    #[test]
+    fn the_limiter_is_called_when_it_is_switched_while_the_car_rolls() {
+        // the recording of 2026-11-09 (A2): the game switched it on at the start of the pit lane (the auto limiter
+        // assist), the driver switched it off a second later and on again; a change while the car stood was the
+        // game putting the car in its box or on the grid
+        let (mut e, mut pages) = (engineer(), Pages::new());
+        pages.speed(50.0);
+        pages.limiter(true);
+        assert!(pages.drive(&mut e, 5).is_empty(), "on from the first sample: nothing switched");
+        pages.limiter(false);
+        let said = pages.drive(&mut e, 5);
+        assert_eq!(keys(&said), ["limiter_off"]);
+        assert_eq!((said[0].group, said[0].call.priority, said[0].text.as_deref()), (Group::Car, Priority::Engineer, None));
+        assert!((said[0].call.expires - said[0].call.at - PIT_EXPIRES_S).abs() < 1e-9, "a limiter call is stale soon");
+        pages.limiter(true);
+        assert_eq!(keys(&pages.drive(&mut e, 5)), ["limiter_on"]);
+        assert_eq!(texts(&pages.said), ["Limiter aus.", "Limiter an."]);
+        // standing: the game takes it off on the grid, puts the car in its box with it on
+        pages.speed(0.0);
+        pages.limiter(false);
+        pages.drive(&mut e, 5);
+        pages.limiter(true);
+        pages.drive(&mut e, 5);
+        pages.speed(20.0);
+        assert!(pages.drive(&mut e, 20).is_empty(), "it was on when the car started rolling");
+        pages.limiter(false);
+        assert_eq!(keys(&pages.drive(&mut e, 5)), ["limiter_off"]);
+        // on track too
+        pages.pit(false);
+        pages.limiter(true);
+        assert_eq!(keys(&pages.drive(&mut e, 5)), ["limiter_on"]);
     }
 
     #[test]
