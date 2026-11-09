@@ -26,7 +26,8 @@
 //! - **Lap invalid** once a lap when `is_valid_lap` goes from 1 to 0, not in the pit lane, not at the sample that
 //!   counts a lap, not in the first seconds after the pit exit (what the flag does there is not known), and not
 //!   while the lap timer stands at 0: the game drops the flag when it puts the car on the grid and raises it at the
-//!   countdown, before any lap is timed.
+//!   countdown, before any lap is timed. Said at once ([`Priority::Tactical`]: it does not wait for a straight);
+//!   live on 2026-11-09 at Brands Hatch the wait made it come 10 s after the cut.
 //! - **Brakes very hot** when any brake is above the coach's 800 °C for 2 s; again only after all cooled below the
 //!   coach's 700 °C and at most once every three minutes.
 //! - **Tyres in the window** once a stint (the stint starts at the pit exit) when all four core temperatures are
@@ -57,7 +58,7 @@
 //!   A lock of 0 does not count down (the game putting the car in its box).
 //! - Nothing else is said while the car is in the pit lane, except the calls of a lap that ended before it.
 //!
-//! Every call has [`Priority::Engineer`] and expires after [`EXPIRES_S`]. The timing between calls of one key lives
+//! Every call has [`Priority::Engineer`] and expires after [`EXPIRES_S`] unless its rule says otherwise. The timing between calls of one key lives
 //! here, so the queue needs no cooldowns for them.
 
 use std::collections::VecDeque;
@@ -396,7 +397,8 @@ impl Engineer {
         let after_exit = self.pit_exit_at.is_none_or(|exit| t - exit >= self.config.invalid_grace_s);
         if was_valid && !s.valid && s.timed && s.lap_count == lap_count && !s.pit_lane && !was_in_pit && after_exit && !self.invalid_said {
             self.invalid_said = true;
-            out.push(say("lap_invalid", Group::Laps, t, None));
+            let invalid = say("lap_invalid", Group::Laps, t, None);
+            out.push(Say { call: Call { priority: Priority::Tactical, ..invalid.call }, ..invalid });
         }
         self.watch_brakes(t, &s, &mut out);
         self.watch_tyres(t, &s, &mut out);
@@ -993,6 +995,29 @@ mod tests {
         pages.drive(&mut e, 20);
         pages.valid(false);
         assert_eq!(keys(&pages.drive(&mut e, 10)), ["lap_invalid"]);
+    }
+
+    #[test]
+    fn an_invalid_lap_is_said_at_once_but_the_lap_time_waits_for_a_straight() {
+        // live on 2026-11-09 at Brands Hatch nearly every "lap invalid" came 10 s after the cut, the queue's longest
+        // wait for a straight
+        use crate::radio::queue::{Next, Queue, Situation};
+        const CORNER: Situation = Situation { overlap: false, straight: false };
+        let (mut e, mut pages) = (engineer(), Pages::new());
+        on_a_flying_lap(&mut e, &mut pages);
+        pages.drive(&mut e, 60);
+        pages.valid(false);
+        let invalid = pages.step(&mut e).remove(0);
+        assert_eq!((invalid.call.key, invalid.group, invalid.call.expires - invalid.call.at), ("lap_invalid", Group::Laps, EXPIRES_S));
+        let mut queue = Queue::new();
+        queue.push(invalid.call.clone());
+        assert_eq!(queue.next(invalid.call.at, None, CORNER), Next::Play(invalid.call), "in a corner");
+        let lap = pages.lap(&mut e, 0.0, 95_000);
+        pages.valid(true);
+        let time = pages.lap(&mut e, 0.0, 95_300).remove(0);
+        assert_eq!(time.call.key, "lap_time", "{:?}", keys(&lap));
+        queue.push(time.call.clone());
+        assert_eq!(queue.next(time.call.at + 3.0, None, CORNER), Next::Nothing);
     }
 
     #[test]
