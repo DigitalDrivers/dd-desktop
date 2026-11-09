@@ -5,6 +5,7 @@
 
 pub mod engineer;
 pub mod evo_memory;
+pub mod game_check;
 pub mod garage;
 pub mod laps;
 pub mod links;

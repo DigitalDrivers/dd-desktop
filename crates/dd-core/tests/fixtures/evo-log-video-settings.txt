@@ -1,0 +1,187 @@
+[2026-11-08 15:46:57.868] [others] [info] Build release 0.9.1, version 0.9.1+release.6, steam appid 3058630, built on Sep  7 2026 16:03:01
+[2026-11-08 15:47:07.777] [replay] [info] Replay Setting
+[2026-11-08 15:47:07.778] [replay] [info] {
+[2026-11-08 15:47:07.778] [replay] [info]  "max_duration": 1000,
+[2026-11-08 15:47:07.778] [replay] [info]  "quality": "Insane",
+[2026-11-08 15:47:07.778] [replay] [info]  "max_autosave_race_slots": 25,
+[2026-11-08 15:47:07.778] [replay] [info]  "max_autosave_other_slots": 10,
+[2026-11-08 15:47:07.778] [replay] [info]  "min_length_prompt_auto_save": 100,
+[2026-11-08 15:47:07.778] [replay] [info]  "enable_autosave": true
+[2026-11-08 15:47:07.778] [replay] [info] }
+[2026-11-08 15:47:07.940] [rendering] [info] Using graphics adapter NVIDIA GeForce RTX 3070 (video memory 8018 MB)
+[2026-11-08 15:47:07.941] [rendering] [info] Driver version: 32.0.16.2101
+[2026-11-08 15:47:10.828] [rendering] [info] [Monitor] flat 0 (adapter 0 'NVIDIA GeForce RTX 3070' output 0) device \\.\DISPLAY3 desktop (0,0)-(1920,1080)
+[2026-11-08 15:47:10.828] [rendering] [info] [Monitor] flat 1 (adapter 0 'NVIDIA GeForce RTX 3070' output 1) device \\.\DISPLAY1 desktop (1920,137)-(3840,1217)
+[2026-11-08 15:47:10.828] [rendering] [info] [Monitor] flat 2 (adapter 0 'NVIDIA GeForce RTX 3070' output 2) device \\.\DISPLAY2 desktop (3840,273)-(5760,1353)
+[2026-11-08 15:47:11.575] [rendering] [info] Video Settings
+[2026-11-08 15:47:11.576] [rendering] [info] {
+[2026-11-08 15:47:11.576] [rendering] [info]  "display": {
+[2026-11-08 15:47:11.576] [rendering] [info]   "window_width": 1920,
+[2026-11-08 15:47:11.576] [rendering] [info]   "window_height": 1080,
+[2026-11-08 15:47:11.576] [rendering] [info]   "v_sync": "Off",
+[2026-11-08 15:47:11.576] [rendering] [info]   "physics_late_latching": false,
+[2026-11-08 15:47:11.576] [rendering] [info]   "frame_rate_limit": {
+[2026-11-08 15:47:11.576] [rendering] [info]    "gameplay_frame_rate_limit": 60,
+[2026-11-08 15:47:11.576] [rendering] [info]    "occluded_frame_rate_limit": 60,
+[2026-11-08 15:47:11.576] [rendering] [info]    "menu_frame_rate_limit": true
+[2026-11-08 15:47:11.576] [rendering] [info]   },
+[2026-11-08 15:47:11.576] [rendering] [info]   "triple_screen": {
+[2026-11-08 15:47:11.576] [rendering] [info]    "width": 520,
+[2026-11-08 15:47:11.576] [rendering] [info]    "distance": 640,
+[2026-11-08 15:47:11.576] [rendering] [info]    "screen_angle": 45,
+[2026-11-08 15:47:11.576] [rendering] [info]    "bezel": 20
+[2026-11-08 15:47:11.576] [rendering] [info]   },
+[2026-11-08 15:47:11.576] [rendering] [info]   "panini": {
+[2026-11-08 15:47:11.576] [rendering] [info]    "distance": 0,
+[2026-11-08 15:47:11.576] [rendering] [info]    "vertical_compression": 0
+[2026-11-08 15:47:11.576] [rendering] [info]   },
+[2026-11-08 15:47:11.576] [rendering] [info]   "supersampling": "Supersampling_Off",
+[2026-11-08 15:47:11.576] [rendering] [info]   "is_fullscreen": false,
+[2026-11-08 15:47:11.576] [rendering] [info]   "child_width": 1920,
+[2026-11-08 15:47:11.576] [rendering] [info]   "child_height": 1080,
+[2026-11-08 15:47:11.576] [rendering] [info]   "is_maximized": false,
+[2026-11-08 15:47:11.576] [rendering] [info]   "is_triple": false,
+[2026-11-08 15:47:11.576] [rendering] [info]   "is_stereo": false,
+[2026-11-08 15:47:11.576] [rendering] [info]   "render_width": 1920,
+[2026-11-08 15:47:11.576] [rendering] [info]   "render_height": 1080,
+[2026-11-08 15:47:11.576] [rendering] [info]   "output_width": 1920,
+[2026-11-08 15:47:11.576] [rendering] [info]   "output_height": 1080,
+[2026-11-08 15:47:11.576] [rendering] [info]   "monitor": 1,
+[2026-11-08 15:47:11.576] [rendering] [info]   "aspect_ratio_x": 16,
+[2026-11-08 15:47:11.576] [rendering] [info]   "aspect_ratio_y": 9
+[2026-11-08 15:47:11.576] [rendering] [info]  },
+[2026-11-08 15:47:11.576] [rendering] [info]  "graphics": {
+[2026-11-08 15:47:11.576] [rendering] [info]   "overallGraphics": "",
+[2026-11-08 15:47:11.576] [rendering] [info]   "upscaling": {
+[2026-11-08 15:47:11.576] [rendering] [info]    "mode": "Upscaling_DLSS",
+[2026-11-08 15:47:11.576] [rendering] [info]    "fsr3_preset": "FSR3_NativeAA",
+[2026-11-08 15:47:11.576] [rendering] [info]    "fsr3_custom_val": 0,
+[2026-11-08 15:47:11.576] [rendering] [info]    "dlss_preset": "DLSS_Performance",
+[2026-11-08 15:47:11.576] [rendering] [info]    "dlss_custom_val": 0
+[2026-11-08 15:47:11.576] [rendering] [info]   },
+[2026-11-08 15:47:11.576] [rendering] [info]   "msaa": "MSAA_Off",
+[2026-11-08 15:47:11.576] [rendering] [info]   "antialising": {
+[2026-11-08 15:47:11.576] [rendering] [info]    "filmicAntialiasing": {
+[2026-11-08 15:47:11.576] [rendering] [info]     "setting": "Type_Sharp"
+[2026-11-08 15:47:11.576] [rendering] [info]    },
+[2026-11-08 15:47:11.576] [rendering] [info]    "fxaa": {
+[2026-11-08 15:47:11.576] [rendering] [info]     "enable": false
+[2026-11-08 15:47:11.576] [rendering] [info]    }
+[2026-11-08 15:47:11.576] [rendering] [info]   },
+[2026-11-08 15:47:11.576] [rendering] [info]   "textureQuality": "TextureQuality_High",
+[2026-11-08 15:47:11.576] [rendering] [info]   "anisotropicFiltering": {
+[2026-11-08 15:47:11.576] [rendering] [info]    "anisotropicFilteringQuality": "AnisotropicFilteringQuality_High",
+[2026-11-08 15:47:11.576] [rendering] [info]    "customSettings": {
+[2026-11-08 15:47:11.576] [rendering] [info]     "mainAnisotropicFiltering": 8,
+[2026-11-08 15:47:11.576] [rendering] [info]     "mainLowAnisotropicFiltering": 4,
+[2026-11-08 15:47:11.576] [rendering] [info]     "cubemapMirrorAnisotropicFiltering": 1,
+[2026-11-08 15:47:11.576] [rendering] [info]     "mainAnisotropicMipBias": 0,
+[2026-11-08 15:47:11.576] [rendering] [info]     "mainLowAnisotropicMipBias": 0
+[2026-11-08 15:47:11.576] [rendering] [info]    }
+[2026-11-08 15:47:11.576] [rendering] [info]   },
+[2026-11-08 15:47:11.576] [rendering] [info]   "texturePoolSize": "TexturePoolSize_Low",
+[2026-11-08 15:47:11.576] [rendering] [info]   "sharpening": {
+[2026-11-08 15:47:11.576] [rendering] [info]    "strength": 1
+[2026-11-08 15:47:11.576] [rendering] [info]   },
+[2026-11-08 15:47:11.576] [rendering] [info]   "clouds": {
+[2026-11-08 15:47:11.576] [rendering] [info]    "cloudsQuality": "CloudsQuality_Low",
+[2026-11-08 15:47:11.576] [rendering] [info]    "cloudsCustomSettings": {
+[2026-11-08 15:47:11.576] [rendering] [info]     "resolution": 1024,
+[2026-11-08 15:47:11.576] [rendering] [info]     "renderingTimeslicedOverFramesNumber": 16
+[2026-11-08 15:47:11.576] [rendering] [info]    },
+[2026-11-08 15:47:11.576] [rendering] [info]    "cloudsRenderingMode": "CloudsRenderingMode_Performance"
+[2026-11-08 15:47:11.576] [rendering] [info]   },
+[2026-11-08 15:47:11.576] [rendering] [info]   "giUpdateFrequency": "GlobalIlluminationUpdateFrequency_High",
+[2026-11-08 15:47:11.576] [rendering] [info]   "volumetricsQuality": "VolumetricsQuality_Medium",
+[2026-11-08 15:47:11.576] [rendering] [info]   "carReflection": {
+[2026-11-08 15:47:11.576] [rendering] [info]    "carReflectionQuality": "CarReflectionQuality_Medium",
+[2026-11-08 15:47:11.576] [rendering] [info]    "carReflectionCustomSettings": {
+[2026-11-08 15:47:11.576] [rendering] [info]     "vehicleCubemapResolution": 0,
+[2026-11-08 15:47:11.576] [rendering] [info]     "cockpitCubemapResolution": 0,
+[2026-11-08 15:47:11.576] [rendering] [info]     "vehicleCubemapFarPlane": 0,
+[2026-11-08 15:47:11.576] [rendering] [info]     "cockpitCubemapFarPlane": 0
+[2026-11-08 15:47:11.576] [rendering] [info]    }
+[2026-11-08 15:47:11.576] [rendering] [info]   },
+[2026-11-08 15:47:11.576] [rendering] [info]   "enviromentReflection": "EnvironmentReflectionQuality_Medium",
+[2026-11-08 15:47:11.576] [rendering] [info]   "grass": "GrassDensity_Low",
+[2026-11-08 15:47:11.576] [rendering] [info]   "levelOfDetail": {
+[2026-11-08 15:47:11.576] [rendering] [info]    "levelOfDetail": "LevelOfDetailQuality_High",
+[2026-11-08 15:47:11.576] [rendering] [info]    "experimentalStaticLevelOfDetail": false,
+[2026-11-08 15:47:11.576] [rendering] [info]    "staticLevelOfDetail": "StaticLevelOfDetailQuality_Low",
+[2026-11-08 15:47:11.576] [rendering] [info]    "levelOfDetailCustomSettings": {
+[2026-11-08 15:47:11.576] [rendering] [info]     "mainLodDistanceScale": 1,
+[2026-11-08 15:47:11.576] [rendering] [info]     "mirrorLodDistanceScale": 1,
+[2026-11-08 15:47:11.576] [rendering] [info]     "cubemapLodDistanceScale": 1,
+[2026-11-08 15:47:11.576] [rendering] [info]     "shadowLodDistanceScale": 1,
+[2026-11-08 15:47:11.576] [rendering] [info]     "mainLodOutDistanceScale": 0,
+[2026-11-08 15:47:11.576] [rendering] [info]     "mirrorLodOutDistanceScale": 0,
+[2026-11-08 15:47:11.576] [rendering] [info]     "cubemapLodOutDistanceScale": 0,
+[2026-11-08 15:47:11.576] [rendering] [info]     "shadowLodOutDistanceScale": 0,
+[2026-11-08 15:47:11.576] [rendering] [info]     "carFixedLodInCubemapRendering": 0,
+[2026-11-08 15:47:11.576] [rendering] [info]     "carFixedLodInMirrorRendering": 0,
+[2026-11-08 15:47:11.576] [rendering] [info]     "carFixedLodInShadowRendering": 0
+[2026-11-08 15:47:11.576] [rendering] [info]    }
+[2026-11-08 15:47:11.576] [rendering] [info]   },
+[2026-11-08 15:47:11.576] [rendering] [info]   "vehicleLevelOfDetail": "VehicleLevelOfDetailQuality_High",
+[2026-11-08 15:47:11.576] [rendering] [info]   "particles": {
+[2026-11-08 15:47:11.576] [rendering] [info]    "quality": "ParticlesQuality_Low",
+[2026-11-08 15:47:11.576] [rendering] [info]    "essential": false
+[2026-11-08 15:47:11.576] [rendering] [info]   },
+[2026-11-08 15:47:11.576] [rendering] [info]   "shadow": {
+[2026-11-08 15:47:11.576] [rendering] [info]    "shadowQuality": "ShadowQuality_Medium",
+[2026-11-08 15:47:11.576] [rendering] [info]    "experimentalSimShadow": false,
+[2026-11-08 15:47:11.576] [rendering] [info]    "simShadowQuality": "SimShadowQuality_Low",
+[2026-11-08 15:47:11.576] [rendering] [info]    "screenSpaceShadowQuality": "ScreenSpaceShadowQuality_HalfRes"
+[2026-11-08 15:47:11.576] [rendering] [info]   },
+[2026-11-08 15:47:11.576] [rendering] [info]   "ambientOcclusion": "AmbientOcclusionQuality_Low",
+[2026-11-08 15:47:11.576] [rendering] [info]   "veil": "Veil_Cinematic",
+[2026-11-08 15:47:11.576] [rendering] [info]   "depthOfField": "DepthOfFieldQuality_Medium",
+[2026-11-08 15:47:11.576] [rendering] [info]   "motionBlur": {
+[2026-11-08 15:47:11.576] [rendering] [info]    "quality": "MotionBlurQuality_Off",
+[2026-11-08 15:47:11.576] [rendering] [info]    "strength": 0,
+[2026-11-08 15:47:11.576] [rendering] [info]    "centralClarity": 0
+[2026-11-08 15:47:11.576] [rendering] [info]   },
+[2026-11-08 15:47:11.576] [rendering] [info]   "mirror": {
+[2026-11-08 15:47:11.576] [rendering] [info]    "mirror_mode": "Mirror_Multi",
+[2026-11-08 15:47:11.576] [rendering] [info]    "mirror_resolution": "MirrorResolution_Medium",
+[2026-11-08 15:47:11.576] [rendering] [info]    "mirror_view_distance": "MirrorViewDistance_Ultra",
+[2026-11-08 15:47:11.576] [rendering] [info]    "mirror_level_of_detail": "MirrorLevelOfDetailQuality_Medium",
+[2026-11-08 15:47:11.576] [rendering] [info]    "alternate_rendering": true,
+[2026-11-08 15:47:11.576] [rendering] [info]    "multi_mode": "Multi_Fixed",
+[2026-11-08 15:47:11.576] [rendering] [info]    "multi_mode_vr": "Multi_VR"
+[2026-11-08 15:47:11.576] [rendering] [info]   },
+[2026-11-08 15:47:11.576] [rendering] [info]   "post_processing_preset": "Natural 7",
+[2026-11-08 15:47:11.576] [rendering] [info]   "exposureBias": 0,
+[2026-11-08 15:47:11.576] [rendering] [info]   "exposureFusion": 0,
+[2026-11-08 15:47:11.576] [rendering] [info]   "is_dlss_available": true,
+[2026-11-08 15:47:11.576] [rendering] [info]   "is_fsr_available": true,
+[2026-11-08 15:47:11.576] [rendering] [info]   "terrain": {
+[2026-11-08 15:47:11.576] [rendering] [info]    "groundQuality": "GroundQuality_High"
+[2026-11-08 15:47:11.576] [rendering] [info]   },
+[2026-11-08 15:47:11.576] [rendering] [info]   "num_dash_displays": "NumDashDisplays_MaxTwo",
+[2026-11-08 15:47:11.576] [rendering] [info]   "car_visibility": {
+[2026-11-08 15:47:11.576] [rendering] [info]    "max_ahead_car": 20,
+[2026-11-08 15:47:11.576] [rendering] [info]    "max_behind_car": 10,
+[2026-11-08 15:47:11.576] [rendering] [info]    "skip_filtering_when_driving": false,
+[2026-11-08 15:47:11.576] [rendering] [info]    "filter_when_spectating": false
+[2026-11-08 15:47:11.576] [rendering] [info]   },
+[2026-11-08 15:47:11.576] [rendering] [info]   "materialQuality": "MaterialQuality_High",
+[2026-11-08 15:47:11.576] [rendering] [info]   "vegetationWind": "VegetationWind_On"
+[2026-11-08 15:47:11.576] [rendering] [info]  },
+[2026-11-08 15:47:11.576] [rendering] [info]  "vr": {
+[2026-11-08 15:47:11.576] [rendering] [info]   "pixel_density": 100,
+[2026-11-08 15:47:11.576] [rendering] [info]   "foveated_rendering": "FoveatedRendering_Medium",
+[2026-11-08 15:47:11.576] [rendering] [info]   "world_scale": 1,
+[2026-11-08 15:47:11.576] [rendering] [info]   "prefer_framerate_over_latency": true,
+[2026-11-08 15:47:11.576] [rendering] [info]   "disable_hidden_area_mask": false,
+[2026-11-08 15:47:11.576] [rendering] [info]   "enable_spectator_view": false,
+[2026-11-08 15:47:11.576] [rendering] [info]   "eye_tracked_foveated_rendering": false,
+[2026-11-08 15:47:11.576] [rendering] [info]   "can_use_eye_tracking": false,
+[2026-11-08 15:47:11.576] [rendering] [info]   "sunglasses": "Sunglass_Off",
+[2026-11-08 15:47:11.576] [rendering] [info]   "render_to_intermediate_target": false,
+[2026-11-08 15:47:11.576] [rendering] [info]   "log_vr_pacing": false
+[2026-11-08 15:47:11.576] [rendering] [info]  }
+[2026-11-08 15:47:11.576] [rendering] [info] }
+[2026-11-08 15:47:11.587] [rendering] [info] Video Settings - Upscaling Enabled (3) - Ratio: 2
+[2026-11-08 15:47:11.587] [rendering] [info] 	Render Resolution: (960 x 540)
+[2026-11-08 15:47:11.587] [rendering] [info] 	Output Resolution: (1920 x 1080) - Supersampling Ratio: 1
