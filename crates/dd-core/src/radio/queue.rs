@@ -129,6 +129,8 @@ pub struct Queue {
     pub continuing: std::collections::HashSet<&'static str>,
     /// The key of the call handed out last
     last_key: Option<&'static str>,
+    /// The calls that were cut off and came back once (key, time, expiry): cut off again they are dropped
+    returned: Vec<(&'static str, f64, f64)>,
 }
 
 impl Default for Queue {
@@ -139,7 +141,7 @@ impl Default for Queue {
 
 impl Queue {
     pub fn new() -> Self {
-        Self { waiting: Vec::new(), arrivals: 0, last_overlap: f64::NEG_INFINITY, last_busy: f64::NEG_INFINITY, started: HashMap::new(), cooldowns: HashMap::new(), continuing: std::collections::HashSet::new(), last_key: None }
+        Self { waiting: Vec::new(), arrivals: 0, last_overlap: f64::NEG_INFINITY, last_busy: f64::NEG_INFINITY, started: HashMap::new(), cooldowns: HashMap::new(), continuing: std::collections::HashSet::new(), last_key: None, returned: Vec::new() }
     }
 
     pub fn push(&mut self, call: Call) {
@@ -195,8 +197,13 @@ impl Queue {
         }
         if interrupt {
             // What was cut off comes back unless it is over: a warning is about a moment, the engineer's call is not.
+            self.returned.retain(|(_, _, expires)| *expires > now);
             if let Some(cut) = playing.filter(|p| p.priority >= Priority::Tactical && p.expires > now) {
-                self.push(cut.clone());
+                // once: a sentence that starts over again and again is worse than one that is lost
+                if !self.returned.iter().any(|(key, at, _)| *key == cut.key && *at == cut.at) {
+                    self.returned.push((cut.key, cut.at, cut.expires));
+                    self.push(cut.clone());
+                }
             }
             Next::Interrupt(call)
         } else {
@@ -297,6 +304,23 @@ mod tests {
         let first = played(queue.next(8.0, None, CALM));
         queue.push(call(&Event::CarLeft { car: (0, 1) }, 8.2));
         assert!(matches!(queue.next(8.2, Some(&first), ALONGSIDE), Next::Interrupt(Call { key: "car_left", .. })));
+    }
+
+    #[test]
+    fn a_call_that_was_cut_off_comes_back_once_not_again_and_again() {
+        // heard live on 2026-11-09: with a car alongside every six seconds a long sentence of the coach started
+        // over six times
+        let mut queue = Queue::new();
+        queue.push(engineer("fuel_laps", 0.0));
+        let fuel = played(queue.next(0.0, None, CALM));
+        queue.push(call(&Event::CarLeft { car: (0, 1) }, 1.0));
+        assert!(matches!(queue.next(1.0, Some(&fuel), ALONGSIDE), Next::Interrupt(_)));
+        assert_eq!(queue.waiting().count(), 1, "cut off once: it comes back");
+        let again = played(queue.next(6.0, None, CALM));
+        assert_eq!(again, fuel);
+        queue.push(call(&Event::CarLeft { car: (0, 2) }, 7.0));
+        assert!(matches!(queue.next(7.0, Some(&again), ALONGSIDE), Next::Interrupt(_)));
+        assert_eq!(queue.waiting().count(), 0, "cut off a second time: it is dropped");
     }
 
     #[test]

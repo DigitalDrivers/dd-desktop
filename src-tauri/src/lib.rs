@@ -1483,7 +1483,13 @@ fn radio_devices() -> Vec<radio::OutputDevice> {
 /// Downloads the voice's model; the event `radio-download` (`{ done, total }`, bytes) tells how far it is.
 #[tauri::command]
 async fn radio_download(app: tauri::AppHandle) -> Result<(), String> {
-    radio::download(&app).await
+    radio::download(&app, radio::Model::Voice).await
+}
+
+/// Downloads the speech recognition of the coach's push-to-talk (74 MB); the same event tells how far it is.
+#[tauri::command]
+async fn radio_download_listen(app: tauri::AppHandle) -> Result<(), String> {
+    radio::download(&app, radio::Model::Listener).await
 }
 
 /// Says the radio check with the driver's voice, volume, effect and device.
@@ -1510,6 +1516,26 @@ fn radio_names(app: tauri::AppHandle, names: Vec<radio::DriverName>) {
 #[tauri::command]
 fn radio_corner_names(app: tauri::AppHandle, track: String, layout: String, names: std::collections::BTreeMap<u32, String>) {
     radio::set_corner_names(&app, track, layout, names);
+}
+
+/// One sentence of the coach's answer to the question the app asked with the event `coach-question`
+/// (`{ id, kind: "question" | "stint", text, language, context }`): the platform's page asks the coach's model and
+/// hands the answer over sentence by sentence; the app speaks them in their order.
+#[tauri::command]
+fn coach_say(app: tauri::AppHandle, id: u64, text: String) {
+    radio::coach_say(&app, id, text);
+}
+
+/// The answer to question `id` is complete.
+#[tauri::command]
+fn coach_done(id: u64) {
+    radio::coach_done(id);
+}
+
+/// Question `id` got no answer (`problem`: `tank-empty`, `not-available`, `too-many`, `failed`): the coach says so.
+#[tauri::command]
+fn coach_problem(app: tauri::AppHandle, id: u64, problem: String) {
+    radio::coach_problem(&app, id, &problem);
 }
 
 /// What `talk_devices` answers: the game controllers and the microphones of this PC.
@@ -1948,7 +1974,7 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status, engineer_status, engineer_enable, engineer_sessions, engineer_session, engineer_traces, engineer_evaluate, engineer_forget, engineer_forget_session, engineer_keep, engineer_profile, engineer_seen, engineer_digests, engineer_digests_sent, coach_focus_get, coach_focus_set, recorder_start, recorder_stop, radio_status, radio_set, radio_devices, radio_download, radio_test, radio_preview, radio_names, radio_corner_names, talk_devices, talk_capture])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status, engineer_status, engineer_enable, engineer_sessions, engineer_session, engineer_traces, engineer_evaluate, engineer_forget, engineer_forget_session, engineer_keep, engineer_profile, engineer_seen, engineer_digests, engineer_digests_sent, coach_focus_get, coach_focus_set, recorder_start, recorder_stop, radio_status, radio_set, radio_devices, radio_download, radio_test, radio_preview, radio_names, radio_corner_names, talk_devices, talk_capture, coach_say, coach_done, coach_problem, radio_download_listen])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
