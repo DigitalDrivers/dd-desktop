@@ -9,6 +9,7 @@ pub mod garage;
 pub mod laps;
 pub mod links;
 pub mod motec;
+pub mod radio;
 pub mod recorder;
 pub mod settings;
 pub mod setups;

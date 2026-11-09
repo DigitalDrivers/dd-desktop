@@ -1,0 +1,2 @@
+//! Team radio ("Boxenfunk"): the coach speaks while the driver drives. Everything here is pure logic on what the
+//! game publishes in its shared memory; the shell copies the pages, plays the sound and speaks.
