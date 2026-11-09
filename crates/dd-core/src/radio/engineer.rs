@@ -41,6 +41,11 @@
 //!   limit everywhere, on track too ((speed - 60 km/h) / 30 km/h at Brands Hatch, held at -1 and 1), so nothing tells
 //!   earlier that the entry is near: this is the earliest honest warning. The entry zone lasted 4 s (about 70 m)
 //!   before the pit lane proper on 2026-11-09.
+//! - **The stop's countdown** from `control_lock_time` (ms, -1 while the car is free; recordings of 2026-11-09): it
+//!   jumps up when the car stops in its box, with fuel, tyres and repairs already done in that sample, and counts
+//!   down to -1 when the car may go (34 s for a stop, 85 s and 80 s after "back to the pits"). The time left when it
+//!   starts (if above 15 s), then at every 30 s mark at least 10 s after the last call, then "ten", "five" and "go".
+//!   A lock of 0 does not count down (the game putting the car in its box).
 //! - Nothing else is said while the car is in the pit lane, except the calls of a lap that ended before it.
 //!
 //! Every call has [`Priority::Engineer`] and expires after [`EXPIRES_S`]. The timing between calls of one key lives
@@ -58,6 +63,14 @@ use crate::laps::{self, i32_at, f32s_at, LapRecorder, LapSummary, PHYSICS_SIZE};
 pub const EXPIRES_S: f64 = 25.0;
 /// A pit call (the limiter, the stop's countdown) is wrong a few seconds later.
 pub const PIT_EXPIRES_S: f64 = 5.0;
+/// "Ten", "five" and "go" are wrong sooner.
+pub const COUNT_EXPIRES_S: f64 = 2.0;
+/// ms: the countdown says the time left when the stop starts only above this ...
+const COUNT_START_MS: f32 = 15_000.0;
+/// ... then every this many ms ...
+const COUNT_EVERY_MS: f32 = 30_000.0;
+/// ... but not this soon after the last call (s)
+const COUNT_GAP_S: f64 = 10.0;
 /// The fuel per lap is the mean of this many laps.
 const FUEL_LAPS: usize = 3;
 /// A lap that burnt less (litres) says fuel use is off in this session.
@@ -81,6 +94,8 @@ const PIT_EXIT: i32 = 3;
 const TRACK: i32 = 4;
 /// Graphics page, `pitspeeding_delta`: above 0 over the pit limit
 const PITSPEEDING_DELTA: usize = 64;
+/// Graphics page, `control_lock_time`: ms until the car may leave its box, -1 while it is free
+const CONTROL_LOCK_TIME: usize = 1256;
 /// m/s: below this the car stands, and a limiter switched is the game's doing
 const ROLLING_MS: f32 = 1.0;
 
@@ -160,6 +175,8 @@ struct Sample {
     limiter: bool,
     location: i32,
     over_pit_limit: bool,
+    /// ms
+    lock: f32,
     /// FL FR RL RR
     brake_temp: [f32; 4],
     core_temp: [f32; 4],
@@ -179,6 +196,7 @@ impl Sample {
             limiter: graphics[IS_PITLIMITER_ON] != 0,
             location: i32_at(graphics, CAR_LOCATION),
             over_pit_limit: f32_at(graphics, PITSPEEDING_DELTA) > 0.0,
+            lock: f32_at(graphics, CONTROL_LOCK_TIME),
             brake_temp: f32s_at(physics, laps::BRAKE_TEMP),
             core_temp: f32s_at(physics, laps::TYRE_CORE_TEMPERATURE),
         })
@@ -215,6 +233,9 @@ pub struct Engineer {
     limiter: Option<bool>,
     /// `car_location` of the last live sample (kept through a pause)
     location: Option<i32>,
+    /// `control_lock_time` of the last live sample, and when the countdown last spoke
+    lock: f32,
+    lock_said_at: f64,
     // for the coach
     /// The laps since the car left the pits, without the ones through the pit lane
     stint: Vec<LapSummary>,
@@ -260,6 +281,8 @@ impl Engineer {
             tyres_said: false,
             limiter: None,
             location: None,
+            lock: -1.0,
+            lock_said_at: f64::NEG_INFINITY,
             stint: Vec::new(),
             stint_taken: false,
             in_box: false,
@@ -350,12 +373,36 @@ impl Engineer {
         self.watch_brakes(t, &s, &mut out);
         self.watch_tyres(t, &s, &mut out);
         self.watch_limiter(t, &s, &mut out);
+        self.watch_lock(t, s.lock, &mut out);
         let was_at = self.location.replace(s.location);
         if was_at == Some(TRACK) && matches!(s.location, PIT_ENTRY | PIT_LANE) && s.over_pit_limit {
             let warning = say_within("pit_entry_speed", Group::Car, t, SAFETY_EXPIRES_S, None);
             out.push(Say { call: Call { priority: Priority::Safety, ..warning.call }, ..warning });
         }
         out
+    }
+
+    fn watch_lock(&mut self, t: f64, lock: f32, out: &mut Vec<Say>) {
+        let was = std::mem::replace(&mut self.lock, lock);
+        let crossed = |mark: f32| was > mark && lock <= mark;
+        // the highest 30 s mark below the time left at the last sample
+        let mark = ((was / COUNT_EVERY_MS).ceil() - 1.0) * COUNT_EVERY_MS;
+        let time_left = if was <= 0.0 && lock > COUNT_START_MS {
+            Some((lock / 1000.0).ceil())
+        } else if mark >= COUNT_EVERY_MS && crossed(mark) && t - self.lock_said_at >= COUNT_GAP_S {
+            Some(mark / 1000.0)
+        } else {
+            None
+        };
+        if let Some(seconds) = time_left {
+            self.lock_said_at = t;
+            out.push(say_within("pit_stop_time", Group::Car, t, PIT_EXPIRES_S, Some(phrases::pit_stop_time(seconds as u64, &self.lang))));
+        }
+        for (mark, key) in [(10_000.0, "pit_ten"), (5_000.0, "pit_five"), (0.0, "pit_go")] {
+            if crossed(mark) {
+                out.push(say_within(key, Group::Car, t, COUNT_EXPIRES_S, None));
+            }
+        }
     }
 
     fn watch_limiter(&mut self, t: f64, s: &Sample, out: &mut Vec<Say>) {
@@ -531,6 +578,25 @@ mod tests {
 
         fn location(&mut self, location: i32) {
             self.i32(CAR_LOCATION, location);
+        }
+
+        /// `control_lock_time`, ms
+        fn lock(&mut self, ms: f32) {
+            self.graphics[CONTROL_LOCK_TIME..CONTROL_LOCK_TIME + 4].copy_from_slice(&ms.to_le_bytes());
+        }
+
+        /// A stop in the box: the controls are locked for `ms`, counted down 50 ms a sample to -1; what was said.
+        fn stop(&mut self, engineer: &mut Engineer, ms: f32) -> Vec<Say> {
+            let mut said = Vec::new();
+            let mut left = ms;
+            while left > 0.0 {
+                self.lock(left);
+                said.extend(self.step(engineer));
+                left -= 50.0;
+            }
+            self.lock(-1.0);
+            said.extend(self.drive(engineer, 20));
+            said
         }
 
         /// `pitspeeding_delta`: above 0 over the pit limit
@@ -1080,6 +1146,42 @@ mod tests {
         pages.i32(laps::STATUS, laps::LIVE);
         pages.location(PIT_ENTRY);
         assert_eq!(keys(&pages.drive(&mut e, 5)), ["pit_entry_speed"]);
+    }
+
+    #[test]
+    fn the_stop_is_counted_down_from_the_control_lock() {
+        // A2 362.05 s: control_lock_time jumps from -1 to 33,982 ms when the car stops in its box (fuel, tyres and
+        // repairs are done in that same sample) and counts down to -1 at 396.05 s, when the car went
+        let (mut e, mut pages) = (engineer(), Pages::new());
+        pages.lock(-1.0);
+        pages.drive(&mut e, 5);
+        let t0 = pages.t;
+        let said = pages.stop(&mut e, 33_982.0);
+        assert_eq!(texts(&said), ["Noch vierunddreißig Sekunden.", "Zehn Sekunden.", "Fünf.", "Los, los, los!"], "the 30 s mark only 4 s after the first call: left out");
+        assert_eq!(keys(&said), ["pit_stop_time", "pit_ten", "pit_five", "pit_go"]);
+        let at: Vec<f64> = said.iter().map(|s| ((s.call.at - t0) * 100.0).round() / 100.0).collect();
+        assert_eq!(at, [0.0, 24.0, 29.0, 34.0]);
+        assert!(said.iter().all(|s| s.group == Group::Car && s.call.priority == Priority::Engineer));
+        let life: Vec<f64> = said.iter().map(|s| ((s.call.expires - s.call.at) * 100.0).round() / 100.0).collect();
+        assert_eq!(life, [PIT_EXPIRES_S, COUNT_EXPIRES_S, COUNT_EXPIRES_S, COUNT_EXPIRES_S]);
+        // A2 483.3 s, back to the pits: 84,983 ms
+        assert_eq!(
+            texts(&pages.stop(&mut e, 84_983.0)),
+            ["Noch fünfundachtzig Sekunden.", "Noch sechzig Sekunden.", "Noch dreißig Sekunden.", "Zehn Sekunden.", "Fünf.", "Los, los, los!"]
+        );
+        // short stops: only the marks still ahead
+        assert_eq!(keys(&pages.stop(&mut e, 12_000.0)), ["pit_ten", "pit_five", "pit_go"]);
+        assert_eq!(keys(&pages.stop(&mut e, 7_000.0)), ["pit_five", "pit_go"]);
+        // A2 401.15 s: the game put the car in its box with the lock at 0, not counting
+        pages.lock(0.0);
+        pages.drive(&mut e, 40);
+        pages.lock(-1.0);
+        assert!(pages.drive(&mut e, 40).is_empty());
+        // in English
+        let (mut e, mut pages) = (Engineer::new(Config::default(), "en"), Pages::new());
+        let said = pages.stop(&mut e, 31_000.0);
+        let en: Vec<String> = said.iter().map(|s| s.text.clone().unwrap_or_else(|| phrases::text(s.call.key, "en", None, 0).unwrap())).collect();
+        assert_eq!(en, ["Thirty-one seconds.", "Ten seconds.", "Five.", "Go, go, go!"]);
     }
 
     #[test]

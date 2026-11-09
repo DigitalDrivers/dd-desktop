@@ -42,6 +42,9 @@
     "limiter_on": { "de": ["Limiter an."], "en": ["Limiter on."] },
     "limiter_off": { "de": ["Limiter aus."], "en": ["Limiter off."] },
     "pit_entry_speed": { "de": ["Boxeneinfahrt, Tempo runter!"], "en": ["Pit entry, slow down!"] },
+    "pit_ten": { "de": ["Zehn Sekunden."], "en": ["Ten seconds."] },
+    "pit_five": { "de": ["Fünf."], "en": ["Five."] },
+    "pit_go": { "de": ["Los, los, los!"], "en": ["Go, go, go!"] },
 
     "preview_vocative": { "de": ["{name}, Box diese Runde."], "en": ["{name}, box this lap."] },
     "preview_reference": { "de": ["{name} ist links neben dir."], "en": ["{name} is on your left."] }

@@ -24,7 +24,7 @@ pub const LANGUAGES: [&str; 2] = ["de", "en"];
 pub const NAME: &str = "{name}";
 
 /// The calls without a name: what the spotter, the queue and the engineer emit, and the radio's own sentences.
-const FIXED: [&str; 28] = [
+const FIXED: [&str; 31] = [
     "car_left",
     "car_right",
     "three_wide",
@@ -53,6 +53,9 @@ const FIXED: [&str; 28] = [
     "limiter_on",
     "limiter_off",
     "pit_entry_speed",
+    "pit_ten",
+    "pit_five",
+    "pit_go",
 ];
 /// The spotter's calls with another driver's name, rendered per driver.
 const NAMED: [&str; 6] =
@@ -291,6 +294,11 @@ pub fn spoken(text: &str, lang: &str) -> String {
     out
 }
 
+/// The time left in the box: "Noch vierunddreißig Sekunden." / "Thirty-four seconds."
+pub fn pit_stop_time(seconds: u64, lang: &str) -> String {
+    if lang == "de" { format!("Noch {} Sekunden.", de_number(seconds)) } else { format!("{} seconds.", capitalised(&en_number(seconds))) }
+}
+
 /// A lap time on its own, as the engineer calls it after a lap: "Acht zwölf vier." / "Eight twelve four."
 pub fn lap_time(lap_ms: i64, lang: &str) -> String {
     format!("{}.", capitalised(&lap_time_words(lap_ms, lang)))
@@ -444,6 +452,15 @@ mod tests {
         assert_eq!(en(0.5), "Fuel for half a lap.");
         assert_eq!(en(0.1), "Fuel for less than half a lap.");
         assert_eq!(en(21.9), "Fuel for twenty-one and a half more laps.");
+    }
+
+    #[test]
+    fn the_time_left_in_the_box() {
+        assert_eq!(pit_stop_time(34, "de"), "Noch vierunddreißig Sekunden.");
+        assert_eq!(pit_stop_time(85, "de"), "Noch fünfundachtzig Sekunden.");
+        assert_eq!(pit_stop_time(120, "de"), "Noch einhundertzwanzig Sekunden.");
+        assert_eq!(pit_stop_time(30, "en"), "Thirty seconds.");
+        assert_eq!(pit_stop_time(85, "en"), "Eighty-five seconds.");
     }
 
     #[test]
