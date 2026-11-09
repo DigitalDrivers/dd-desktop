@@ -9,7 +9,8 @@
 //! - Tactical, engineer and chatter calls play only when no car was alongside for 2 s, and 2 s after the last
 //!   non-spotter call ended (safety calls do not wait for that gap: they are as urgent as the spotter's).
 //! - Engineer and chatter calls wait for a straight (low yaw rate, full throttle, no brake), but not longer than
-//!   [`STRAIGHT_WAIT_S`]: a track without a straight still hears them.
+//!   [`STRAIGHT_WAIT_S`]: a track without a straight still hears them. The pit lane counts as a straight: the
+//!   throttle is never full there, and the pit calls (limiter, the stop's countdown) are about the moment.
 //! - A key can have a cooldown ([`Queue::cooldowns`]); a call of it waits that long after the last one of it started.
 //!   The spotter's per-car rate limits live in the spotter itself, so none is set by default.
 //! - Every call expires; an expired one is dropped unspoken.
@@ -24,7 +25,7 @@ use super::spotter::Event;
 pub enum Priority {
     /// Overlaps, three wide, clear
     Spotter,
-    /// Closing fast, slow car ahead
+    /// Closing fast, slow car ahead, traffic at the pit exit (and the engineer's pit entry warning)
     Safety,
     /// Close behind, slipstream, gaps
     Tactical,
@@ -70,6 +71,7 @@ pub fn call(event: &Event, t: f64) -> Call {
         Event::ClearAll => ("clear", None, Spotter, CLEAR_EXPIRES_S),
         Event::ClosingFast { car, .. } => ("closing_fast", Some(car), Safety, SAFETY_EXPIRES_S),
         Event::SlowCarAhead { car } => ("slow_car_ahead", Some(car), Safety, SAFETY_EXPIRES_S),
+        Event::PitExitTraffic { car } => ("pit_exit_traffic", Some(car), Safety, SAFETY_EXPIRES_S),
         Event::CloseBehind { car, .. } => ("close_behind", Some(car), Tactical, TACTICAL_EXPIRES_S),
         Event::SlipstreamBehind { car } => ("slipstream_behind", Some(car), Tactical, TACTICAL_EXPIRES_S),
         Event::InTow { car } => ("in_tow", Some(car), Tactical, TACTICAL_EXPIRES_S),
@@ -93,13 +95,14 @@ const STRAIGHT_BRAKE: f32 = 0.05;
 pub struct Situation {
     /// A car is alongside ([`super::spotter::Spotter::overlap`])
     pub overlap: bool,
-    /// The car is on a straight: low yaw rate, full throttle, no brake
+    /// The car is on a straight (low yaw rate, full throttle, no brake) or in the pit lane
     pub straight: bool,
 }
 
 impl Situation {
     pub fn new(own: &Own, overlap: bool) -> Self {
-        Self { overlap, straight: own.yaw_rate.abs() < STRAIGHT_YAW_RATE && own.throttle > STRAIGHT_THROTTLE && own.brake < STRAIGHT_BRAKE }
+        let straight = own.yaw_rate.abs() < STRAIGHT_YAW_RATE && own.throttle > STRAIGHT_THROTTLE && own.brake < STRAIGHT_BRAKE;
+        Self { overlap, straight: straight || own.in_pit_lane }
     }
 }
 
@@ -250,6 +253,7 @@ mod tests {
             (Event::CloseBehind { car, gap_s: 0.4 }, "close_behind", Some(car), Priority::Tactical, 5.0),
             (Event::SlipstreamBehind { car }, "slipstream_behind", Some(car), Priority::Tactical, 5.0),
             (Event::InTow { car }, "in_tow", Some(car), Priority::Tactical, 5.0),
+            (Event::PitExitTraffic { car }, "pit_exit_traffic", Some(car), Priority::Safety, 3.0),
         ];
         for (event, key, with, priority, life) in cases {
             assert_eq!(call(&event, 10.0), Call { key, car: with, priority, at: 10.0, expires: 10.0 + life }, "{event:?}");
@@ -433,5 +437,17 @@ mod tests {
         own.brake = 0.1;
         assert!(!Situation::new(&own, true).straight);
         assert!(Situation::new(&own, true).overlap);
+    }
+
+    #[test]
+    fn the_pit_lane_counts_as_a_straight() {
+        // the pit calls (limiter, the stop's countdown) would else all wait the full ten seconds: in the pit lane the
+        // throttle is never full
+        let frames = crate::radio::testkit::Drive::new(crate::radio::testkit::straight(16.0, 0.0)).seconds(0.0).frames();
+        let mut own = frames[0].own.clone();
+        (own.throttle, own.brake, own.yaw_rate, own.in_pit_lane) = (0.3, 0.5, 0.4, true);
+        assert!(Situation::new(&own, false).straight);
+        own.in_pit_lane = false;
+        assert!(!Situation::new(&own, false).straight);
     }
 }

@@ -5,8 +5,8 @@
 //!
 //! It reads the pages itself rather than a [`super::frame::Frame`]: a frame needs the own car's slot in
 //! `car_coordinates`, which the engineer does not, so it keeps talking when the slots are empty. Only fields seen
-//! working in the game are read ([`Sample`]); the pit limiter, `best_laptime_ms`, the game's own fuel averages and the
-//! session's time and laps left join that one struct once a recording has confirmed them.
+//! working in the game are read ([`Sample`]); `best_laptime_ms`, the game's own fuel averages and the session's time
+//! and laps left join that one struct once a recording has confirmed them.
 //!
 //! Laps are the app's lap list's: [`LapRecorder`] decides when a lap ends, its time, whether it was valid, whether
 //! it went through the pit lane, and the fuel it burnt (refuelling and the pit lane do not count). A lap through
@@ -31,7 +31,31 @@
 //!   coach's 700 °C and at most once every three minutes.
 //! - **Tyres in the window** once a stint (the stint starts at the pit exit) when all four core temperatures are
 //!   in the window after one of them was seen below it: warm tyres after a short stop get no call.
-//! - Nothing is said while the car is in the pit lane, except the calls of a lap that ended before it.
+//! - **Limiter on / off** when `electronics.is_pitlimiter_on` changes while the car rolls (above 1 m/s), in the pit
+//!   lane and on track. The recordings of 2026-11-09 show it following the switch (the driver's and the auto limiter
+//!   assist's at the start of the pit lane); `pitLimiterOn` of the physics page is only on while the limiter holds
+//!   the car near the limit. A change while the car stands is the game putting it in its box or on the grid, and is
+//!   not said.
+//! - **Pit entry, slow down** at once ([`Priority::Safety`]) when `car_location` goes from the track to the pit
+//!   entry (or straight into the pit lane) with `pitspeeding_delta` above 0. The delta is the speed against the pit
+//!   limit everywhere, on track too ((speed - 60 km/h) / 30 km/h at Brands Hatch, held at -1 and 1), so nothing tells
+//!   earlier that the entry is near: this is the earliest honest warning. The entry zone lasted 4 s (about 70 m)
+//!   before the pit lane proper on 2026-11-09.
+//! - **Fuel to the flag** when the car enters the pit lane proper (`car_location` from the track or the pit entry to
+//!   the pit lane; also when the game puts it in its box): the laps the race still has, `session_state.total_lap`
+//!   less the leader's `current_lap` plus the lap being driven, and one lap more, at the fuel per lap measured (else
+//!   the game's `fuel_liter_per_lap`, before the first lap its own guess), less the tank, up to `max_fuel`. The
+//!   service is done in the first sample of the stop, so the number comes before the box. Without a lap count
+//!   (`total_lap` 0) or any fuel per lap it says, once a session, what is missing. On 2026-11-09 the static page said
+//!   `is_timed_race` 1 for races with `total_lap` 10 and 32:30 of `time_left`, and the next recording starts with
+//!   such a race "Ended" at the leader's `current_lap` 11 (by the clock the leader's 97 s laps would have made about
+//!   20): the lap count is the distance, the flag is not read. The sentence says the laps it counted.
+//! - **The stop's countdown** from `control_lock_time` (ms, -1 while the car is free; recordings of 2026-11-09): it
+//!   jumps up when the car stops in its box, with fuel, tyres and repairs already done in that sample, and counts
+//!   down to -1 when the car may go (34 s for a stop, 85 s and 80 s after "back to the pits"). The time left when it
+//!   starts (if above 15 s), then at every 30 s mark at least 10 s after the last call, then "ten", "five" and "go".
+//!   A lock of 0 does not count down (the game putting the car in its box).
+//! - Nothing else is said while the car is in the pit lane, except the calls of a lap that ended before it.
 //!
 //! Every call has [`Priority::Engineer`] and expires after [`EXPIRES_S`]. The timing between calls of one key lives
 //! here, so the queue needs no cooldowns for them.
@@ -39,13 +63,25 @@
 use std::collections::VecDeque;
 
 use super::phrases;
-use super::queue::{Call, Priority};
+use super::queue::{Call, Priority, SAFETY_EXPIRES_S};
 use crate::engineer::measure::{HOT, VERY_HOT};
 use crate::evo_memory::{self, f32_at, GRAPHICS_SIZE, STATIC_SIZE};
 use crate::laps::{self, i32_at, f32s_at, LapRecorder, LapSummary, PHYSICS_SIZE};
 
 /// An engineer's call is still worth saying this long (research §3: 20 to 30 s).
 pub const EXPIRES_S: f64 = 25.0;
+/// A pit call (the limiter, the stop's countdown) is wrong a few seconds later.
+pub const PIT_EXPIRES_S: f64 = 5.0;
+/// "Ten", "five" and "go" are wrong sooner.
+pub const COUNT_EXPIRES_S: f64 = 2.0;
+/// ms: the countdown says the time left when the stop starts only above this ...
+const COUNT_START_MS: f32 = 15_000.0;
+/// ... then every this many ms ...
+const COUNT_EVERY_MS: f32 = 30_000.0;
+/// ... but not this soon after the last call (s)
+const COUNT_GAP_S: f64 = 10.0;
+/// The fuel to the flag helps until the car stops in its box.
+pub const ADVICE_EXPIRES_S: f64 = 10.0;
 /// The fuel per lap is the mean of this many laps.
 const FUEL_LAPS: usize = 3;
 /// A lap that burnt less (litres) says fuel use is off in this session.
@@ -56,6 +92,30 @@ const NO_STATICS: [u8; STATIC_SIZE] = [0; STATIC_SIZE];
 /// Graphics page, `current_lap_time_ms`: 0 while no lap is timed (on the grid until the start); seen working in the
 /// recording of 2026-11-09
 const CURRENT_LAPTIME_MS: usize = 188;
+/// Graphics page, `electronics.is_pitlimiter_on`: the limiter's switch (recordings of 2026-11-09)
+const IS_PITLIMITER_ON: usize = 1910;
+/// Physics page, `speedKmh`
+const SPEED_KMH: usize = 28;
+/// Graphics page, `car_location` (`ACEVO_CAR_LOCATION`) and its values
+const CAR_LOCATION: usize = 1388;
+const PIT_LANE: i32 = 1;
+const PIT_ENTRY: i32 = 2;
+#[cfg(test)]
+const PIT_EXIT: i32 = 3;
+const TRACK: i32 = 4;
+/// Graphics page, `pitspeeding_delta`: above 0 over the pit limit
+const PITSPEEDING_DELTA: usize = 64;
+/// Graphics page, `control_lock_time`: ms until the car may leave its box, -1 while it is free
+const CONTROL_LOCK_TIME: usize = 1256;
+/// Graphics page, `session_state.total_lap` and `.current_lap` (the leader's lap: it went up while the driver stood
+/// in his box on 2026-11-09)
+const TOTAL_LAP: usize = 2544;
+const CURRENT_LAP: usize = 2548;
+/// Graphics page, `fuel_liter_per_lap` (the game's mean, before the first lap its own guess) and `max_fuel`
+const FUEL_LITER_PER_LAP: usize = 1460;
+const MAX_FUEL: usize = 3928;
+/// m/s: below this the car stands, and a limiter switched is the game's doing
+const ROLLING_MS: f32 = 1.0;
 
 /// The settings' call groups, so the shell can leave out what the driver switched off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,6 +188,17 @@ struct Sample {
     timed: bool,
     pit_lane: bool,
     pit_box: bool,
+    /// m/s
+    speed: f32,
+    limiter: bool,
+    location: i32,
+    over_pit_limit: bool,
+    /// ms
+    lock: f32,
+    /// The race's laps and the leader's lap
+    race_laps: (i32, i32),
+    game_fuel_per_lap: f32,
+    max_fuel: f32,
     /// FL FR RL RR
     brake_temp: [f32; 4],
     core_temp: [f32; 4],
@@ -143,6 +214,14 @@ impl Sample {
             timed: i32_at(graphics, CURRENT_LAPTIME_MS) > 0,
             pit_lane: graphics[laps::IS_IN_PIT_LANE] != 0,
             pit_box: graphics[evo_memory::IS_IN_PIT_BOX] != 0,
+            speed: f32_at(physics, SPEED_KMH) / 3.6,
+            limiter: graphics[IS_PITLIMITER_ON] != 0,
+            location: i32_at(graphics, CAR_LOCATION),
+            over_pit_limit: f32_at(graphics, PITSPEEDING_DELTA) > 0.0,
+            lock: f32_at(graphics, CONTROL_LOCK_TIME),
+            race_laps: (i32_at(graphics, TOTAL_LAP), i32_at(graphics, CURRENT_LAP)),
+            game_fuel_per_lap: f32_at(graphics, FUEL_LITER_PER_LAP),
+            max_fuel: f32_at(graphics, MAX_FUEL),
             brake_temp: f32s_at(physics, laps::BRAKE_TEMP),
             core_temp: f32s_at(physics, laps::TYRE_CORE_TEMPERATURE),
         })
@@ -174,6 +253,16 @@ pub struct Engineer {
     brakes_said_at: Option<f64>,
     tyres_cold_seen: bool,
     tyres_said: bool,
+    // pit
+    /// The limiter as the driver knows it: the last said, or what it was while the car stood
+    limiter: Option<bool>,
+    /// `car_location` of the last live sample (kept through a pause)
+    location: Option<i32>,
+    /// `control_lock_time` of the last live sample, and when the countdown last spoke
+    lock: f32,
+    lock_said_at: f64,
+    /// What the fuel to the flag misses was said
+    fuel_missing_said: bool,
     // for the coach
     /// The laps since the car left the pits, without the ones through the pit lane
     stint: Vec<LapSummary>,
@@ -188,7 +277,11 @@ pub struct Engineer {
 pub const STINT_LAPS: usize = 3;
 
 fn say(key: &'static str, group: Group, t: f64, text: Option<String>) -> Say {
-    Say { call: Call { key, car: None, priority: Priority::Engineer, at: t, expires: t + EXPIRES_S }, text, group }
+    say_within(key, group, t, EXPIRES_S, text)
+}
+
+fn say_within(key: &'static str, group: Group, t: f64, life: f64, text: Option<String>) -> Say {
+    Say { call: Call { key, car: None, priority: Priority::Engineer, at: t, expires: t + life }, text, group }
 }
 
 impl Engineer {
@@ -213,6 +306,11 @@ impl Engineer {
             brakes_said_at: None,
             tyres_cold_seen: false,
             tyres_said: false,
+            limiter: None,
+            location: None,
+            lock: -1.0,
+            lock_said_at: f64::NEG_INFINITY,
+            fuel_missing_said: false,
             stint: Vec::new(),
             stint_taken: false,
             in_box: false,
@@ -302,7 +400,78 @@ impl Engineer {
         }
         self.watch_brakes(t, &s, &mut out);
         self.watch_tyres(t, &s, &mut out);
+        self.watch_limiter(t, &s, &mut out);
+        self.watch_lock(t, s.lock, &mut out);
+        let was_at = self.location.replace(s.location);
+        if was_at == Some(TRACK) && matches!(s.location, PIT_ENTRY | PIT_LANE) && s.over_pit_limit {
+            let warning = say_within("pit_entry_speed", Group::Car, t, SAFETY_EXPIRES_S, None);
+            out.push(Say { call: Call { priority: Priority::Safety, ..warning.call }, ..warning });
+        }
+        if matches!(was_at, Some(TRACK | PIT_ENTRY)) && s.location == PIT_LANE {
+            self.fuel_to_flag(t, &s, &mut out);
+        }
         out
+    }
+
+    fn fuel_to_flag(&mut self, t: f64, s: &Sample, out: &mut Vec<Say>) {
+        use phrases::FuelToFlag::*;
+        let (total, current) = s.race_laps;
+        let measured = (!self.fuel_used.is_empty()).then(|| self.fuel_used.iter().map(|l| *l as f64).sum::<f64>() / self.fuel_used.len() as f64);
+        let per_lap = measured.unwrap_or(s.game_fuel_per_lap as f64);
+        let advice = if total <= 0 || current <= 0 {
+            NoDistance
+        } else if current > total {
+            return;
+        } else if per_lap <= 0.0 {
+            NoFuelUse
+        } else {
+            let laps = (total - current + 1) as u32;
+            let litres = ((laps + 1) as f64 * per_lap - s.fuel as f64).ceil();
+            if litres <= 0.0 {
+                Enough { laps }
+            } else if s.max_fuel > 0.0 && litres > (s.max_fuel - s.fuel) as f64 {
+                FillUp { laps }
+            } else {
+                Add { laps, litres: litres as u32 }
+            }
+        };
+        if matches!(advice, NoDistance | NoFuelUse) {
+            if self.fuel_missing_said {
+                return;
+            }
+            self.fuel_missing_said = true;
+        }
+        out.push(say_within("fuel_to_flag", Group::Fuel, t, ADVICE_EXPIRES_S, Some(phrases::fuel_to_flag(advice, &self.lang))));
+    }
+
+    fn watch_lock(&mut self, t: f64, lock: f32, out: &mut Vec<Say>) {
+        let was = std::mem::replace(&mut self.lock, lock);
+        let crossed = |mark: f32| was > mark && lock <= mark;
+        // the highest 30 s mark below the time left at the last sample
+        let mark = ((was / COUNT_EVERY_MS).ceil() - 1.0) * COUNT_EVERY_MS;
+        let time_left = if was <= 0.0 && lock > COUNT_START_MS {
+            Some((lock / 1000.0).ceil())
+        } else if mark >= COUNT_EVERY_MS && crossed(mark) && t - self.lock_said_at >= COUNT_GAP_S {
+            Some(mark / 1000.0)
+        } else {
+            None
+        };
+        if let Some(seconds) = time_left {
+            self.lock_said_at = t;
+            out.push(say_within("pit_stop_time", Group::Car, t, PIT_EXPIRES_S, Some(phrases::pit_stop_time(seconds as u64, &self.lang))));
+        }
+        for (mark, key) in [(10_000.0, "pit_ten"), (5_000.0, "pit_five"), (0.0, "pit_go")] {
+            if crossed(mark) {
+                out.push(say_within(key, Group::Car, t, COUNT_EXPIRES_S, None));
+            }
+        }
+    }
+
+    fn watch_limiter(&mut self, t: f64, s: &Sample, out: &mut Vec<Say>) {
+        let known = self.limiter.replace(s.limiter);
+        if s.speed >= ROLLING_MS && known.is_some_and(|known| known != s.limiter) {
+            out.push(say_within(if s.limiter { "limiter_on" } else { "limiter_off" }, Group::Car, t, PIT_EXPIRES_S, None));
+        }
     }
 
     fn watch_fuel(&mut self, fuel: f32) {
@@ -459,6 +628,64 @@ mod tests {
 
         fn tyres(&mut self, c: [f32; 4]) {
             self.physics(laps::TYRE_CORE_TEMPERATURE, c);
+        }
+
+        fn speed(&mut self, kmh: f32) {
+            self.physics[SPEED_KMH..SPEED_KMH + 4].copy_from_slice(&kmh.to_le_bytes());
+        }
+
+        fn limiter(&mut self, on: bool) {
+            self.graphics[IS_PITLIMITER_ON] = on as u8;
+        }
+
+        fn location(&mut self, location: i32) {
+            self.i32(CAR_LOCATION, location);
+        }
+
+        /// `session_state.total_lap` and `current_lap` (the leader's)
+        fn race(&mut self, total_laps: i32, current_lap: i32) {
+            self.i32(TOTAL_LAP, total_laps);
+            self.i32(CURRENT_LAP, current_lap);
+        }
+
+        /// The game's own fuel per lap and the tank's size
+        fn game_fuel(&mut self, per_lap: f32, tank: f32) {
+            self.graphics[FUEL_LITER_PER_LAP..FUEL_LITER_PER_LAP + 4].copy_from_slice(&per_lap.to_le_bytes());
+            self.graphics[MAX_FUEL..MAX_FUEL + 4].copy_from_slice(&tank.to_le_bytes());
+        }
+
+        /// From the track into the pit lane; the fuel calls of it.
+        fn enter_pit_lane(&mut self, engineer: &mut Engineer) -> Vec<Say> {
+            self.location(TRACK);
+            self.pit(false);
+            self.step(engineer);
+            self.location(PIT_LANE);
+            self.pit(true);
+            self.drive(engineer, 5).into_iter().filter(|s| s.group == Group::Fuel).collect()
+        }
+
+        /// `control_lock_time`, ms
+        fn lock(&mut self, ms: f32) {
+            self.graphics[CONTROL_LOCK_TIME..CONTROL_LOCK_TIME + 4].copy_from_slice(&ms.to_le_bytes());
+        }
+
+        /// A stop in the box: the controls are locked for `ms`, counted down 50 ms a sample to -1; what was said.
+        fn stop(&mut self, engineer: &mut Engineer, ms: f32) -> Vec<Say> {
+            let mut said = Vec::new();
+            let mut left = ms;
+            while left > 0.0 {
+                self.lock(left);
+                said.extend(self.step(engineer));
+                left -= 50.0;
+            }
+            self.lock(-1.0);
+            said.extend(self.drive(engineer, 20));
+            said
+        }
+
+        /// `pitspeeding_delta`: above 0 over the pit limit
+        fn pit_speeding(&mut self, delta: f32) {
+            self.graphics[PITSPEEDING_DELTA..PITSPEEDING_DELTA + 4].copy_from_slice(&delta.to_le_bytes());
         }
 
         fn brakes(&mut self, c: [f32; 4]) {
@@ -914,6 +1141,187 @@ mod tests {
         assert!(pages.drive(&mut e, 20).is_empty(), "one tyre above the window");
         pages.tyres([75.0; 4]);
         assert_eq!(keys(&pages.drive(&mut e, 20)), ["tyres_in_window"]);
+    }
+
+    #[test]
+    fn the_limiter_is_called_when_it_is_switched_while_the_car_rolls() {
+        // the recording of 2026-11-09 (A2): the game switched it on at the start of the pit lane (the auto limiter
+        // assist), the driver switched it off a second later and on again; a change while the car stood was the
+        // game putting the car in its box or on the grid
+        let (mut e, mut pages) = (engineer(), Pages::new());
+        pages.speed(50.0);
+        pages.limiter(true);
+        assert!(pages.drive(&mut e, 5).is_empty(), "on from the first sample: nothing switched");
+        pages.limiter(false);
+        let said = pages.drive(&mut e, 5);
+        assert_eq!(keys(&said), ["limiter_off"]);
+        assert_eq!((said[0].group, said[0].call.priority, said[0].text.as_deref()), (Group::Car, Priority::Engineer, None));
+        assert!((said[0].call.expires - said[0].call.at - PIT_EXPIRES_S).abs() < 1e-9, "a limiter call is stale soon");
+        pages.limiter(true);
+        assert_eq!(keys(&pages.drive(&mut e, 5)), ["limiter_on"]);
+        assert_eq!(texts(&pages.said), ["Limiter aus.", "Limiter an."]);
+        // standing: the game takes it off on the grid, puts the car in its box with it on
+        pages.speed(0.0);
+        pages.limiter(false);
+        pages.drive(&mut e, 5);
+        pages.limiter(true);
+        pages.drive(&mut e, 5);
+        pages.speed(20.0);
+        assert!(pages.drive(&mut e, 20).is_empty(), "it was on when the car started rolling");
+        pages.limiter(false);
+        assert_eq!(keys(&pages.drive(&mut e, 5)), ["limiter_off"]);
+        // on track too
+        pages.pit(false);
+        pages.limiter(true);
+        assert_eq!(keys(&pages.drive(&mut e, 5)), ["limiter_on"]);
+    }
+
+    #[test]
+    fn too_fast_into_the_pit_entry_is_warned_at_once() {
+        // A2 337.8 s: car_location 4 to 2 (the pit entry) at 81 km/h, pitspeeding_delta +0.72. The delta is the
+        // speed against the pit limit everywhere, on track too, so it does not tell that the pit entry is near.
+        let (mut e, mut pages) = (engineer(), Pages::new());
+        pages.pit(false);
+        pages.location(TRACK);
+        pages.pit_speeding(1.0);
+        pages.drive(&mut e, 20);
+        pages.location(PIT_ENTRY);
+        pages.pit(true);
+        pages.pit_speeding(0.7);
+        let said = pages.drive(&mut e, 20);
+        assert_eq!(keys(&said), ["pit_entry_speed"]);
+        assert_eq!((said[0].group, said[0].call.priority, said[0].text.as_deref()), (Group::Car, Priority::Safety, None));
+        assert!((said[0].call.expires - said[0].call.at - SAFETY_EXPIRES_S).abs() < 1e-9);
+        pages.location(PIT_LANE);
+        assert!(!keys(&pages.drive(&mut e, 20)).contains(&"pit_entry_speed"), "once an entry");
+        // slow enough: nothing
+        let (mut e, mut pages) = (engineer(), Pages::new());
+        pages.location(TRACK);
+        pages.pit_speeding(1.0);
+        pages.drive(&mut e, 5);
+        pages.pit_speeding(-0.3);
+        pages.location(PIT_ENTRY);
+        assert!(pages.drive(&mut e, 20).is_empty());
+        // brushing the entry and back on track (A2 862.4 s), then in: twice; a pit lane without an entry zone too
+        pages.location(TRACK);
+        pages.drive(&mut e, 5);
+        pages.pit_speeding(0.9);
+        pages.location(PIT_ENTRY);
+        pages.drive(&mut e, 5);
+        pages.location(TRACK);
+        pages.drive(&mut e, 5);
+        pages.location(PIT_ENTRY);
+        pages.drive(&mut e, 5);
+        pages.location(TRACK);
+        pages.drive(&mut e, 5);
+        pages.location(PIT_LANE);
+        pages.drive(&mut e, 5);
+        let warnings: Vec<Say> = pages.said.iter().filter(|s| s.group == Group::Car).cloned().collect();
+        assert_eq!(keys(&warnings), ["pit_entry_speed"; 3]);
+        // from the pit exit back into the pit lane (the game put the car in its box): nothing
+        pages.location(PIT_EXIT);
+        pages.drive(&mut e, 5);
+        pages.location(PIT_LANE);
+        assert!(pages.drive(&mut e, 5).is_empty());
+        // a pause between the track and the entry does not hide it
+        pages.location(TRACK);
+        pages.drive(&mut e, 5);
+        pages.i32(laps::STATUS, 3);
+        pages.drive(&mut e, 5);
+        pages.i32(laps::STATUS, laps::LIVE);
+        pages.location(PIT_ENTRY);
+        assert_eq!(keys(&pages.drive(&mut e, 5)), ["pit_entry_speed"]);
+    }
+
+    #[test]
+    fn the_stop_is_counted_down_from_the_control_lock() {
+        // A2 362.05 s: control_lock_time jumps from -1 to 33,982 ms when the car stops in its box (fuel, tyres and
+        // repairs are done in that same sample) and counts down to -1 at 396.05 s, when the car went
+        let (mut e, mut pages) = (engineer(), Pages::new());
+        pages.lock(-1.0);
+        pages.drive(&mut e, 5);
+        let t0 = pages.t;
+        let said = pages.stop(&mut e, 33_982.0);
+        assert_eq!(texts(&said), ["Noch vierunddreißig Sekunden.", "Zehn Sekunden.", "Fünf.", "Los, los, los!"], "the 30 s mark only 4 s after the first call: left out");
+        assert_eq!(keys(&said), ["pit_stop_time", "pit_ten", "pit_five", "pit_go"]);
+        let at: Vec<f64> = said.iter().map(|s| ((s.call.at - t0) * 100.0).round() / 100.0).collect();
+        assert_eq!(at, [0.0, 24.0, 29.0, 34.0]);
+        assert!(said.iter().all(|s| s.group == Group::Car && s.call.priority == Priority::Engineer));
+        let life: Vec<f64> = said.iter().map(|s| ((s.call.expires - s.call.at) * 100.0).round() / 100.0).collect();
+        assert_eq!(life, [PIT_EXPIRES_S, COUNT_EXPIRES_S, COUNT_EXPIRES_S, COUNT_EXPIRES_S]);
+        // A2 483.3 s, back to the pits: 84,983 ms
+        assert_eq!(
+            texts(&pages.stop(&mut e, 84_983.0)),
+            ["Noch fünfundachtzig Sekunden.", "Noch sechzig Sekunden.", "Noch dreißig Sekunden.", "Zehn Sekunden.", "Fünf.", "Los, los, los!"]
+        );
+        // short stops: only the marks still ahead
+        assert_eq!(keys(&pages.stop(&mut e, 12_000.0)), ["pit_ten", "pit_five", "pit_go"]);
+        assert_eq!(keys(&pages.stop(&mut e, 7_000.0)), ["pit_five", "pit_go"]);
+        // A2 401.15 s: the game put the car in its box with the lock at 0, not counting
+        pages.lock(0.0);
+        pages.drive(&mut e, 40);
+        pages.lock(-1.0);
+        assert!(pages.drive(&mut e, 40).is_empty());
+        // in English
+        let (mut e, mut pages) = (Engineer::new(Config::default(), "en"), Pages::new());
+        let said = pages.stop(&mut e, 31_000.0);
+        let en: Vec<String> = said.iter().map(|s| s.text.clone().unwrap_or_else(|| phrases::text(s.call.key, "en", None, 0).unwrap())).collect();
+        assert_eq!(en, ["Thirty-one seconds.", "Ten seconds.", "Five.", "Go, go, go!"]);
+    }
+
+    #[test]
+    fn the_fuel_to_the_flag_is_said_when_the_car_enters_the_pit_lane() {
+        // the service is done in the first sample of the stop (A2 362.05 s: 27.1 l to 57.1 l at once), so the number
+        // comes before the box: at the start of the pit lane, or when the game puts the car in its box
+        let (mut e, mut pages) = (engineer(), Pages::new());
+        pages.race(10, 2);
+        pages.game_fuel(3.0, 112.0);
+        pages.fuel(20.0);
+        pages.location(TRACK);
+        pages.pit(false);
+        pages.drive(&mut e, 5);
+        pages.location(PIT_ENTRY);
+        pages.pit(true);
+        assert!(pages.drive(&mut e, 20).is_empty(), "the pit entry is not the pit lane yet (A2 862.4 s: back on track)");
+        pages.location(PIT_LANE);
+        let said = pages.drive(&mut e, 20);
+        assert_eq!(texts(&said), ["Noch neun Runden: zehn Liter nachtanken."], "laps 2 to 10 and one more at the game's 3 l, less the 20 l in the tank");
+        assert_eq!((said[0].group, said[0].call.priority, said[0].call.key), (Group::Fuel, Priority::Engineer, "fuel_to_flag"));
+        assert!((said[0].call.expires - said[0].call.at - ADVICE_EXPIRES_S).abs() < 1e-9);
+        // out of the pit exit and back into the box (A2 401.1 s): nothing
+        pages.location(PIT_EXIT);
+        pages.drive(&mut e, 5);
+        pages.location(PIT_LANE);
+        assert!(pages.drive(&mut e, 5).is_empty());
+
+        // the fuel per lap measured on this stint before the game's
+        let (mut e, mut pages) = (engineer(), Pages::new());
+        pages.game_fuel(3.0, 112.0);
+        on_a_flying_lap(&mut e, &mut pages);
+        pages.lap(&mut e, 4.0, 95_000);
+        pages.race(10, 3);
+        pages.fuel(22.5);
+        assert_eq!(texts(&pages.enter_pit_lane(&mut e)), ["Noch acht Runden: vierzehn Liter nachtanken."], "9 laps at 4 l less 22.5 l, rounded up");
+        pages.race(10, 9);
+        assert_eq!(texts(&pages.enter_pit_lane(&mut e)), ["Noch zwei Runden, der Sprit reicht."]);
+        pages.race(10, 10);
+        pages.fuel(7.5);
+        assert_eq!(texts(&pages.enter_pit_lane(&mut e)), ["Noch eine Runde: einen Liter nachtanken."]);
+        pages.race(10, 1);
+        pages.game_fuel(3.0, 40.0);
+        assert_eq!(texts(&pages.enter_pit_lane(&mut e)), ["Noch zehn Runden: volltanken."], "36.5 l to add, the tank takes 32.5 l");
+        pages.race(10, 11);
+        assert!(pages.enter_pit_lane(&mut e).is_empty(), "the leader has finished");
+
+        // what is missing, once a session
+        let (mut e, mut pages) = (engineer(), Pages::new());
+        pages.game_fuel(3.0, 112.0);
+        assert_eq!(texts(&pages.enter_pit_lane(&mut e)), ["Renndistanz unbekannt, keine Spritempfehlung."]);
+        assert!(pages.enter_pit_lane(&mut e).is_empty());
+        let (mut e, mut pages) = (engineer(), Pages::new());
+        pages.race(10, 2);
+        assert_eq!(texts(&pages.enter_pit_lane(&mut e)), ["Verbrauch unbekannt, keine Spritempfehlung."]);
+        assert!(pages.enter_pit_lane(&mut e).is_empty());
     }
 
     #[test]

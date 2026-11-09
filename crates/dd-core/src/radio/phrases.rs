@@ -24,7 +24,7 @@ pub const LANGUAGES: [&str; 2] = ["de", "en"];
 pub const NAME: &str = "{name}";
 
 /// The calls without a name: what the spotter, the queue and the engineer emit, and the radio's own sentences.
-const FIXED: [&str; 27] = [
+const FIXED: [&str; 32] = [
     "car_left",
     "car_right",
     "three_wide",
@@ -52,6 +52,11 @@ const FIXED: [&str; 27] = [
     "tyres_in_window",
     "limiter_on",
     "limiter_off",
+    "pit_entry_speed",
+    "pit_ten",
+    "pit_five",
+    "pit_go",
+    "pit_exit_traffic",
 ];
 /// The spotter's calls with another driver's name, rendered per driver.
 const NAMED: [&str; 6] =
@@ -290,6 +295,51 @@ pub fn spoken(text: &str, lang: &str) -> String {
     out
 }
 
+/// The fuel the race still needs, as [`fuel_to_flag`] says it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FuelToFlag {
+    Add { laps: u32, litres: u32 },
+    Enough { laps: u32 },
+    /// More than the tank takes
+    FillUp { laps: u32 },
+    /// The race's length in laps is not known
+    NoDistance,
+    /// No fuel per lap is known
+    NoFuelUse,
+}
+
+/// "Noch neun Runden: zehn Liter nachtanken." / "Nine laps to go: add ten litres.", with "der Sprit reicht" /
+/// "fuel is enough", "volltanken" / "fill up", or what is missing.
+pub fn fuel_to_flag(advice: FuelToFlag, lang: &str) -> String {
+    use FuelToFlag::*;
+    if lang == "de" {
+        let laps = |n: u32| if n == 1 { "Noch eine Runde".to_string() } else { format!("Noch {} Runden", de_number(n as u64)) };
+        match advice {
+            Add { laps: n, litres: 1 } => format!("{}: einen Liter nachtanken.", laps(n)),
+            Add { laps: n, litres } => format!("{}: {} Liter nachtanken.", laps(n), de_number(litres as u64)),
+            Enough { laps: n } => format!("{}, der Sprit reicht.", laps(n)),
+            FillUp { laps: n } => format!("{}: volltanken.", laps(n)),
+            NoDistance => "Renndistanz unbekannt, keine Spritempfehlung.".to_string(),
+            NoFuelUse => "Verbrauch unbekannt, keine Spritempfehlung.".to_string(),
+        }
+    } else {
+        let laps = |n: u32| if n == 1 { "One lap to go".to_string() } else { format!("{} laps to go", capitalised(&en_number(n as u64))) };
+        match advice {
+            Add { laps: n, litres: 1 } => format!("{}: add one litre.", laps(n)),
+            Add { laps: n, litres } => format!("{}: add {} litres.", laps(n), en_number(litres as u64)),
+            Enough { laps: n } => format!("{}, fuel is enough.", laps(n)),
+            FillUp { laps: n } => format!("{}: fill up.", laps(n)),
+            NoDistance => "Race distance unknown, no fuel target.".to_string(),
+            NoFuelUse => "Fuel use unknown, no fuel target.".to_string(),
+        }
+    }
+}
+
+/// The time left in the box: "Noch vierunddreißig Sekunden." / "Thirty-four seconds."
+pub fn pit_stop_time(seconds: u64, lang: &str) -> String {
+    if lang == "de" { format!("Noch {} Sekunden.", de_number(seconds)) } else { format!("{} seconds.", capitalised(&en_number(seconds))) }
+}
+
 /// A lap time on its own, as the engineer calls it after a lap: "Acht zwölf vier." / "Eight twelve four."
 pub fn lap_time(lap_ms: i64, lang: &str) -> String {
     format!("{}.", capitalised(&lap_time_words(lap_ms, lang)))
@@ -443,6 +493,34 @@ mod tests {
         assert_eq!(en(0.5), "Fuel for half a lap.");
         assert_eq!(en(0.1), "Fuel for less than half a lap.");
         assert_eq!(en(21.9), "Fuel for twenty-one and a half more laps.");
+    }
+
+    #[test]
+    fn the_fuel_to_the_flag() {
+        use FuelToFlag::*;
+        let de = |advice| fuel_to_flag(advice, "de");
+        let en = |advice| fuel_to_flag(advice, "en");
+        assert_eq!(de(Add { laps: 9, litres: 10 }), "Noch neun Runden: zehn Liter nachtanken.");
+        assert_eq!(de(Add { laps: 1, litres: 1 }), "Noch eine Runde: einen Liter nachtanken.");
+        assert_eq!(de(Enough { laps: 21 }), "Noch einundzwanzig Runden, der Sprit reicht.");
+        assert_eq!(de(FillUp { laps: 30 }), "Noch dreißig Runden: volltanken.");
+        assert_eq!(de(NoDistance), "Renndistanz unbekannt, keine Spritempfehlung.");
+        assert_eq!(de(NoFuelUse), "Verbrauch unbekannt, keine Spritempfehlung.");
+        assert_eq!(en(Add { laps: 9, litres: 10 }), "Nine laps to go: add ten litres.");
+        assert_eq!(en(Add { laps: 1, litres: 1 }), "One lap to go: add one litre.");
+        assert_eq!(en(Enough { laps: 21 }), "Twenty-one laps to go, fuel is enough.");
+        assert_eq!(en(FillUp { laps: 30 }), "Thirty laps to go: fill up.");
+        assert_eq!(en(NoDistance), "Race distance unknown, no fuel target.");
+        assert_eq!(en(NoFuelUse), "Fuel use unknown, no fuel target.");
+    }
+
+    #[test]
+    fn the_time_left_in_the_box() {
+        assert_eq!(pit_stop_time(34, "de"), "Noch vierunddreißig Sekunden.");
+        assert_eq!(pit_stop_time(85, "de"), "Noch fünfundachtzig Sekunden.");
+        assert_eq!(pit_stop_time(120, "de"), "Noch einhundertzwanzig Sekunden.");
+        assert_eq!(pit_stop_time(30, "en"), "Thirty seconds.");
+        assert_eq!(pit_stop_time(85, "en"), "Eighty-five seconds.");
     }
 
     #[test]

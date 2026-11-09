@@ -119,6 +119,11 @@ pub struct Config {
     pub slow_speed_ms: f32,
     pub slow_closing_ms: f32,
     pub slow_every_s: f64,
+    /// At the pit exit a car outside the pit mask, faster than the own car, that closes on it from at most this far
+    /// and reaches it within this time, is traffic; once an exit. Distances in the x/z plane: no pose needed, and the
+    /// track may lie on another level there (8 m below the exit road at Brands Hatch).
+    pub pit_exit_range_m: f32,
+    pub pit_exit_reach_s: f32,
 }
 
 impl Default for Config {
@@ -172,6 +177,8 @@ impl Default for Config {
             slow_speed_ms: 15.0,
             slow_closing_ms: 5.0,
             slow_every_s: 20.0,
+            pit_exit_range_m: 200.0,
+            pit_exit_reach_s: 4.0,
         }
     }
 }
@@ -204,6 +211,8 @@ pub enum Event {
     /// The driver sits in another car's slipstream
     InTow { car: CarId },
     SlowCarAhead { car: CarId },
+    /// At the pit exit: a faster car closing from behind on the track
+    PitExitTraffic { car: CarId },
 }
 
 /// Where the own car points: unit vectors in the x/z plane.
@@ -394,6 +403,8 @@ pub struct Spotter {
     straight: u32,
     turning_since: Option<f64>,
     corner_counted: bool,
+    /// The traffic at this pit exit was called
+    pit_exit_said: bool,
 }
 
 impl Spotter {
@@ -413,6 +424,7 @@ impl Spotter {
             straight: 0,
             turning_since: None,
             corner_counted: false,
+            pit_exit_said: false,
         }
     }
 
@@ -538,13 +550,14 @@ impl Spotter {
 
         self.pose = self.find_pose(frame);
         let own_v = self.velocity(&self.own);
+        let exit = self.pit_exit_traffic(frame, own_v);
         let quiet = t < self.mute_until || frame.own.in_pit_lane || frame.own.in_pit_box || frame.own.speed <= c.min_speed_ms;
         let (Some(pose), Some(own_v), false) = (self.pose, own_v, quiet) else {
             self.silence();
             for track in self.tracks.values_mut() {
                 (track.long, track.lat) = (f32::NAN, f32::NAN);
             }
-            return Vec::new();
+            return exit.into_iter().collect();
         };
 
         let mut calls = Vec::new();
@@ -650,7 +663,36 @@ impl Spotter {
 
         let mut events = self.announce(t);
         events.extend(calls);
+        events.extend(exit);
         events
+    }
+
+    /// The faster car closing from behind soonest while the own car is at the pit exit, once an exit.
+    fn pit_exit_traffic(&mut self, frame: &Frame, own_v: Option<[f32; 2]>) -> Option<Event> {
+        if !frame.own.pit_exit {
+            self.pit_exit_said = false;
+            return None;
+        }
+        let (c, own_v) = (self.config, own_v?);
+        if self.pit_exit_said {
+            return None;
+        }
+        let own_speed = own_v[0].hypot(own_v[1]);
+        let car = frame
+            .others
+            .iter()
+            .filter(|car| !self.mask.contains(car.pos))
+            .filter_map(|car| {
+                let v = self.velocity(&self.tracks.get(&car.id)?.history)?;
+                let d = [car.pos[0] - frame.own.pos[0], car.pos[2] - frame.own.pos[2]];
+                let dist = d[0].hypot(d[1]);
+                let closing = -dot([v[0] - own_v[0], v[1] - own_v[1]], d) / dist;
+                let reach = dist / closing;
+                (v[0].hypot(v[1]) > own_speed && dist <= c.pit_exit_range_m && closing > 0.0 && reach <= c.pit_exit_reach_s).then_some((car.id, reach))
+            })
+            .min_by(|a, b| a.1.total_cmp(&b.1))?;
+        self.pit_exit_said = true;
+        Some(Event::PitExitTraffic { car: car.0 })
     }
 
     /// Follows every car by its id: a new id, or a teleport, starts its history afresh; an id that is gone is dropped.
@@ -957,6 +999,38 @@ mod tests {
         fresh.set_pit_mask(PitMask::from_cells(&cells));
         assert_eq!(events(&run_with(&mut fresh, &track().frames())), vec![], "the stored mask, read back");
         assert_eq!(events(&run(&track().frames())), vec![Event::CarLeft { car: B }], "without the mask");
+    }
+
+    #[test]
+    fn at_the_pit_exit_a_faster_car_closing_from_behind_is_called_once() {
+        // A2 573.6 s: car_location 3 (the pit exit) at 56 km/h, an AI car 84 m away at 134 km/h closing at 38 m/s
+        // passed 2 s later
+        let exit = |behind: f32, lat: f32| {
+            Drive::new(straight(16.0, 0.0)).seconds(8.0).pit_lane(|_| true).pit_exit(|t| t >= 5.0).beside(1, move |t| Some((behind + 24.0 * (t as f32 - 5.0), lat, 0.0)))
+        };
+        // the track runs 8 m beside the pit lane: a car on it is outside the pit mask
+        let timeline = run(&exit(-80.0, 8.0).frames());
+        assert_eq!(events(&timeline), vec![Event::PitExitTraffic { car: A }], "80 m behind, 24 m/s faster: 3.3 s");
+        assert!((timeline[0].0 - 5.0).abs() < 1e-9, "at the first sample of the exit");
+        // 120 m behind is 5 s away: called once it is 4 s away, while the own car is still at the exit
+        let timeline = run(&exit(-120.0, 8.0).frames());
+        assert_eq!(events(&timeline), vec![Event::PitExitTraffic { car: A }]);
+        assert!((timeline[0].0 - 6.0).abs() < 0.11, "{}", timeline[0].0);
+        assert_eq!(events(&run(&exit(-250.0, 8.0).frames())), vec![], "still 7.4 s away when the exit ends");
+        // a slower car ahead the own car catches is no traffic from behind
+        let ahead = Drive::new(straight(16.0, 0.0)).seconds(8.0).pit_lane(|_| true).pit_exit(|t| t >= 5.0).beside(1, |t| Some((40.0 - 8.0 * t as f32, 8.0, 0.0)));
+        assert_eq!(events(&run(&ahead.frames())), vec![]);
+        // not at the exit yet: the spotter is silent in the pit lane
+        let lane = Drive::new(straight(16.0, 0.0)).seconds(8.0).pit_lane(|_| true).beside(1, |t| Some((-80.0 + 24.0 * (t as f32 - 5.0), 8.0, 0.0)));
+        assert_eq!(events(&run(&lane.frames())), vec![]);
+        // a car in the pit lane behind (in the learned pit mask) is not traffic, one beside the lane is
+        let two = Drive::new(straight(16.0, 0.0))
+            .seconds(8.0)
+            .pit_lane(|_| true)
+            .pit_exit(|t| t >= 5.0)
+            .beside(1, |t| Some((-40.0 + 24.0 * (t as f32 - 5.0), 0.0, 0.0)))
+            .beside(2, |t| Some((-60.0 + 24.0 * (t as f32 - 5.0), 8.0, 0.0)));
+        assert_eq!(events(&run(&two.frames())), vec![Event::PitExitTraffic { car: B }]);
     }
 
     #[test]
