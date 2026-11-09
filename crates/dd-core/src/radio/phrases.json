@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "phrases": {
+    "car_left": { "de": ["Auto links."], "en": ["Car left."] },
+    "car_right": { "de": ["Auto rechts."], "en": ["Car right."] },
+    "three_wide": { "de": ["Drei nebeneinander!"], "en": ["Three wide!"] },
+    "three_wide_left": { "de": ["Drei nebeneinander, du links!"], "en": ["Three wide, you're left!"] },
+    "three_wide_right": { "de": ["Drei nebeneinander, du rechts!"], "en": ["Three wide, you're right!"] },
+    "still_there": { "de": ["Immer noch da.", "Noch da."], "en": ["Still there.", "Still there, hold it."] },
+    "clear_left": { "de": ["Frei links."], "en": ["Clear left."] },
+    "clear_right": { "de": ["Frei rechts."], "en": ["Clear right."] },
+    "clear": { "de": ["Alles frei."], "en": ["Clear all round."] },
+    "closing_fast": { "de": ["Auto kommt schnell von hinten."], "en": ["Car closing fast behind."] },
+    "close_behind": { "de": ["Auto dicht hinter dir."], "en": ["Car close behind."] },
+    "slipstream_behind": { "de": ["Auto in deinem Windschatten."], "en": ["Car in your slipstream."] },
+    "in_tow": { "de": ["Im Windschatten."], "en": ["In the slipstream."] },
+    "slow_car_ahead": { "de": ["Langsames Auto voraus."], "en": ["Slow car ahead."] },
+
+    "name_left": { "de": ["{name} links."], "en": ["{name} on your left."] },
+    "name_right": { "de": ["{name} rechts."], "en": ["{name} on your right."] },
+    "name_closing_fast": { "de": ["{name} kommt schnell von hinten."], "en": ["{name} closing fast behind."] },
+    "name_close_behind": { "de": ["{name} dicht hinter dir."], "en": ["{name} close behind."] },
+    "name_slipstream_behind": { "de": ["{name} in deinem Windschatten."], "en": ["{name} in your slipstream."] },
+    "name_in_tow": { "de": ["Windschatten von {name}."], "en": ["Slipstream from {name}."] },
+
+    "radio_check": { "de": ["Funkcheck. Boxenfunk steht."], "en": ["Radio check. Loud and clear."] },
+    "copy_moment": {
+      "de": ["Copy, Moment.", "Verstanden, ich rechne kurz.", "Copy, ich schau nach.", "Verstanden, einen Moment."],
+      "en": ["Copy, stand by.", "Copy, one moment.", "Understood, checking now.", "Copy, give me a second."]
+    },
+
+    "fuel_low": { "de": ["Sprit wird knapp."], "en": ["Fuel is getting low."] },
+    "fuel_box_this_lap": { "de": ["Box diese Runde, zum Tanken."], "en": ["Box this lap for fuel."] },
+    "lap_invalid": { "de": ["Runde ungültig."], "en": ["Lap invalid."] },
+    "brakes_hot": { "de": ["Bremsen sehr heiß."], "en": ["Brakes are very hot."] },
+    "tyres_in_window": { "de": ["Reifen sind im Fenster."], "en": ["Tyres are in the window."] },
+    "limiter_on": { "de": ["Limiter an."], "en": ["Limiter on."] },
+    "limiter_off": { "de": ["Limiter aus."], "en": ["Limiter off."] },
+
+    "preview_vocative": { "de": ["{name}, Box diese Runde."], "en": ["{name}, box this lap."] },
+    "preview_reference": { "de": ["{name} ist links neben dir."], "en": ["{name} is on your left."] }
+  }
+}
