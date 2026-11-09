@@ -3,6 +3,7 @@
 
 pub mod effect;
 pub mod frame;
+pub mod phrases;
 pub mod queue;
 pub mod settings;
 pub mod spotter;

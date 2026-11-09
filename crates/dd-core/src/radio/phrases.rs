@@ -1,0 +1,360 @@
+//! What the team radio says, as text: the wordings of every call in German and English (`phrases.json`), the
+//! sentences with numbers built at run time, and the name of the cached sound of a wording. The voice (dd-voice)
+//! renders the fixed wordings once per voice and language; the names of other drivers are rendered when the
+//! driver joins a server; sentences with numbers are not urgent and are spoken live.
+//!
+//! Numbers are always spelled out here. Supertonic reads digits itself, but a lap time as "8:12,4" came out about
+//! 20 % longer than "acht zwölf vier" (duration predictor, 2026-11-09), so it does not say it the way a race
+//! engineer does, and "21" came out shorter than "einundzwanzig".
+
+use std::collections::BTreeMap;
+use std::sync::OnceLock;
+
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
+
+/// The version of `phrases.json`.
+pub const VERSION: u32 = 1;
+/// The model and render settings the cached sounds depend on (dd-voice checks that it says the same). A change here
+/// gives every wording a new cache name, so the library renders itself again.
+pub const MODEL: &str = "supertonic-3@724fb5abbf5502583fb520898d45929e62f02c0b/steps-8/speed-1.05/seed-1";
+/// The languages every call has.
+pub const LANGUAGES: [&str; 2] = ["de", "en"];
+/// Where the driver's spoken name goes in a named call.
+pub const NAME: &str = "{name}";
+
+/// The calls without a name: what the spotter, the queue and the engineer emit, and the radio's own sentences.
+const FIXED: [&str; 23] = [
+    "car_left",
+    "car_right",
+    "three_wide",
+    "three_wide_left",
+    "three_wide_right",
+    "still_there",
+    "clear_left",
+    "clear_right",
+    "clear",
+    "closing_fast",
+    "close_behind",
+    "slipstream_behind",
+    "in_tow",
+    "slow_car_ahead",
+    "radio_check",
+    "copy_moment",
+    "fuel_low",
+    "fuel_box_this_lap",
+    "lap_invalid",
+    "brakes_hot",
+    "tyres_in_window",
+    "limiter_on",
+    "limiter_off",
+];
+/// The spotter's calls with another driver's name, rendered per driver.
+const NAMED: [&str; 6] =
+    ["name_left", "name_right", "name_closing_fast", "name_close_behind", "name_slipstream_behind", "name_in_tow"];
+/// The two sentences the name preview speaks the driver's own name in.
+const PREVIEW: [&str; 2] = ["preview_vocative", "preview_reference"];
+
+#[derive(Deserialize)]
+struct Library {
+    phrases: BTreeMap<String, Wordings>,
+}
+
+#[derive(Deserialize)]
+struct Wordings {
+    de: Vec<String>,
+    en: Vec<String>,
+}
+
+fn library() -> &'static Library {
+    static LIBRARY: OnceLock<Library> = OnceLock::new();
+    LIBRARY.get_or_init(|| serde_json::from_str(include_str!("phrases.json")).expect("phrases.json is valid"))
+}
+
+pub fn fixed_keys() -> &'static [&'static str] {
+    &FIXED
+}
+
+pub fn named_keys() -> &'static [&'static str] {
+    &NAMED
+}
+
+pub fn preview_keys() -> &'static [&'static str] {
+    &PREVIEW
+}
+
+/// All wordings of a call in a language, with the `{name}` placeholder left in; empty for an unknown key or
+/// language.
+pub fn wordings(key: &str, lang: &str) -> &'static [String] {
+    match (library().phrases.get(key), lang) {
+        (Some(w), "de") => &w.de,
+        (Some(w), "en") => &w.en,
+        _ => &[],
+    }
+}
+
+/// Wording number `pick` (wrapping round) of a call, with `name` in place of `{name}`. None for an unknown key or
+/// language, and for a named call without a name; a name given to a call without a placeholder is ignored.
+pub fn text(key: &str, lang: &str, name: Option<&str>, pick: usize) -> Option<String> {
+    let all = wordings(key, lang);
+    let wording = all.get(pick % all.len().max(1))?;
+    if !wording.contains(NAME) {
+        return Some(wording.clone());
+    }
+    let name = name.map(str::trim).filter(|n| !n.is_empty())?;
+    Some(wording.replace(NAME, name))
+}
+
+/// The file-system-safe name (no extension) of the cached sound of `text` spoken by `voice` in `lang`: voice and
+/// language for a human looking at the folder, then the SHA-256 of model, voice, language and text.
+pub fn cache_name(voice: &str, lang: &str, text: &str) -> String {
+    let hash = Sha256::digest(format!("{MODEL}|{voice}|{lang}|{text}").as_bytes());
+    let hex: String = hash.iter().take(16).map(|b| format!("{b:02x}")).collect();
+    let safe = |s: &str| s.chars().filter(char::is_ascii_alphanumeric).take(8).collect::<String>();
+    format!("{}-{}-{hex}", safe(voice), safe(lang))
+}
+
+const DE_UNITS: [&str; 20] = [
+    "null", "eins", "zwei", "drei", "vier", "fünf", "sechs", "sieben", "acht", "neun", "zehn", "elf", "zwölf",
+    "dreizehn", "vierzehn", "fünfzehn", "sechzehn", "siebzehn", "achtzehn", "neunzehn",
+];
+const DE_TENS: [&str; 10] = ["", "", "zwanzig", "dreißig", "vierzig", "fünfzig", "sechzig", "siebzig", "achtzig", "neunzig"];
+const EN_UNITS: [&str; 20] = [
+    "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
+    "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen",
+];
+const EN_TENS: [&str; 10] = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
+
+/// A number as German counts it ("eins", "einundzwanzig", "einhundertzwölf"); digits from 1,000 on.
+fn de_number(n: u64) -> String {
+    let prefix = |u: u64| if u == 1 { "ein".to_string() } else { DE_UNITS[u as usize].to_string() };
+    match n {
+        0..=19 => DE_UNITS[n as usize].to_string(),
+        20..=99 if n.is_multiple_of(10) => DE_TENS[(n / 10) as usize].to_string(),
+        20..=99 => format!("{}und{}", prefix(n % 10), DE_TENS[(n / 10) as usize]),
+        100..=999 if n.is_multiple_of(100) => format!("{}hundert", prefix(n / 100)),
+        100..=999 => format!("{}hundert{}", prefix(n / 100), de_number(n % 100)),
+        _ => n.to_string(),
+    }
+}
+
+/// A number in British English ("twenty-one", "one hundred and five"); digits from 1,000 on.
+fn en_number(n: u64) -> String {
+    match n {
+        0..=19 => EN_UNITS[n as usize].to_string(),
+        20..=99 if n.is_multiple_of(10) => EN_TENS[(n / 10) as usize].to_string(),
+        20..=99 => format!("{}-{}", EN_TENS[(n / 10) as usize], EN_UNITS[(n % 10) as usize]),
+        100..=999 if n.is_multiple_of(100) => format!("{} hundred", EN_UNITS[(n / 100) as usize]),
+        100..=999 => format!("{} hundred and {}", EN_UNITS[(n / 100) as usize], en_number(n % 100)),
+        _ => n.to_string(),
+    }
+}
+
+fn capitalised(s: &str) -> String {
+    let mut chars = s.chars();
+    chars.next().map(|c| c.to_uppercase().chain(chars).collect()).unwrap_or_default()
+}
+
+/// How far the fuel goes, rounded down to half a lap (the engineer never promises more than is in the tank):
+/// "Sprit für noch vier Runden." / "Fuel for four more laps.", with "eine Runde", "anderthalb", "zweieinhalb",
+/// "half a lap", "one and a half". Any language other than "de" is English.
+pub fn fuel_laps(laps: f64, lang: &str) -> String {
+    let halves = if laps.is_finite() && laps > 0.0 { (laps * 2.0).floor() as u64 } else { 0 };
+    let (whole, half) = (halves / 2, halves % 2 == 1);
+    if lang == "de" {
+        match (whole, half) {
+            (0, false) => "Sprit für weniger als eine halbe Runde.".to_string(),
+            (0, true) => "Sprit für noch eine halbe Runde.".to_string(),
+            (1, false) => "Sprit für noch eine Runde.".to_string(),
+            (1, true) => "Sprit für noch anderthalb Runden.".to_string(),
+            (n, false) => format!("Sprit für noch {} Runden.", de_number(n)),
+            // A trailing counting "eins" becomes "ein": 101.5 is "einhunderteineinhalb".
+            (n, true) => {
+                let n = de_number(n);
+                let stem = n.strip_suffix("eins").map(|s| format!("{s}ein")).unwrap_or(n);
+                format!("Sprit für noch {stem}einhalb Runden.")
+            }
+        }
+    } else {
+        match (whole, half) {
+            (0, false) => "Fuel for less than half a lap.".to_string(),
+            (0, true) => "Fuel for half a lap.".to_string(),
+            (1, false) => "Fuel for one more lap.".to_string(),
+            (n, false) => format!("Fuel for {} more laps.", en_number(n)),
+            (n, true) => format!("Fuel for {} and a half more laps.", en_number(n)),
+        }
+    }
+}
+
+/// A lap time as a race engineer says it, in tenths, cut (not rounded) like a timing screen: 8:12.4 is "acht
+/// zwölf vier" / "eight twelve four", 1:05.3 "eins null fünf drei" / "one oh five three" (the zero stays, so it
+/// cannot be heard as 1:53), 58.3 s "achtundfünfzig drei" / "fifty-eight three". No full stop, lower case.
+fn lap_time_words(lap_ms: i64, lang: &str) -> String {
+    let tenths = lap_ms.max(0) as u64 / 100;
+    let (minutes, seconds, tenth) = (tenths / 600, tenths / 10 % 60, tenths % 10);
+    let (number, oh, zero): (fn(u64) -> String, &str, &str) =
+        if lang == "de" { (de_number, "null", "null") } else { (en_number, "oh", "zero") };
+    let tenth = if tenth == 0 { zero.to_string() } else { number(tenth) };
+    match (minutes, seconds) {
+        (0, s) => format!("{} {tenth}", number(s)),
+        (m, s) if s < 10 => format!("{} {oh} {} {tenth}", number(m), if s == 0 { oh.to_string() } else { number(s) }),
+        (m, s) => format!("{} {} {tenth}", number(m), number(s)),
+    }
+}
+
+/// A lap time on its own, as the engineer calls it after a lap: "Acht zwölf vier." / "Eight twelve four."
+pub fn lap_time(lap_ms: i64, lang: &str) -> String {
+    format!("{}.", capitalised(&lap_time_words(lap_ms, lang)))
+}
+
+/// "Neue Bestzeit, acht zwölf vier." / "New personal best, eight twelve four."
+pub fn personal_best(lap_ms: i64, lang: &str) -> String {
+    let time = lap_time_words(lap_ms, lang);
+    if lang == "de" { format!("Neue Bestzeit, {time}.") } else { format!("New personal best, {time}.") }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn all_keys() -> Vec<&'static str> {
+        FIXED.iter().chain(&NAMED).chain(&PREVIEW).copied().collect()
+    }
+
+    #[test]
+    fn the_file_has_exactly_the_keys_of_the_code_and_its_version() {
+        let file: serde_json::Value = serde_json::from_str(include_str!("phrases.json")).unwrap();
+        assert_eq!(file["version"], VERSION);
+        let mut in_file: Vec<&str> = library().phrases.keys().map(String::as_str).collect();
+        let mut in_code = all_keys();
+        in_file.sort();
+        in_code.sort();
+        assert_eq!(in_file, in_code);
+    }
+
+    #[test]
+    fn every_key_has_german_and_english_without_empty_wordings() {
+        for key in all_keys() {
+            for lang in LANGUAGES {
+                let all = wordings(key, lang);
+                assert!(!all.is_empty(), "{key} {lang}");
+                for w in all {
+                    assert_eq!(w.trim(), w, "{key} {lang}: {w:?}");
+                    assert!(w.chars().any(char::is_alphabetic), "{key} {lang}: {w:?}");
+                    assert!(w.ends_with(['.', '!', '?']), "{key} {lang}: {w:?} ends like a sentence");
+                    assert!(!w.chars().any(|c| c.is_ascii_digit()), "{key} {lang}: {w:?} spells its numbers");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_name_placeholder_is_only_and_always_in_named_and_preview_calls() {
+        for key in all_keys() {
+            let named = NAMED.contains(&key) || PREVIEW.contains(&key);
+            for lang in LANGUAGES {
+                for w in wordings(key, lang) {
+                    assert_eq!(w.matches(NAME).count(), named as usize, "{key} {lang}: {w:?}");
+                    assert!(!w.replace(NAME, "").contains(['{', '}']), "{key} {lang}: {w:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn spotter_calls_stay_short() {
+        // Beside the driver: at most four words; from behind and ahead (less urgent): at most five.
+        for (i, key) in FIXED[..14].iter().enumerate() {
+            for lang in LANGUAGES {
+                for w in wordings(key, lang) {
+                    assert!(w.split_whitespace().count() <= if i < 9 { 4 } else { 5 }, "{key} {lang}: {w:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn text_picks_a_wording_and_puts_the_name_in() {
+        assert_eq!(text("car_left", "de", None, 0).as_deref(), Some("Auto links."));
+        assert_eq!(text("car_left", "en", Some("Max"), 7).as_deref(), Some("Car left."));
+        assert_eq!(text("copy_moment", "de", None, 1).as_deref(), Some("Verstanden, ich rechne kurz."));
+        assert_eq!(text("copy_moment", "de", None, 5), text("copy_moment", "de", None, 1), "wraps round");
+        assert_eq!(text("preview_vocative", "de", Some(" Jörrn "), 0).as_deref(), Some("Jörrn, Box diese Runde."));
+        assert_eq!(text("name_left", "en", Some("Max"), 0).as_deref(), Some("Max on your left."));
+        assert_eq!(text("name_left", "en", None, 0), None);
+        assert_eq!(text("name_left", "en", Some("  "), 0), None);
+        assert_eq!(text("car_left", "fr", None, 0), None);
+        assert_eq!(text("pit_open", "de", None, 0), None);
+    }
+
+    #[test]
+    fn cache_name_is_stable_safe_and_differs_per_voice_language_and_text() {
+        let a = cache_name("M1", "de", "Auto links.");
+        assert_eq!(a, cache_name("M1", "de", "Auto links."));
+        assert!(a.starts_with("M1-de-") && a.len() == 6 + 32, "{a}");
+        assert!(a.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
+        let others = [cache_name("F1", "de", "Auto links."), cache_name("M1", "en", "Auto links."), cache_name("M1", "de", "Auto rechts.")];
+        for o in &others {
+            assert_ne!(&a, o);
+        }
+        assert!(cache_name("../x", "d/e", "t").starts_with("x-de-"));
+    }
+
+    #[test]
+    fn numbers_are_spelled_out() {
+        let de: Vec<String> = [0, 1, 7, 16, 20, 21, 31, 99, 100, 101, 112, 230].map(de_number).to_vec();
+        assert_eq!(de, ["null", "eins", "sieben", "sechzehn", "zwanzig", "einundzwanzig", "einunddreißig", "neunundneunzig", "einhundert", "einhunderteins", "einhundertzwölf", "zweihundertdreißig"]);
+        let en: Vec<String> = [0, 13, 40, 42, 100, 105, 999].map(en_number).to_vec();
+        assert_eq!(en, ["zero", "thirteen", "forty", "forty-two", "one hundred", "one hundred and five", "nine hundred and ninety-nine"]);
+        assert_eq!(de_number(1000), "1000");
+    }
+
+    #[test]
+    fn fuel_laps_rounds_down_to_half_a_lap() {
+        let de = |l| fuel_laps(l, "de");
+        let en = |l| fuel_laps(l, "en");
+        assert_eq!(de(4.0), "Sprit für noch vier Runden.");
+        assert_eq!(de(4.99), "Sprit für noch viereinhalb Runden.");
+        assert_eq!(de(1.2), "Sprit für noch eine Runde.");
+        assert_eq!(de(1.5), "Sprit für noch anderthalb Runden.");
+        assert_eq!(de(0.7), "Sprit für noch eine halbe Runde.");
+        assert_eq!(de(0.3), "Sprit für weniger als eine halbe Runde.");
+        assert_eq!(de(-1.0), "Sprit für weniger als eine halbe Runde.");
+        assert_eq!(de(f64::NAN), "Sprit für weniger als eine halbe Runde.");
+        assert_eq!(de(2.5), "Sprit für noch zweieinhalb Runden.");
+        assert_eq!(de(21.5), "Sprit für noch einundzwanzigeinhalb Runden.");
+        assert_eq!(de(101.5), "Sprit für noch einhunderteineinhalb Runden.");
+        assert_eq!(de(21.0), "Sprit für noch einundzwanzig Runden.");
+        assert_eq!(en(4.0), "Fuel for four more laps.");
+        assert_eq!(en(1.0), "Fuel for one more lap.");
+        assert_eq!(en(1.5), "Fuel for one and a half more laps.");
+        assert_eq!(en(0.5), "Fuel for half a lap.");
+        assert_eq!(en(0.1), "Fuel for less than half a lap.");
+        assert_eq!(en(21.9), "Fuel for twenty-one and a half more laps.");
+    }
+
+    #[test]
+    fn lap_times_are_said_like_a_race_engineer() {
+        let de = |ms| lap_time(ms, "de");
+        let en = |ms| lap_time(ms, "en");
+        assert_eq!(de(492_400), "Acht zwölf vier.");
+        assert_eq!(en(492_400), "Eight twelve four.");
+        assert_eq!(de(65_300), "Eins null fünf drei.");
+        assert_eq!(en(65_300), "One oh five three.");
+        assert_eq!(de(60_400), "Eins null null vier.");
+        assert_eq!(en(60_400), "One oh oh four.");
+        assert_eq!(de(58_300), "Achtundfünfzig drei.");
+        assert_eq!(en(58_300), "Fifty-eight three.");
+        assert_eq!(de(9_500), "Neun fünf.");
+        assert_eq!(de(132_000), "Zwei zwölf null.");
+        assert_eq!(en(132_000), "Two twelve zero.");
+        assert_eq!(en(83_250), "One twenty-three two.");
+        // Cut, not rounded: hundredths never lift the tenth or the minute.
+        assert_eq!(de(72_399), "Eins zwölf drei.");
+        assert_eq!(de(59_999), "Neunundfünfzig neun.");
+        assert_eq!(de(600_100), "Zehn null null eins.");
+        assert_eq!(de(-5), "Null null.");
+        assert_eq!(personal_best(492_400, "de"), "Neue Bestzeit, acht zwölf vier.");
+        assert_eq!(personal_best(65_300, "en"), "New personal best, one oh five three.");
+    }
+}
