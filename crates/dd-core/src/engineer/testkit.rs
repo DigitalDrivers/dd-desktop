@@ -89,9 +89,14 @@ pub const TRACK: [Piece; 8] = [
 
 /// Where each arc of [`TRACK`] starts and ends, and its signed curvature (> 0 left).
 pub fn arcs() -> Vec<(f64, f64, f64)> {
+    arcs_on(&TRACK)
+}
+
+/// Where each arc of `track` starts and ends, and its signed curvature (> 0 left).
+pub fn arcs_on(track: &[Piece]) -> Vec<(f64, f64, f64)> {
     let mut s = 0.0;
     let mut out = Vec::new();
-    for piece in TRACK {
+    for &piece in track {
         match piece {
             Piece::Straight(len) => s += len,
             Piece::Arc(r, deg, left) => {
@@ -114,12 +119,118 @@ fn kappa(s: f64) -> f64 {
     arcs().into_iter().find(|(a, b, _)| s >= *a && s < *b).map_or(0.0, |(_, _, k)| k)
 }
 
+/// A track that closes on itself, so a car can drive it lap after lap in the world (TRACK's turns add up to 165°):
+/// a chicane (R 100 m right and left, 30° each, 20 m apart) on the start straight, then four left turns of 90°
+/// (R 60, 40, 150 and 200 m), the last two straights as long as closing the loop needs.
+pub fn closed_track() -> Vec<Piece> {
+    let (r1, r2, r3, r4, b) = (60.0, 40.0, 150.0, 200.0, 600.0);
+    let (rc, angle, gap) = (100.0f64, 30.0f64.to_radians(), 20.0);
+    // the chicane moves the car this far ahead and this far to the right
+    let (ahead, right) = (2.0 * rc * angle.sin() + gap * angle.cos(), 2.0 * rc * (1.0 - angle.cos()) + gap * angle.sin());
+    let a = 800.0 + ahead;
+    vec![
+        Piece::Straight(400.0),
+        Piece::Arc(rc, 30.0, false),
+        Piece::Straight(gap),
+        Piece::Arc(rc, 30.0, true),
+        Piece::Straight(400.0),
+        Piece::Arc(r1, 90.0, true),
+        Piece::Straight(b),
+        Piece::Arc(r2, 90.0, true),
+        Piece::Straight(a + r1 + r4 - r2 - r3),
+        Piece::Arc(r3, 90.0, true),
+        Piece::Straight(b + r1 + r2 - right - r3 - r4),
+        Piece::Arc(r4, 90.0, true),
+    ]
+}
+
+pub fn length_of(track: &[Piece]) -> f64 {
+    track.iter().map(|p| match *p {
+        Piece::Straight(len) => len,
+        Piece::Arc(r, deg, _) => r * deg.to_radians(),
+    }).sum()
+}
+
+/// The centre line of `track` at `s` metres (round the lap): x and z in the radio's test world (right-handed, Y up;
+/// right of a direction (x, z) is (-z, x)), the lap starting at the origin heading along +x.
+pub fn pose_on(track: &[Piece], s: f64) -> [f64; 2] {
+    let mut left = s.rem_euclid(length_of(track));
+    let (mut x, mut z, mut h) = (0.0f64, 0.0f64, 0.0f64);
+    for &piece in track {
+        let (len, turn) = match piece {
+            Piece::Straight(len) => (len, 0.0),
+            // a right turn turns the heading towards (-z, x), so the angle atan2(z, x) grows
+            Piece::Arc(r, deg, is_left) => (r * deg.to_radians(), if is_left { -1.0 / r } else { 1.0 / r }),
+        };
+        let u = left.min(len);
+        if turn == 0.0 {
+            (x, z) = (x + u * h.cos(), z + u * h.sin());
+        } else {
+            let end = h + turn * u;
+            (x, z) = (x + (end.sin() - h.sin()) / turn, z - (end.cos() - h.cos()) / turn);
+            h = end;
+        }
+        left -= u;
+        if left <= 0.0 {
+            break;
+        }
+    }
+    [x, z]
+}
+
+/// A corner driven differently from the car's limit: `slower_kmh` slower through the arc (index into
+/// [`arcs_on`]), and braking for it from `brake_at` metres of the lap on, softly enough to reach the arc's speed
+/// at its start, when given.
+#[derive(Clone, Copy, Debug)]
+pub struct Change {
+    pub corner: usize,
+    pub slower_kmh: f64,
+    pub brake_at: Option<f64>,
+}
+
+/// A flying lap of `track` (which must close, see [`closed_track`]) at the car's limit but for `changes`: the speed
+/// (m/s) every [`STEP`] metres from the lap's start to its end (both ends included) and whether the car brakes
+/// there. It is the middle one of three such laps, so it ends at the speed it started with.
+pub fn flying_lap(track: &[Piece], changes: &[Change]) -> (Vec<f64>, Vec<bool>) {
+    let len = length_of(track);
+    let per_lap = (len / STEP).round() as usize;
+    let n = 3 * per_lap + 1;
+    let arcs = arcs_on(track);
+    let at = |i: usize| (i % per_lap) as f64 * STEP;
+    let arc_of = |s: f64| arcs.iter().position(|(a, b, _)| s >= *a && s < *b);
+    let corner_speed = |c: usize| (LAT * arcs[c].2.abs().recip()).sqrt().min(VMAX) - changes.iter().filter(|x| x.corner == c).map(|x| x.slower_kmh / 3.6).sum::<f64>();
+    let limit: Vec<f64> = (0..n).map(|i| arc_of(at(i)).map_or(VMAX, corner_speed)).collect();
+    let mut fwd = vec![0.0; n];
+    for i in 1..n {
+        fwd[i] = (fwd[i - 1] * fwd[i - 1] + 2.0 * ACCEL * STEP).sqrt().min(limit[i]);
+    }
+    let mut back = vec![0.0; n];
+    for i in (0..n - 1).rev() {
+        back[i] = (back[i + 1] * back[i + 1] + 2.0 * BRAKE * STEP).sqrt().min(limit[i]);
+    }
+    let mut v: Vec<f64> = (0..n).map(|i| fwd[i].min(back[i])).collect();
+    for change in changes {
+        let Some(brake_at) = change.brake_at else { continue };
+        let (vc, arc_start) = (corner_speed(change.corner), arcs[change.corner].0);
+        for lap in 0..3 {
+            let (from, to) = (lap * per_lap + (brake_at / STEP).round() as usize, lap * per_lap + (arc_start / STEP).round() as usize);
+            let v0 = v[from];
+            let decel = (v0 * v0 - vc * vc) / (2.0 * (to - from) as f64 * STEP);
+            for (i, x) in v.iter_mut().enumerate().take(to + 1).skip(from) {
+                *x = x.min((vc * vc + 2.0 * decel * (to - i) as f64 * STEP).sqrt());
+            }
+        }
+    }
+    let braking: Vec<bool> = (0..n).map(|i| i + 1 < n && v[i + 1] < v[i] - 1e-9).collect();
+    (v[per_lap..=2 * per_lap].to_vec(), braking[per_lap..=2 * per_lap].to_vec())
+}
+
 pub const G: f64 = 9.81;
 const LAT: f64 = 15.0;
 const BRAKE: f64 = 12.0;
 const ACCEL: f64 = 5.0;
 const VMAX: f64 = 75.0;
-const STEP: f64 = 0.25;
+pub const STEP: f64 = 0.25;
 
 /// What the car does in the session: standing `STAND` seconds, an out lap from standstill, two timed laps, a stop
 /// after `TAIL` metres, standing again. `late` makes the car brake harder (and so later) for corner `late` of the
