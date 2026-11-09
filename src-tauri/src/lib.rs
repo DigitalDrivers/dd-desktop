@@ -23,6 +23,7 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
 mod radio;
+pub mod talk;
 
 /// Address of the hosted interface: the platform for a release build, a platform on this PC for a development
 /// build (`npm run dev`). `DD_PLATFORM_URL` overrides it.
