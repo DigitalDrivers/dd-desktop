@@ -57,7 +57,8 @@ pub struct Config {
     /// Cars further to the side are not alongside
     pub lateral_max_m: f32,
     /// Closer to the side than this share of the width (contact, or the same lane) a car still counts but keeps the
-    /// side it had
+    /// side it had. A new overlap needs at least this much: closer, the car is in line ahead or behind (on
+    /// 2026-11-09 every such entry was a car pushed from behind at 4.4 to 4.6 m, research §2.1 asks the width)
     pub inner_lateral_share: f32,
     /// Cars higher or lower than this (bridges, pit buildings, start areas on two levels) are ignored
     pub height_max_m: f32,
@@ -595,6 +596,7 @@ impl Spotter {
                 && !masked
                 && rel.is_some_and(|r| r[0].hypot(r[1]) < c.max_relative_ms)
                 && lat.abs() <= c.lateral_max_m
+                && lat.abs() >= c.inner_lateral_share * c.car_width_m
                 && long < c.car_length_m
                 && long > -(c.car_length_m + c.behind_extra_m);
             let stay = level && lat.abs() <= c.lateral_max_m && long.abs() < c.car_length_m + c.clear_extra_m;
@@ -1224,5 +1226,21 @@ mod tests {
         assert!((long - 1.5).abs() < 1e-3 && (lat + 3.0).abs() < 1e-3, "{long} {lat}");
         assert_eq!(spotter.offset(OWN), None);
         assert!(spotter.overlap());
+    }
+
+    #[test]
+    fn a_car_in_line_ahead_or_touched_from_behind_is_not_alongside_until_it_is_beside() {
+        // the recordings of 2026-11-09: pushing a car from behind at 4.4 to 4.6 m, 0.2 to 1.3 m off the line, was
+        // "car left", "clear left", "car right" (regen 201152, 979.85 s) and, with a car leaving on the other side,
+        // "three wide" (A5 182929, 171.1 s)
+        for lat in [-1.3, -0.2, 0.3, 1.2] {
+            let drive = Drive::new(straight(40.0, 20.0)).seconds(4.0).beside(1, move |t| Some((keys(t, &[(0.0, 8.0), (1.0, 4.5)]), lat, 0.0)));
+            assert_eq!(events(&run(&drive.frames())), vec![], "{lat}");
+        }
+        // the same car moving out beside the driver is called once it is
+        let drive = Drive::new(straight(40.0, 20.0)).seconds(4.0).beside(1, |t| Some((keys(t, &[(0.0, 8.0), (1.0, 4.5), (2.0, 3.0)]), keys(t, &[(1.0, 0.3), (2.0, 2.5)]), 0.0)));
+        let timeline = run(&drive.frames());
+        assert_eq!(events(&timeline), vec![Event::CarRight { car: A }], "{timeline:?}");
+        assert!(timeline[0].0 > 1.5, "{timeline:?}");
     }
 }
