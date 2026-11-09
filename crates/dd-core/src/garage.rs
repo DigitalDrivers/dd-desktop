@@ -181,7 +181,7 @@ pub fn pguid_of(file_name: &str) -> Option<String> {
     (hex.len() == 32 && hex.chars().all(|c| c.is_ascii_hexdigit())).then_some(hex)
 }
 
-fn varint(data: &[u8], at: &mut usize) -> Option<u64> {
+pub(crate) fn varint(data: &[u8], at: &mut usize) -> Option<u64> {
     let mut value = 0u64;
     for shift in (0..64).step_by(7) {
         let byte = *data.get(*at)?;

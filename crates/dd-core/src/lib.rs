@@ -11,6 +11,7 @@ pub mod links;
 pub mod motec;
 pub mod radio;
 pub mod recorder;
+pub mod replays;
 pub mod settings;
 pub mod setups;
 pub mod stamp;
