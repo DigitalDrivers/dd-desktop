@@ -9,13 +9,14 @@ use serde::{Deserialize, Serialize, Serializer};
 
 use crate::game_check::Vendor;
 
-/// The constant quality (CQP; for Intel's HEVC and H.264 ICQ) per codec. One number each, to be set from the
-/// quality ladder of the lossless reference (test evening 2026-11-09: CQP 16 at P7 gave 92-98 Mb/s = ~43 GB/h at
-/// 1080p on Joe's RTX 3070, too much). OBS's own "Indistinguishable Quality" is 16.
-pub const HEVC_CQP: u8 = 16;
-pub const H264_CQP: u8 = 16;
-/// On OBS's AV1 scale (1-63; NVENC multiplies it by 4). Whether 16 matches HEVC's 16 is not measured.
-pub const AV1_CQP: u8 = 16;
+/// The constant quality (CQP; for Intel's HEVC and H.264 ICQ) per codec, the same for every preset and size: a
+/// step down keeps it. 20, approved by Joe on 2026-11-09 from the quality ladder of a 30 s lossless reference
+/// (research/2026-11-09-testabend/replay/results/04b-ladder-lossless-ref.json: HEVC QP 20 = PSNR 45.2 dB, SSIM
+/// 0.988, 50 Mb/s = ~23 GB/h at 1080p; OBS's CQP 16 had given 92-98 Mb/s = ~43 GB/h, too much).
+pub const HEVC_CQP: u8 = 20;
+pub const H264_CQP: u8 = 20;
+/// On OBS's AV1 scale (1-63; NVENC multiplies it by 4). Whether 20 matches HEVC's 20 is not measured.
+pub const AV1_CQP: u8 = 20;
 
 /// The output heights the ladder steps through. A game below 1080p records at its own size.
 const HEIGHTS: [u32; 3] = [1080, 1440, 2160];
@@ -268,7 +269,7 @@ mod tests {
     fn shows_the_quality_and_the_encoder_and_reads_back_without_them() {
         let tier = Tier { hardware: Hardware::Nvenc, codec: Codec::Hevc, preset: Preset::Best, height: 1080 };
         let json = serde_json::to_value(tier).unwrap();
-        assert_eq!(json, serde_json::json!({ "hardware": "nvenc", "codec": "hevc", "preset": "best", "height": 1080, "cqp": 16, "encoder": "obs_nvenc_hevc_tex" }));
+        assert_eq!(json, serde_json::json!({ "hardware": "nvenc", "codec": "hevc", "preset": "best", "height": 1080, "cqp": 20, "encoder": "obs_nvenc_hevc_tex" }));
         assert_eq!(serde_json::from_value::<Tier>(json).unwrap(), tier);
     }
 }

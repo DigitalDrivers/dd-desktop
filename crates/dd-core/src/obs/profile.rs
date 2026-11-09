@@ -339,8 +339,8 @@ ChannelSetup=Stereo
     fn writes_the_nvenc_settings_obs_used_on_joes_pc() {
         let (tier, gpu) = joe();
         let written: Value = serde_json::from_str(&record_encoder(tier, gpu)).unwrap();
-        // the "DD Test" encoder of 03-obs-setup.ps1
-        let script = json!({ "rate_control": "CQP", "cqp": 16, "preset": "p7", "tune": "hq", "multipass": "qres", "profile": "main", "bf": 2, "adaptive_quantization": true, "lookahead": false, "keyint_sec": 2 });
+        // the "DD Test" encoder of 03-obs-setup.ps1, with the CQP decided after the test evening (it wrote 16)
+        let script = json!({ "rate_control": "CQP", "cqp": 20, "preset": "p7", "tune": "hq", "multipass": "qres", "profile": "main", "bf": 2, "adaptive_quantization": true, "lookahead": false, "keyint_sec": 2 });
         assert_eq!(written, script);
         let p5 = serde_json::from_str::<Value>(&record_encoder(Tier { preset: Preset::Balanced, codec: Codec::H264, ..tier }, gpu)).unwrap();
         assert_eq!((p5["preset"].as_str(), p5["profile"].as_str()), (Some("p5"), Some("high")));
@@ -353,15 +353,15 @@ ChannelSetup=Stereo
         let amd = tiers::gpu(Vendor::Amd, "AMD Radeon RX 9070 XT").unwrap();
         let tier = tiers::start(amd, FULL_HD);
         let hevc: Value = serde_json::from_str(&record_encoder(tier, amd)).unwrap();
-        assert_eq!(hevc, json!({ "rate_control": "CQP", "cqp": 16, "preset": "quality", "bf": 0, "keyint_sec": 2 }));
+        assert_eq!(hevc, json!({ "rate_control": "CQP", "cqp": 20, "preset": "quality", "bf": 0, "keyint_sec": 2 }));
         let av1: Value = serde_json::from_str(&record_encoder(Tier { codec: Codec::Av1, ..tier }, amd)).unwrap();
         assert_eq!((av1["preset"].as_str(), av1["bf"].as_u64()), (Some("highQuality"), Some(2)));
         let intel = tiers::gpu(Vendor::Intel, "Intel(R) Arc(TM) A770 Graphics").unwrap();
         let tier = tiers::start(intel, FULL_HD);
         let hevc: Value = serde_json::from_str(&record_encoder(tier, intel)).unwrap();
-        assert_eq!(hevc, json!({ "rate_control": "ICQ", "icq_quality": 16, "target_usage": "TU1", "bframes": 3, "keyint_sec": 2 }));
+        assert_eq!(hevc, json!({ "rate_control": "ICQ", "icq_quality": 20, "target_usage": "TU1", "bframes": 3, "keyint_sec": 2 }));
         let av1: Value = serde_json::from_str(&record_encoder(Tier { codec: Codec::Av1, preset: Preset::Balanced, ..tier }, intel)).unwrap();
-        assert_eq!((av1["rate_control"].as_str(), av1["cqp"].as_u64(), av1["target_usage"].as_str()), (Some("CQP"), Some(16), Some("TU4")));
+        assert_eq!((av1["rate_control"].as_str(), av1["cqp"].as_u64(), av1["target_usage"].as_str()), (Some("CQP"), Some(20), Some("TU4")));
     }
 
     #[test]

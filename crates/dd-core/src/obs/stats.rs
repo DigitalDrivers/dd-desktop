@@ -27,9 +27,10 @@ pub const MIN_LUMA: f64 = 8.0;
 /// Kept free on the drive besides the recording, and the free space at which a recording stops by itself.
 pub const RESERVE_BYTES: u64 = 5_000_000_000;
 pub const STOP_BELOW_BYTES: u64 = 2_000_000_000;
-/// What a recording is planned with before the quality test measured this PC: 1080p60 HEVC at CQP 16, P7 gave
-/// 92-98 Mb/s on Joe's PC on 2026-11-09. Change with the CQP constants of `tiers`.
-pub const ESTIMATED_MBPS_1080P: f64 = 100.0;
+/// What a recording is planned with before the quality test measured this PC, at 1080p60 HEVC CQP 20: the ladder
+/// re-encode gave 50.5 Mb/s at QP 20, and OBS wrote ~15 % more than that re-encode at 16 (95 against 82 Mb/s on
+/// 2026-11-09), so 60 with some margin. Change with the CQP constants of `tiers`.
+pub const ESTIMATED_MBPS_1080P: f64 = 60.0;
 
 /// `GetStats`, the fields the app uses.
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize, Default)]
@@ -356,8 +357,8 @@ mod tests {
         assert_eq!(bytes_needed(95.5, 21.0 * 60.0), 23_049_500_000);
         assert_eq!(mbps(734_526_678, 59.65).map(|r| (r * 10.0).round() / 10.0), Some(98.5));
         let tier = crate::obs::tiers::start(crate::obs::tiers::gpu(crate::game_check::Vendor::Nvidia, "RTX 3070").unwrap(), Canvas { width: 2560, height: 1440 });
-        assert_eq!(estimated_mbps(tier, Canvas { width: 2560, height: 1440 }), 100.0);
-        assert!((estimated_mbps(crate::obs::tiers::Tier { height: 1440, ..tier }, Canvas { width: 2560, height: 1440 }) - 177.8).abs() < 0.1);
+        assert_eq!(estimated_mbps(tier, Canvas { width: 2560, height: 1440 }), 60.0);
+        assert!((estimated_mbps(crate::obs::tiers::Tier { height: 1440, ..tier }, Canvas { width: 2560, height: 1440 }) - 106.7).abs() < 0.1);
     }
 
     /// A BMP as Qt writes one: 24 bit, rows bottom-up, padded to 4 bytes; or 32 bit with BGRA masks.
