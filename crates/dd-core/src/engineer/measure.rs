@@ -28,8 +28,8 @@ const APEX_MARGIN: f64 = 30.0;
 const EDGE_M: f64 = 2.0;
 /// The pressures at a lap's end: the mean of its last 20 s.
 const END_S: f64 = 20.0;
-const HOT: f64 = 700.0;
-const VERY_HOT: f64 = 800.0;
+pub(crate) const HOT: f64 = 700.0;
+pub(crate) const VERY_HOT: f64 = 800.0;
 const COLD: f64 = 500.0;
 const TRACE_STEP: usize = 5;
 
