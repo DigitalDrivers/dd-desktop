@@ -8,6 +8,7 @@
 use serde::{Deserialize, Serialize, Serializer};
 
 use crate::game_check::Vendor;
+use crate::obs::stats::Verdict;
 
 /// The constant quality (CQP; for Intel's HEVC and H.264 ICQ) per codec, the same for every preset and size: a
 /// step down keeps it. 20, approved by Joe on 2026-11-09 from the quality ladder of a 30 s lossless reference
@@ -181,6 +182,54 @@ pub fn step_up(tier: Tier, gpu: Gpu, canvas: Canvas) -> Option<Tier> {
     (tier.codec == Codec::Hevc && gpu.av1).then_some(Tier { codec: Codec::Av1, ..tier })
 }
 
+/// The quality test's walk over the ladder: down from a tier that fails until one passes, up from one that passes
+/// until one fails (the last that passed stays), never up after it went down.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Ladder {
+    /// The tier to test next.
+    pub tier: Tier,
+    /// The best tier that passed and its measured rate.
+    pub chosen: Option<(Tier, Option<f64>)>,
+    /// Why the walk ended without a passing tier, or why it did not go further down.
+    pub reason: Option<Verdict>,
+    going_up: bool,
+    went_down: bool,
+}
+
+impl Ladder {
+    pub fn new(tier: Tier) -> Ladder {
+        Ladder { tier, chosen: None, reason: None, going_up: false, went_down: false }
+    }
+
+    /// After testing `self.tier` with `verdict` and the rate it measured: the next tier to test, None when done.
+    pub fn after(&mut self, verdict: Verdict, mbps: Option<f64>, gpu: Gpu, canvas: Canvas) -> Option<Tier> {
+        let next = match verdict {
+            Verdict::Pass => {
+                (self.chosen, self.reason) = (Some((self.tier, mbps)), None);
+                let up = step_up(self.tier, gpu, canvas).filter(|_| !self.went_down);
+                self.going_up |= up.is_some();
+                up
+            }
+            Verdict::CaptureBlack | Verdict::Unknown => {
+                self.reason = Some(verdict);
+                None
+            }
+            // A failing step up keeps the tier below it.
+            Verdict::NoRecording | Verdict::EncodingLag | Verdict::RenderingLag if self.going_up => None,
+            Verdict::NoRecording | Verdict::EncodingLag | Verdict::RenderingLag => {
+                self.reason = Some(verdict);
+                let down = step_down(self.tier, if verdict == Verdict::RenderingLag { Lag::Rendering } else { Lag::Encoding });
+                self.went_down |= down.is_some();
+                down
+            }
+        };
+        if let Some(tier) = next {
+            self.tier = tier;
+        }
+        next
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,6 +303,39 @@ mod tests {
         assert_eq!(step_up(Tier { codec: Codec::Av1, ..u }, rtx40, UHD), None);
         // 2560x1600 records 1440p, never upscaled
         assert_eq!(step_up(top, rtx30, Canvas { width: 2560, height: 1600 }).unwrap().height, 1440);
+    }
+
+    #[test]
+    fn walks_the_ladder_down_until_a_tier_holds_and_up_until_one_fails() {
+        let rtx40 = nvidia("NVIDIA GeForce RTX 4080");
+        let top = start(rtx40, QHD);
+        // up: 1080p passes, 1440p passes, AV1 does not start (no recording): 1440p HEVC stays
+        let mut ladder = Ladder::new(top);
+        let q = ladder.after(Verdict::Pass, Some(50.0), rtx40, QHD).unwrap();
+        assert_eq!(q.height, 1440);
+        let av1 = ladder.after(Verdict::Pass, Some(80.0), rtx40, QHD).unwrap();
+        assert_eq!(av1.codec, Codec::Av1);
+        assert_eq!(ladder.after(Verdict::NoRecording, None, rtx40, QHD), None);
+        assert_eq!((ladder.chosen, ladder.reason), (Some((q, Some(80.0))), None));
+        // down: the start tier records nothing (encoder not there), P5 drops frames, 1080p... H.264 holds; no way up after
+        let rtx30 = nvidia("NVIDIA GeForce RTX 3070");
+        let mut ladder = Ladder::new(start(rtx30, FULL_HD));
+        assert_eq!(ladder.after(Verdict::NoRecording, None, rtx30, FULL_HD).map(|t| t.preset), Some(Preset::Balanced));
+        assert_eq!(ladder.after(Verdict::EncodingLag, Some(50.0), rtx30, FULL_HD).map(|t| t.codec), Some(Codec::H264));
+        assert_eq!(ladder.after(Verdict::Pass, Some(45.0), rtx30, QHD), None, "not up again after going down");
+        assert_eq!(ladder.chosen.map(|(t, _)| t.codec), Some(Codec::H264));
+        assert_eq!(ladder.reason, None);
+        // the game's load ends the walk at once, as does a black capture
+        let mut ladder = Ladder::new(start(rtx30, FULL_HD));
+        assert_eq!(ladder.after(Verdict::RenderingLag, Some(50.0), rtx30, FULL_HD), None);
+        assert_eq!((ladder.chosen, ladder.reason), (None, Some(Verdict::RenderingLag)));
+        let mut ladder = Ladder::new(start(rtx30, FULL_HD));
+        assert_eq!(ladder.after(Verdict::CaptureBlack, None, rtx30, FULL_HD), None);
+        assert_eq!(ladder.reason, Some(Verdict::CaptureBlack));
+        // nothing below H.264 at 1080p: the last reason stays
+        let mut ladder = Ladder::new(Tier { codec: Codec::H264, preset: Preset::Balanced, ..start(rtx30, FULL_HD) });
+        assert_eq!(ladder.after(Verdict::EncodingLag, None, rtx30, FULL_HD), None);
+        assert_eq!(ladder.reason, Some(Verdict::EncodingLag));
     }
 
     #[test]

@@ -93,8 +93,8 @@ pub struct Summary {
     /// None when the encoder's counters are unknown
     pub output_skipped: Option<u64>,
     pub output_total: Option<u64>,
-    /// The least free space seen on the drive
-    pub free_bytes: u64,
+    /// The least free space OBS saw on the drive; None when it said 0 (obs-websocket's answer when it cannot tell)
+    pub free_bytes: Option<u64>,
 }
 
 /// The test's criteria, each None when unknown.
@@ -106,6 +106,8 @@ pub struct Checks {
     pub fps: bool,
     pub render_time: bool,
     pub capture_not_black: Option<bool>,
+    /// OBS recorded: a duration, bytes, and (once stopped) a file.
+    pub recorded: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -118,6 +120,9 @@ pub enum Verdict {
     RenderingLag,
     /// The game capture shows nothing: no replay running, or the hook failed.
     CaptureBlack,
+    /// OBS did not record (no duration, no bytes, no file): the encoder did not start, e.g. not on this card or
+    /// no NVENC session free. A lower tier may help; on the way up the previous tier stays.
+    NoRecording,
     /// Too few numbers to say.
     Unknown,
 }
@@ -178,7 +183,7 @@ pub fn summarize(baseline: &Stats, samples: &[Sample]) -> Option<Summary> {
         render_total: last.stats.render_total_frames.saturating_sub(baseline.render_total_frames),
         output_skipped,
         output_total,
-        free_bytes: (samples.iter().map(|s| s.stats.available_disk_space).fold(f64::INFINITY, f64::min) * MIB) as u64,
+        free_bytes: samples.iter().map(|s| s.stats.available_disk_space).filter(|&mib| mib > 0.0).reduce(f64::min).map(|mib| (mib * MIB) as u64),
     })
 }
 
@@ -186,21 +191,26 @@ fn share_ok(skipped: u64, total: u64) -> Option<bool> {
     (total > 0).then(|| skipped as f64 / total as f64 <= MAX_SKIPPED)
 }
 
-/// The test's verdict on a recording and the screenshot check.
-pub fn judge(summary: &Summary, capture_not_black: Option<bool>) -> (Checks, Verdict) {
+/// The test's verdict on a recording, the screenshot check and whether the stopped recording left a file (None
+/// while it runs). Rendering lag comes before encoding lag: when the game takes the card both skip, and a lower
+/// encoder tier would not help.
+pub fn judge(summary: &Summary, capture_not_black: Option<bool>, file: Option<bool>) -> (Checks, Verdict) {
     let checks = Checks {
         render_skipped: share_ok(summary.render_skipped, summary.render_total),
         output_skipped: summary.output_skipped.zip(summary.output_total).and_then(|(s, t)| share_ok(s, t)),
         fps: summary.fps_avg >= MIN_FPS,
         render_time: summary.render_ms <= MAX_RENDER_MS,
         capture_not_black,
+        recorded: summary.seconds > 0.0 && summary.bytes > 0 && file != Some(false),
     };
     let verdict = if capture_not_black == Some(false) {
         Verdict::CaptureBlack
-    } else if checks.output_skipped == Some(false) {
-        Verdict::EncodingLag
+    } else if !checks.recorded {
+        Verdict::NoRecording
     } else if checks.render_skipped == Some(false) || !checks.fps || !checks.render_time {
         Verdict::RenderingLag
+    } else if checks.output_skipped == Some(false) {
+        Verdict::EncodingLag
     } else if checks.render_skipped.is_none() {
         Verdict::Unknown
     } else {
@@ -304,10 +314,10 @@ mod tests {
         assert!((rate - 98.5).abs() < 1.0, "{rate}");
         assert!((summary.bytes as f64 - 734_526_678.0).abs() < 0.01 * 734_526_678.0, "{}", summary.bytes);
         assert!((summary.seconds - 59.649).abs() < 1e-9);
-        assert_eq!(summary.free_bytes, (36_824.0 * MIB) as u64);
-        let (checks, verdict) = judge(&summary, Some(true));
+        assert_eq!(summary.free_bytes, Some((36_824.0 * MIB) as u64));
+        let (checks, verdict) = judge(&summary, Some(true), Some(true));
         assert_eq!(verdict, Verdict::Pass);
-        assert_eq!(checks, Checks { render_skipped: Some(true), output_skipped: Some(true), fps: true, render_time: true, capture_not_black: Some(true) });
+        assert_eq!(checks, Checks { render_skipped: Some(true), output_skipped: Some(true), fps: true, render_time: true, capture_not_black: Some(true), recorded: true });
     }
 
     #[test]
@@ -316,7 +326,7 @@ mod tests {
         s.iter_mut().for_each(|sample| sample.output = None);
         let summary = summarize(&BASELINE, &s).unwrap();
         assert_eq!((summary.output_skipped, summary.output_total), (None, None), "GetStats' delta is negative here");
-        let (checks, verdict) = judge(&summary, Some(true));
+        let (checks, verdict) = judge(&summary, Some(true), Some(true));
         assert_eq!((checks.output_skipped, verdict), (None, Verdict::Pass));
         // in the first recording of a session GetStats' delta stands in
         let fresh = Stats { output_total_frames: 0, render_total_frames: 0, ..BASELINE };
@@ -325,7 +335,7 @@ mod tests {
         let summary = summarize(&fresh, &s).unwrap();
         assert_eq!((summary.output_skipped, summary.output_total), (Some(0), Some(3591)));
         assert!((summary.mbps.unwrap() - 95.5).abs() < 1.0, "the file: 95.5 Mb/s");
-        assert_eq!(judge(&summary, None).1, Verdict::Pass, "a screenshot OBS could not give is no failure");
+        assert_eq!(judge(&summary, None, None).1, Verdict::Pass, "a screenshot OBS could not give is no failure");
     }
 
     #[test]
@@ -333,16 +343,47 @@ mod tests {
         let fresh = Stats::default();
         let base = summarize(&fresh, &samples(&fresh, FIRST_CHECK)).unwrap();
         let encoder = Summary { output_skipped: Some(30), output_total: Some(900), ..base.clone() };
-        assert_eq!(judge(&encoder, Some(true)).1, Verdict::EncodingLag);
-        assert_eq!(judge(&Summary { output_skipped: Some(1), ..encoder.clone() }, Some(true)).1, Verdict::EncodingLag, "1 of 900 is 0.11 %");
-        assert_eq!(judge(&Summary { output_skipped: Some(1), output_total: Some(3580), ..encoder.clone() }, Some(true)).1, Verdict::Pass);
+        assert_eq!(judge(&encoder, Some(true), None).1, Verdict::EncodingLag);
+        assert_eq!(judge(&Summary { output_skipped: Some(1), ..encoder.clone() }, Some(true), None).1, Verdict::EncodingLag, "1 of 900 is 0.11 %");
+        assert_eq!(judge(&Summary { output_skipped: Some(1), output_total: Some(3580), ..encoder.clone() }, Some(true), None).1, Verdict::Pass);
         let rendering = Summary { render_skipped: 10, ..base.clone() };
-        assert_eq!(judge(&rendering, Some(true)).1, Verdict::RenderingLag);
-        assert_eq!(judge(&Summary { fps_avg: 57.0, ..base.clone() }, Some(true)).1, Verdict::RenderingLag);
-        assert_eq!(judge(&Summary { render_ms: 9.5, ..base.clone() }, Some(true)).1, Verdict::RenderingLag);
-        assert_eq!(judge(&encoder, Some(false)).1, Verdict::CaptureBlack, "black first: no tier helps");
-        assert_eq!(judge(&Summary { render_total: 0, ..base }, Some(true)).1, Verdict::Unknown);
+        assert_eq!(judge(&rendering, Some(true), None).1, Verdict::RenderingLag);
+        assert_eq!(judge(&Summary { fps_avg: 57.0, ..base.clone() }, Some(true), None).1, Verdict::RenderingLag);
+        assert_eq!(judge(&Summary { render_ms: 9.5, ..base.clone() }, Some(true), None).1, Verdict::RenderingLag);
+        assert_eq!(judge(&encoder, Some(false), None).1, Verdict::CaptureBlack, "black first: no tier helps");
+        assert_eq!(judge(&Summary { render_skipped: 10, ..encoder.clone() }, Some(true), None).1, Verdict::RenderingLag, "both skip: the game's load, no encoder step");
+        assert_eq!(judge(&Summary { render_total: 0, ..base }, Some(true), None).1, Verdict::Unknown);
         assert_eq!(summarize(&fresh, &[]), None);
+    }
+
+    #[test]
+    fn fails_a_recording_that_never_started() {
+        // StartRecord accepted, but the encoder did not open: OBS renders on, the record output stays inactive
+        let fresh = Stats::default();
+        let mut s = samples(&fresh, FIRST_CHECK);
+        for sample in &mut s {
+            sample.record = RecordStatus::default();
+            sample.output = Some(OutputStatus::default());
+        }
+        let summary = summarize(&fresh, &s).unwrap();
+        assert_eq!((summary.seconds, summary.bytes, summary.mbps), (0.0, 0, None));
+        let (checks, verdict) = judge(&summary, Some(true), Some(false));
+        assert_eq!((checks.recorded, verdict), (false, Verdict::NoRecording));
+        // a recording that ran but left no file after the stop
+        let ran = summarize(&fresh, &samples(&fresh, FIRST_CHECK)).unwrap();
+        assert_eq!(judge(&ran, Some(true), Some(false)).1, Verdict::NoRecording);
+        assert_eq!(judge(&ran, Some(true), Some(true)).1, Verdict::Pass);
+    }
+
+    #[test]
+    fn ignores_a_drive_obs_reports_as_empty() {
+        // obs-websocket answers 0 MiB when its free-space call fails
+        let fresh = Stats::default();
+        let mut s = samples(&fresh, FIRST_CHECK);
+        s[1].stats.available_disk_space = 0.0;
+        assert_eq!(summarize(&fresh, &s).unwrap().free_bytes, Some((38_231.0 * MIB) as u64));
+        s[0].stats.available_disk_space = 0.0;
+        assert_eq!(summarize(&fresh, &s).unwrap().free_bytes, None);
     }
 
     #[test]

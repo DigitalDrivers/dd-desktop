@@ -45,9 +45,9 @@ pub fn ini_value(text: &str, section: &str, key: &str) -> Option<String> {
     None
 }
 
-/// The text with the given keys of `[section]` set; keys the section does not have stay away. None when nothing
-/// changes. Line endings and everything else stay as they are.
-pub fn set_ini_values(text: &str, section: &str, values: &[(&str, &str)]) -> Option<String> {
+/// The text with the given keys of `[section]` set, or removed for None; keys the section does not have stay away.
+/// None when nothing changes. Line endings and everything else stay as they are.
+pub fn set_ini_values(text: &str, section: &str, values: &[(&str, Option<&str>)]) -> Option<String> {
     let mut current = String::new();
     let mut changed = false;
     let mut out = String::with_capacity(text.len());
@@ -58,12 +58,13 @@ pub fn set_ini_values(text: &str, section: &str, values: &[(&str, &str)]) -> Opt
             current = name.to_string();
         } else if current == section {
             if let Some((key, old)) = bare.split_once('=') {
-                if let Some((_, new)) = values.iter().find(|(k, _)| *k == key).filter(|(_, new)| *new != old) {
+                if let Some((_, new)) = values.iter().find(|(k, _)| *k == key).filter(|(_, new)| *new != Some(old)) {
+                    changed = true;
+                    let Some(new) = new else { continue };
                     let at = body.find('=').expect("a key line") + 1;
                     out.push_str(&body[..at]);
                     out.push_str(new);
                     out.push_str(&line[body.len()..]);
-                    changed = true;
                     continue;
                 }
             }
@@ -117,9 +118,21 @@ pub fn user_choice(user_ini: &str) -> UserChoice {
     UserChoice { profile: get(KEYS[0]), profile_dir: get(KEYS[1]), collection: get(KEYS[2]), collection_file: get(KEYS[3]) }
 }
 
-/// `user_ini` with `choice` back in `[Basic]`; None when it is there already.
-pub fn with_user_choice(user_ini: &str, choice: &UserChoice) -> Option<String> {
-    let values: Vec<(&str, &str)> = KEYS.iter().zip([&choice.profile, &choice.profile_dir, &choice.collection, &choice.collection_file]).filter_map(|(key, value)| Some((*key, value.as_deref()?))).collect();
+/// `user_ini` with `choice` back in `[Basic]`; None when it is there already. A key the driver had no value for
+/// (no `user.ini` before, a fresh OBS) is removed where it holds `ours`: OBS then takes its defaults, "Untitled"
+/// in the driver's language, and makes that profile and collection when they are missing (OBS 33.0.1
+/// `OBSApp::InitUserConfigDefaults`).
+pub fn with_user_choice(user_ini: &str, choice: &UserChoice, ours: &UserChoice) -> Option<String> {
+    let fields = |c: &UserChoice| [c.profile.clone(), c.profile_dir.clone(), c.collection.clone(), c.collection_file.clone()];
+    let values: Vec<(&str, Option<String>)> = KEYS
+        .iter()
+        .zip(fields(choice).into_iter().zip(fields(ours)))
+        .filter_map(|(key, (back, ours))| match back {
+            Some(back) => Some((*key, Some(back))),
+            None => (ours.is_some() && ini_value(user_ini, "Basic", key) == ours).then_some((*key, None)),
+        })
+        .collect();
+    let values: Vec<(&str, Option<&str>)> = values.iter().map(|(k, v)| (*k, v.as_deref())).collect();
     set_ini_values(user_ini, "Basic", &values)
 }
 
@@ -157,16 +170,20 @@ mod tests {
         assert_eq!(ours.profile.as_deref(), Some("DD Test"));
         assert_eq!(ours.collection_file.as_deref(), Some("DD_Test"));
         let joes = UserChoice { profile: Some("0xJoe".into()), profile_dir: Some("0xJoe".into()), collection: Some("Unbenannt".into()), collection_file: Some("Unbenannt".into()) };
-        let back = with_user_choice(USER_INI, &joes).unwrap();
+        let back = with_user_choice(USER_INI, &joes, &ours).unwrap();
         assert_eq!(user_choice(&back), joes);
         assert!(back.starts_with('\u{feff}') && back.contains("\r\nConfigOnNewProfile=true\r\n"));
         assert!(back.ends_with("[BasicWindow]\r\nProfile=other\r\n"), "only [Basic] changes");
         assert_eq!(back.len(), USER_INI.len() - "DD TestDD_TestDD TestDD_Test".len() + "0xJoe0xJoeUnbenanntUnbenannt".len());
-        assert_eq!(with_user_choice(&back, &joes), None, "nothing to change");
+        assert_eq!(with_user_choice(&back, &joes, &ours), None, "nothing to change");
         // a key the driver's file never had stays away, a choice without a value leaves the key
         let partial = UserChoice { profile: Some("0xJoe".into()), ..Default::default() };
-        let text = with_user_choice("[Basic]\nProfile=DD Test\n", &partial).unwrap();
+        let text = with_user_choice("[Basic]\nProfile=DD Test\n", &partial, &ours).unwrap();
         assert_eq!(text, "[Basic]\nProfile=0xJoe\n");
+        // a fresh OBS had no user.ini: our four keys go, the rest stays, so OBS opens on its "Untitled"
+        let fresh = with_user_choice(USER_INI, &UserChoice::default(), &ours).unwrap();
+        assert_eq!(fresh, "\u{feff}[General]\r\nPre31Migrated=true\r\n\r\n[Basic]\r\nConfigOnNewProfile=true\r\n\r\n[BasicWindow]\r\nProfile=other\r\n");
+        assert_eq!(with_user_choice("[Basic]\nProfile=Mine\n", &UserChoice::default(), &ours), None, "not ours: stays");
     }
 
     #[test]
