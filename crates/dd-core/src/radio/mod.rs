@@ -2,3 +2,6 @@
 //! game publishes in its shared memory; the shell copies the pages, plays the sound and speaks.
 
 pub mod frame;
+pub mod spotter;
+#[cfg(test)]
+mod testkit;
