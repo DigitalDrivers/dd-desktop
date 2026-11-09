@@ -23,6 +23,7 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
 mod radio;
+pub mod talk;
 mod replays;
 
 /// Address of the hosted interface: the platform for a release build, a platform on this PC for a development
@@ -1468,7 +1469,7 @@ fn radio_status(app: tauri::AppHandle) -> radio::RadioStatus {
 }
 
 /// Changes the team radio's settings on this PC: an object with any of `enabled`, `voice`, `language`, `volume`,
-/// `effect`, `device` and `groups`. Answers the status that holds now.
+/// `effect`, `device`, `groups` and `coach`. Answers the status that holds now.
 #[tauri::command]
 fn radio_set(app: tauri::AppHandle, changes: serde_json::Value) -> Result<radio::RadioStatus, String> {
     radio::set(&app, &changes)
@@ -1483,7 +1484,13 @@ fn radio_devices() -> Vec<radio::OutputDevice> {
 /// Downloads the voice's model; the event `radio-download` (`{ done, total }`, bytes) tells how far it is.
 #[tauri::command]
 async fn radio_download(app: tauri::AppHandle) -> Result<(), String> {
-    radio::download(&app).await
+    radio::download(&app, radio::Model::Voice).await
+}
+
+/// Downloads the speech recognition of the coach's push-to-talk (74 MB); the same event tells how far it is.
+#[tauri::command]
+async fn radio_download_listen(app: tauri::AppHandle) -> Result<(), String> {
+    radio::download(&app, radio::Model::Listener).await
 }
 
 /// Says the radio check with the driver's voice, volume, effect and device.
@@ -1503,6 +1510,56 @@ async fn radio_preview(app: tauri::AppHandle, name: String) -> Result<(), String
 #[tauri::command]
 fn radio_names(app: tauri::AppHandle, names: Vec<radio::DriverName>) {
     radio::set_names(&app, names);
+}
+
+/// Takes the names of a track's corners (`{ track, layout, names: { "<corner number>": name } }`, the numbers of
+/// the race engineer's corners) for the live tips.
+#[tauri::command]
+fn radio_corner_names(app: tauri::AppHandle, track: String, layout: String, names: std::collections::BTreeMap<u32, String>) {
+    radio::set_corner_names(&app, track, layout, names);
+}
+
+/// One sentence of the coach's answer to the question the app asked with the event `coach-question`
+/// (`{ id, kind: "question" | "stint", text, language, context }`): the platform's page asks the coach's model and
+/// hands the answer over sentence by sentence; the app speaks them in their order.
+#[tauri::command]
+fn coach_say(app: tauri::AppHandle, id: u64, text: String) {
+    radio::coach_say(&app, id, text);
+}
+
+/// The answer to question `id` is complete.
+#[tauri::command]
+fn coach_done(id: u64) {
+    radio::coach_done(id);
+}
+
+/// Question `id` got no answer (`problem`: `tank-empty`, `not-available`, `too-many`, `failed`): the coach says so.
+#[tauri::command]
+fn coach_problem(app: tauri::AppHandle, id: u64, problem: String) {
+    radio::coach_problem(&app, id, &problem);
+}
+
+/// What `talk_devices` answers: the game controllers and the microphones of this PC.
+#[derive(Serialize)]
+struct TalkDevices {
+    controllers: Vec<talk::Controller>,
+    microphones: Vec<talk::Microphone>,
+}
+
+/// The game controllers and microphones the coach's push-to-talk can use, for the settings page.
+#[tauri::command]
+fn talk_devices() -> TalkDevices {
+    TalkDevices { controllers: talk::controllers(), microphones: talk::inputs() }
+}
+
+/// Waits up to 10 s for the driver to press the button he wants to ask the coach with (a controller button or a
+/// key; Escape cancels) and answers it as `{ kind: "key", code, name }` or `{ kind: "controller", device,
+/// deviceName, button }`; errors `timeout` and `cancelled`. The page saves it with `radio_set`.
+#[tauri::command]
+async fn talk_capture() -> Result<dd_core::radio::settings::Button, String> {
+    let result = tauri::async_runtime::spawn_blocking(|| talk::capture(Duration::from_secs(10))).await.map_err(|_| "failed".to_string())?;
+    log(&format!("talk_capture -> {result:?}"));
+    result
 }
 
 /// The game's replays, each folder the newest first, read from the files' headers: `{ saved, temp, savedBytes,
@@ -1951,7 +2008,7 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status, engineer_status, engineer_enable, engineer_sessions, engineer_session, engineer_traces, engineer_evaluate, engineer_forget, engineer_forget_session, engineer_keep, engineer_profile, engineer_seen, engineer_digests, engineer_digests_sent, coach_focus_get, coach_focus_set, recorder_start, recorder_stop, radio_status, radio_set, radio_devices, radio_download, radio_test, radio_preview, radio_names, replay_list, replay_keep, replay_delete, replay_open_folder, game_check])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status, engineer_status, engineer_enable, engineer_sessions, engineer_session, engineer_traces, engineer_evaluate, engineer_forget, engineer_forget_session, engineer_keep, engineer_profile, engineer_seen, engineer_digests, engineer_digests_sent, coach_focus_get, coach_focus_set, recorder_start, recorder_stop, radio_status, radio_set, radio_devices, radio_download, radio_test, radio_preview, radio_names, radio_corner_names, talk_devices, talk_capture, coach_say, coach_done, coach_problem, radio_download_listen, replay_list, replay_keep, replay_delete, replay_open_folder, game_check])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

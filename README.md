@@ -116,7 +116,7 @@ asks for them. The race engineer uploads nothing; the coach's digests go up only
 | Part | What |
 | --- | --- |
 | `src/` | Bundled start page: checks that the platform is reachable, then opens it. Offline it shows a system check. |
-| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `remove_setups`, `update_check`, `update_install`, `update_at_start`, `launch_ac_evo`, `car_status`, `install_car`, `fix_game_start`, `live_snapshot`, `take_laps`, `upload_motec`, `motec_status` and the race engineer's `engineer_status`, `engineer_enable`, `engineer_sessions`, `engineer_session`, `engineer_traces`, `engineer_evaluate`, `engineer_forget`, `engineer_forget_session`, `engineer_keep`, and the coach's `engineer_profile`, `engineer_seen`, `engineer_digests` and `engineer_digests_sent`; the team radio's `radio_status`, `radio_set`, `radio_devices`, `radio_download`, `radio_test`, `radio_preview` and `radio_names`; the replay page's `replay_list`, `replay_keep`, `replay_delete`, `replay_open_folder` and `game_check`; for development builds only `recorder_start` and `recorder_stop`. |
+| `src-tauri/` | The Tauri shell with the native commands `platform_url`, `system_check`, `show_toast`, `setup_status`, `install_setup`, `remove_setups`, `update_check`, `update_install`, `update_at_start`, `launch_ac_evo`, `car_status`, `install_car`, `fix_game_start`, `live_snapshot`, `take_laps`, `upload_motec`, `motec_status` and the race engineer's `engineer_status`, `engineer_enable`, `engineer_sessions`, `engineer_session`, `engineer_traces`, `engineer_evaluate`, `engineer_forget`, `engineer_forget_session`, `engineer_keep`, and the coach's `engineer_profile`, `engineer_seen`, `engineer_digests` and `engineer_digests_sent`; the team radio's `radio_status`, `radio_set`, `radio_devices`, `radio_download`, `radio_test`, `radio_preview`, `radio_names`, `radio_corner_names`, `radio_download_listen`, `talk_devices`, `talk_capture`, `coach_say`, `coach_done` and `coach_problem`; the replay page's `replay_list`, `replay_keep`, `replay_delete`, `replay_open_folder` and `game_check`; for development builds only `recorder_start` and `recorder_stop`. |
 | `src-tauri/capabilities/` | Which page may call which command. The hosted interface only gets the commands listed in `platform.json`; `dev-localhost.json` is enabled for development builds only. |
 | `crates/dd-core/` | Platform-independent logic (locating Assetto Corsa EVO and the Steam account, car setups, the club's car packages and their saved cars, the race engineer), unit-tested on any machine. |
 | `crates/dd-voice/` | The team radio's voice: Supertonic 3 text to speech on the CPU through ONNX Runtime, linked statically (its README has the build facts and the numbers). |
@@ -230,6 +230,53 @@ takes `{ changes }` with any of `enabled`, `voice` (`M1`..`M5`, `F1`..`F5`), `la
 (`{ names: [{ carIds, name, respelling: { de, en } }] }`) takes what the coach calls the drivers on the driver's
 server from the platform (`GET /api/radio/names`); the app renders their named calls itself, so "car left" becomes
 "Max left" on the club's servers.
+
+The engineer's calls come from the driver's own car: fuel for X laps (fuel now by the mean of the last three flying
+laps), fuel low, lap times and personal bests, an invalid lap, hot brakes, tyres in their window. Sentences with
+numbers are built and spoken when they come up (about a second), beside the loop, so the spotter never waits.
+Live tips (`liveTips` in the settings, off until the driver switches them on) compare each corner with the driver's
+best lap, which the app records itself from the shared memory and keeps in `engineer\live\`, and say one short
+sentence on the straight after it. `radio_corner_names` (`{ track, layout, names }`, names by the race engineer's
+corner numbers) gives the corners their names.
+
+The driver asks the coach by holding a button on his wheel or a key (push-to-talk; no wake word): the microphone
+is open only while it is held, at most 20 s, and a press shorter than 0.3 s is taken as an accidental touch. The
+recording stays in memory on the PC. `src-tauri/src/talk.rs` reads the buttons while the game has the focus:
+game controllers through DirectInput 8 (background, nonexclusive, so the game keeps its own access for force
+feedback; XInput does not see DirectInput wheels and Windows.Gaming.Input needs the focus), keys with
+`GetAsyncKeyState`, both every 15 ms; a bound controller that is unplugged is looked for again every 2 s. The
+settings keep it under `coach`: `{ enabled, button, microphone }`, `button` either `{ kind: "key", code, name }`
+(a Windows virtual-key code) or `{ kind: "controller", device, deviceName, button }` (`device` as `talk_devices`
+lists it, `button` from 0), `microphone` an input device's id (null for the PC's default); the page saves them
+with `radio_set` (`{ changes: { coach: { button } } }`; a new button replaces the old one whole).
+`talk_devices` answers `{ controllers: [{ id, name, buttons }], microphones: [{ id, name }] }`. `talk_capture`
+waits up to 10 s for the next button or key going down (what is held already, mouse buttons and the generic
+Shift/Ctrl/Alt do not count; Escape cancels) and answers it as a `button`, or the error `timeout` or
+`cancelled`. No command hands recorded audio to the page.
+
+A question becomes text on the PC: Whisper base (OpenAI, MIT; ONNX export by onnx-community, 74 MB, fetched by
+`radio_download_listen` from its pinned addresses at Hugging Face with the same SHA-256 check and the same
+`radio-download` event) runs through the ONNX Runtime the voice already uses; `radio_status` tells `listenReady`,
+`listenBytes` and `listenLicence`. Silence and noise give no text. The recording itself goes nowhere and is not
+kept. The coach says "Copy" at once, then the app sends the page the event `coach-question`
+(`{ id, kind: "question" | "stint", text, language, context }`; `context` is what the game's pages say about the
+car at that moment: fuel, fuel per lap, the best and the last lap, the laps of the stint, tyre and brake
+temperatures, the track). The page asks the platform's coach (`POST /api/coach/radio`, paid from the driver's AI
+tank) and hands the answer back sentence by sentence with `coach_say` (`{ id, text }`), then `coach_done`
+(`{ id }`), or `coach_problem` (`{ id, problem }`: `tank-empty`, `not-available`, `too-many`, `failed`), for which
+the coach has a fixed sentence. The app spells the numbers out for the voice and speaks the sentences in their
+order; the spotter still comes first, and a sentence it cut off comes back once. With `coach.stints` on, a stint
+of at least three flying laps is asked as `kind: "stint"` when the car is back in its box.
+
+`ptt-probe` checks the push-to-talk on a PC without the app: it lists the controllers and microphones, prints
+every controller button and hat that goes down or up, the focused window and the first axes, and with
+`--record` prints for every press how long the microphone took to deliver, the length, peak and RMS (nothing is
+written unless `--keep <file.wav>` names a file; `--bind` runs the app's own capture and watcher instead):
+
+```powershell
+cargo build -p dd-desktop --example ptt-probe
+target\debug\examples\ptt-probe.exe [--record] [--mic <id>] [--key <code>] [--keep <file.wav>] [--bind] [--seconds <n>]
+```
 
 ## Replays
 

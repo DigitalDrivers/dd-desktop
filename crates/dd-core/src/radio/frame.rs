@@ -24,8 +24,10 @@ const TYRE_CONTACT_POINT: usize = 420;
 // graphics
 const STATUS: usize = 4;
 const PLAYER_CAR_ID: usize = 24;
+const TOTAL_LAP_COUNT: usize = 2384;
 const IS_IN_PIT_BOX: usize = 3119;
 const IS_IN_PIT_LANE: usize = 3120;
+const IS_VALID_LAP: usize = 3121;
 const CAR_COORDINATES: usize = 3124;
 const CAR_IDS: usize = 3940;
 const SLOTS: usize = 60;
@@ -64,6 +66,10 @@ pub struct Own {
     pub brake: f32,
     pub in_pit_lane: bool,
     pub in_pit_box: bool,
+    /// `total_lap_count`: the laps the game counted (on Touristenfahrten at the end split, see [`crate::laps`])
+    pub lap_count: i32,
+    /// `is_valid_lap`: the lap being driven is still valid
+    pub lap_valid: bool,
 }
 
 /// Another car: only its position is published.
@@ -120,6 +126,8 @@ pub fn read(t: f64, physics: &[u8], graphics: &[u8]) -> Option<Frame> {
             brake: f32_at(physics, BRAKE),
             in_pit_lane: graphics[IS_IN_PIT_LANE] != 0,
             in_pit_box: graphics[IS_IN_PIT_BOX] != 0,
+            lap_count: i32::from_le_bytes(graphics[TOTAL_LAP_COUNT..TOTAL_LAP_COUNT + 4].try_into().unwrap()),
+            lap_valid: graphics[IS_VALID_LAP] != 0,
         },
         others,
     })
@@ -152,6 +160,8 @@ mod tests {
         put_f32s(&mut physics, TYRE_CONTACT_POINT, &[59.0, 5.0, 190.2, 59.5, 5.0, 191.8, 56.4, 5.0, 191.0, 56.9, 5.0, 192.6]);
         let mut graphics = vec![0u8; GRAPHICS_SIZE];
         graphics[STATUS..STATUS + 4].copy_from_slice(&LIVE.to_le_bytes());
+        graphics[TOTAL_LAP_COUNT..TOTAL_LAP_COUNT + 4].copy_from_slice(&7i32.to_le_bytes());
+        graphics[IS_VALID_LAP] = 1;
         graphics[PLAYER_CAR_ID..PLAYER_CAR_ID + 8].copy_from_slice(&ME.0.to_le_bytes());
         graphics[PLAYER_CAR_ID + 8..PLAYER_CAR_ID + 16].copy_from_slice(&ME.1.to_le_bytes());
         put_car(&mut graphics, 0, (1, 2), [10.0, 5.0, -20.0]);
@@ -178,6 +188,7 @@ mod tests {
         assert!((own.speed - 40.0).abs() < 1e-5);
         assert_eq!((own.heading, own.yaw_rate, own.throttle, own.brake), (1.86, -0.2, 0.95, 0.0));
         assert_eq!((own.in_pit_lane, own.in_pit_box), (false, false));
+        assert_eq!((own.lap_count, own.lap_valid), (7, true));
     }
 
     #[test]
@@ -186,10 +197,11 @@ mod tests {
         put_f32s(&mut physics, TYRE_CONTACT_POINT, &[0.0; 12]);
         graphics[IS_IN_PIT_LANE] = 1;
         graphics[IS_IN_PIT_BOX] = 1;
+        graphics[IS_VALID_LAP] = 0;
         graphics[STATUS] = 3;
         let frame = read(0.0, &physics, &graphics).unwrap();
         assert_eq!(frame.own.contact, None);
-        assert_eq!((frame.own.in_pit_lane, frame.own.in_pit_box, frame.live), (true, true, false));
+        assert_eq!((frame.own.in_pit_lane, frame.own.in_pit_box, frame.live, frame.own.lap_valid), (true, true, false, false));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 [package]
 name = "dd-voice"
 version = "0.1.0"
-description = "The team radio's voice: Supertonic 3 text to speech on the CPU through ONNX Runtime."
+description = "The team radio's voice and ears: Supertonic 3 text to speech and Whisper speech recognition on the CPU through ONNX Runtime."
 edition.workspace = true
 license.workspace = true
 repository.workspace = true

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-radio-download-listen"
+description = "Enables the radio_download_listen command without any pre-configured scope."
+commands.allow = ["radio_download_listen"]
+
+[[permission]]
+identifier = "deny-radio-download-listen"
+description = "Denies the radio_download_listen command without any pre-configured scope."
+commands.deny = ["radio_download_listen"]

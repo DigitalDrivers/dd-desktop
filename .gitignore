@@ -4,3 +4,4 @@ dist/
 *.pfx
 *.cer
 *.log
+src-tauri/vcruntime/

@@ -22,14 +22,14 @@ const YAW: f64 = 0.05;
 /// Speeds (m/s) below which brake and traction samples are not counted
 const SLOW: f64 = 30.0 / 3.6;
 /// The lowest speed of a corner is looked for this far (m) before its turn-in and after its turn-out.
-const APEX_MARGIN: f64 = 30.0;
+pub(crate) const APEX_MARGIN: f64 = 30.0;
 /// A point this close (m) to its segment's start or end sits on the edge (research/2026-10-21-renningenieur-coach/
 /// audit/REPORT.md §2e).
 const EDGE_M: f64 = 2.0;
 /// The pressures at a lap's end: the mean of its last 20 s.
 const END_S: f64 = 20.0;
-const HOT: f64 = 700.0;
-const VERY_HOT: f64 = 800.0;
+pub(crate) const HOT: f64 = 700.0;
+pub(crate) const VERY_HOT: f64 = 800.0;
 const COLD: f64 = 500.0;
 const TRACE_STEP: usize = 5;
 
@@ -41,8 +41,8 @@ const COST_S: f64 = 0.05;
 /// 2·√2: a difference of two laps spreads √2 times one lap's σ, and 2 σ of that is beyond noise.
 const SPREAD_K: f64 = 2.0 * std::f64::consts::SQRT_2;
 const BRAKE_M: f64 = 8.0;
-const THROTTLE_M: f64 = 10.0;
-const SPEED_KMH: f64 = 4.0;
+pub(crate) const THROTTLE_M: f64 = 10.0;
+pub(crate) const SPEED_KMH: f64 = 4.0;
 /// Coasting and wheelspin are judged against the reference's same corner, by this much more (s).
 const COAST_S: f64 = 0.4;
 const SPIN_S: f64 = 0.1;
@@ -253,7 +253,7 @@ fn lifts(g: &Grid, pickup: Option<usize>, full: Option<usize>) -> u32 {
     lifts
 }
 
-fn corner(g: &Grid, map: &Map, fit: &Fit, c: usize) -> CornerMeasure {
+pub(crate) fn corner(g: &Grid, map: &Map, fit: &Fit, c: usize) -> CornerMeasure {
     let mc = &map.corners[c];
     let len = g.length();
     let lap = |m: f64| fit.to_lap(m).clamp(0.0, len);

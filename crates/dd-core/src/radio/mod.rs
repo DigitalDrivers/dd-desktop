@@ -2,7 +2,9 @@
 //! game publishes in its shared memory; the shell copies the pages, plays the sound and speaks.
 
 pub mod effect;
+pub mod engineer;
 pub mod frame;
+pub mod live_tips;
 pub mod phrases;
 pub mod queue;
 pub mod settings;

@@ -121,7 +121,9 @@ use std::time::{Duration, Instant};
 use dd_core::evo_memory;
 use dd_core::laps;
 use dd_core::radio::effect::{self, Shape};
+use dd_core::radio::engineer::{self, Engineer, Group};
 use dd_core::radio::frame::{self, CarId};
+use dd_core::radio::live_tips::{self, LiveTips};
 use dd_core::radio::queue::{self, Call, Next, Priority, Queue, Situation};
 use dd_core::radio::settings::{self, Settings};
 use dd_core::radio::spotter::{Config, Spotter};
@@ -133,6 +135,14 @@ use crate::log;
 
 /// The threads the voice computes on: more bring nothing and take the game's (measured 2026-11-09).
 const VOICE_THREADS: usize = 2;
+
+/// A call with its sound, spoken beside the loop.
+type Spoken = (Call, Arc<Vec<f32>>);
+
+/// The key of the sentences the coach answers with.
+const COACH_ANSWER: &str = "coach_answer";
+/// How long an answer's sentence stays worth saying.
+const ANSWER_EXPIRES_S: f64 = 30.0;
 
 /// How far a download or a render is, as the events `radio-download` and `radio-library` tell the page.
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -176,10 +186,28 @@ pub struct Radio {
     speaker: Mutex<Speaker>,
     /// The voice, loaded when it first has to speak and dropped when the radio is switched off
     engine: Mutex<Option<Engine>>,
+    /// The speech recognition of the coach's push-to-talk, loaded with the first question
+    listener: Mutex<Option<dd_voice::Listener>>,
     names: Mutex<HashMap<CarId, DriverName>>,
     /// Clips ready to play (trimmed, levelled), by their cache name
     clips: Mutex<HashMap<String, Arc<Vec<f32>>>>,
+    /// The corners' names by track and layout, as the platform's page hands them over, by the race engineer's
+    /// corner numbers
+    corner_names: Mutex<HashMap<(String, String), std::collections::BTreeMap<u32, String>>>,
+    /// Counts up when corner names arrive, so the live tips take them
+    corner_names_version: std::sync::atomic::AtomicU32,
     looping: AtomicBool,
+    /// When the loop began: the clock of the calls
+    clock: OnceLock<Instant>,
+    /// Where a sentence that was spoken beside the loop joins the queue
+    spoken: Mutex<Option<std::sync::mpsc::Sender<Spoken>>>,
+    /// What the coach's model gets about the car and the session, renewed every second
+    context: Mutex<serde_json::Value>,
+    /// The question the coach is answering, and the number of the last one asked
+    asking: Mutex<Option<u64>>,
+    questions: std::sync::atomic::AtomicU64,
+    /// The sentences of the coach's answer on their way to the voice, in their order
+    answers: Mutex<Option<std::sync::mpsc::Sender<(u64, String)>>>,
     rendering: Mutex<Option<Progress>>,
     downloading: Mutex<Option<Progress>>,
 }
@@ -197,6 +225,20 @@ fn model_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
         }
     }
     app.path().app_local_data_dir().ok().map(|dir| dir.join("radio").join("model"))
+}
+
+/// Where the speech recognition's model lies (74 MB). A development build takes `DD_WHISPER_MODEL` when it is set.
+fn listen_dir(app: &tauri::AppHandle) -> Option<PathBuf> {
+    if cfg!(debug_assertions) {
+        if let Ok(dir) = std::env::var("DD_WHISPER_MODEL") {
+            return Some(PathBuf::from(dir));
+        }
+    }
+    app.path().app_local_data_dir().ok().map(|dir| dir.join("radio").join("listen"))
+}
+
+fn listen_ready(app: &tauri::AppHandle) -> bool {
+    listen_dir(app).is_some_and(|dir| dd_voice::verify_listener(&dir, false).is_ok())
 }
 
 /// Where the rendered clips lie.
@@ -355,26 +397,105 @@ pub fn prepare_voice(app: &tauri::AppHandle) {
                 log(&format!("radio: the radio check failed: {error}"));
             }
         }
+        // Also for tests: with DD_COACH_WAV (a 16-bit mono WAV) the recording is asked as if the driver had held
+        // the coach's button and said it.
+        if cfg!(debug_assertions) && rendered_for.is_some() {
+            if let Some((samples, rate)) = std::env::var_os("DD_COACH_WAV").and_then(|path| std::fs::read(path).ok()).and_then(|wav| pcm16_mono(&wav)) {
+                std::thread::sleep(Duration::from_secs(4));
+                question(&app, samples, rate);
+            }
+        }
     });
+}
+
+/// The samples and the rate of a 16-bit mono WAV file.
+fn pcm16_mono(wav: &[u8]) -> Option<(Vec<f32>, u32)> {
+    let rate = u32::from_le_bytes(wav.get(24..28)?.try_into().ok()?);
+    let data = wav.windows(4).position(|chunk| chunk == b"data")? + 8;
+    (wav.get(22..24)? == [1, 0] && wav.get(34..36)? == [16, 0]).then(|| (wav[data.min(wav.len())..].chunks_exact(2).map(|b| f32::from(i16::from_le_bytes([b[0], b[1]])) / 32768.0).collect(), rate))
 }
 
 /// Starts the radio's loop once; it idles while the radio is off.
 pub fn start(app: &tauri::AppHandle) {
     if !app.state::<Radio>().looping.swap(true, Ordering::SeqCst) {
         log("radio: reading AC EVO's shared memory every 50 ms while the team radio is on");
-        let app = app.clone();
-        std::thread::spawn(move || run(app));
+        let looping = app.clone();
+        std::thread::spawn(move || run(looping));
+        start_talk(app);
+    }
+}
+
+/// The car and the track the game shows, as the bytes of their names: the engineer starts over when they change.
+fn session_of(graphics: &[u8], statics: Option<&[u8]>) -> Vec<u8> {
+    const CAR_MODEL: std::ops::Range<usize> = 3086..3119;
+    const TRACK_AND_LAYOUT: std::ops::Range<usize> = 136..202;
+    let mut session = graphics[CAR_MODEL].to_vec();
+    session.extend_from_slice(statics.map_or(&[][..], |statics| &statics[TRACK_AND_LAYOUT]));
+    session
+}
+
+/// The live tips of one car on one track, and where their reference lap is kept.
+struct Tipping {
+    tips: LiveTips,
+    dir: PathBuf,
+    car: String,
+    preset: Option<String>,
+    track: String,
+    layout: String,
+}
+
+impl Tipping {
+    /// For the car the game's log names and the track of the pages; None while either is unknown (the menus).
+    fn of(app: &tauri::AppHandle, graphics: &[u8], lang: &str) -> Option<Self> {
+        let statics = crate::read_shared_memory("Local\\acevo_pmf_static", evo_memory::STATIC_SIZE)?;
+        let live = evo_memory::read(graphics, &statics)?;
+        let (car, preset) = laps::current_car(&crate::newest_game_log(app)?)?;
+        let preset = Some(preset).filter(|preset| preset.encode_utf16().count() <= laps::PRESET_MAX);
+        let dir = config_dir(app)?.join(dd_core::engineer::store::DIR);
+        let mut tips = LiveTips::new(live_tips::Config::for_layout(&live.track, &live.layout), lang);
+        let reference = live_tips::load_reference(&dir, &car, preset.as_deref(), &live.track, &live.layout);
+        log(&format!("radio: live tips for {car} at {} {}: {}", live.track, live.layout, if reference.is_some() { "with the best lap kept from before" } else { "the first clean lap becomes the reference" }));
+        tips.set_reference(reference);
+        // corners carry the race engineer's numbers once it has evaluated a session here
+        let names = app.state::<Radio>().corner_names.lock().unwrap().get(&(live.track.clone(), live.layout.clone())).cloned().unwrap_or_default();
+        tips.set_names(dd_core::engineer::corners::load(&dir, &live.track, &live.layout), names);
+        Some(Self { tips, dir, car, preset, track: live.track, layout: live.layout })
+    }
+
+    /// Keeps a lap that just became the reference.
+    fn keep_reference(&mut self) {
+        if let Some(reference) = self.tips.take_new_reference() {
+            match live_tips::save_reference(&self.dir, &self.car, self.preset.as_deref(), &self.track, &self.layout, reference) {
+                Ok(()) => log(&format!("radio: live tips: a new reference lap for {} at {} {}", self.car, self.track, self.layout)),
+                Err(error) => log(&format!("radio: live tips: keeping the reference lap failed: {error}")),
+            }
+        }
     }
 }
 
 fn run(app: tauri::AppHandle) {
     let radio = app.state::<Radio>();
-    let started = Instant::now();
+    let started = *radio.clock.get_or_init(Instant::now);
     let mut spotter = Spotter::new(Config::default());
     let mut queue = Queue::new();
     let mut playing: Option<Call> = None;
     let mut picks: HashMap<&'static str, usize> = HashMap::new();
     let mut missing: Option<String> = None;
+    // The engineer for the car, the track and the language of the moment.
+    let mut engineer: Option<(Vec<u8>, String, Engineer)> = None;
+    let mut session: Vec<u8> = Vec::new();
+    let mut ticks = 0u32;
+    // The live tips for the car and the track of the moment, with what names them in the engineer's folder.
+    let mut tips: Option<(Vec<u8>, Tipping)> = None;
+    let mut names_version = 0;
+    let mut tips_tried = Instant::now() - Duration::from_secs(60);
+    // Sentences the engineer builds are spoken beside the loop, so the spotter never waits for the voice; a
+    // sentence joins the queue when its sound is there.
+    let (spoken, sentences) = std::sync::mpsc::channel::<Spoken>();
+    *radio.spoken.lock().unwrap() = Some(spoken.clone());
+    // by the call's key and time: an answer has several sentences of one key
+    let mut sentence_clips: HashMap<(&'static str, u64), (f64, Arc<Vec<f32>>)> = HashMap::new();
+    queue.continuing.insert(COACH_ANSWER);
     loop {
         std::thread::sleep(Duration::from_millis(50));
         let settings = current(&app);
@@ -385,34 +506,121 @@ fn run(app: tauri::AppHandle) {
         let Some(physics) = crate::read_shared_memory("Local\\acevo_pmf_physics", laps::PHYSICS_SIZE) else { continue };
         let Some(graphics) = crate::read_shared_memory("Local\\acevo_pmf_graphics", evo_memory::GRAPHICS_SIZE) else { continue };
         let now = started.elapsed().as_secs_f64();
-        let Some(frame) = frame::read(now, &physics, &graphics) else { continue };
-        for event in spotter.step(&frame) {
-            let call = queue::call(&event, now);
-            let wanted = match call.priority {
-                Priority::Spotter => settings.groups.spotter,
-                Priority::Safety | Priority::Tactical => settings.groups.traffic,
-                _ => true,
+        if ticks % 20 == 0 {
+            session = session_of(&graphics, crate::read_shared_memory("Local\\acevo_pmf_static", evo_memory::STATIC_SIZE).as_deref());
+        }
+        ticks = ticks.wrapping_add(1);
+        if engineer.as_ref().is_none_or(|(of, lang, _)| *of != session || *lang != settings.language) {
+            engineer = Some((session.clone(), settings.language.clone(), Engineer::new(engineer::Config::default(), &settings.language)));
+        }
+        let (_, _, engineer) = engineer.as_mut().expect("made above");
+        for say in engineer.step(now, &physics, &graphics) {
+            let wanted = match say.group {
+                Group::Fuel => settings.groups.fuel,
+                Group::Laps => settings.groups.laps,
+                Group::Car => settings.groups.car,
             };
-            if wanted {
-                queue.push(call);
+            match say.text {
+                _ if !wanted => {}
+                None => queue.push(say.call),
+                Some(text) => {
+                    let (app, settings, spoken) = (app.clone(), settings.clone(), spoken.clone());
+                    std::thread::spawn(move || match speak(&app, &settings, &text) {
+                        Ok(clip) => drop(spoken.send((say.call, Arc::new(clip)))),
+                        Err(error) => log(&format!("radio: {} is not said: {error}", say.call.key)),
+                    });
+                }
             }
+        }
+        for (call, clip) in sentences.try_iter() {
+            sentence_clips.insert((call.key, call.at.to_bits()), (call.expires, clip));
+            queue.push(call);
+        }
+        if ticks % 20 == 1 {
+            sentence_clips.retain(|_, (expires, _)| *expires > now);
+            // what the coach's model gets with a question
+            let mut context = engineer.context();
+            if let Some(live) = crate::read_shared_memory("Local\\acevo_pmf_static", evo_memory::STATIC_SIZE).and_then(|statics| evo_memory::read(&graphics, &statics)) {
+                context["track"] = live.track.into();
+                context["layout"] = live.layout.into();
+                context["online"] = live.online.into();
+            }
+            if let Some((_, tipping)) = &tips {
+                context["car"] = tipping.car.clone().into();
+            }
+            *radio.context.lock().unwrap() = context;
+        }
+        // the stint's summary when the car is back in its box
+        if settings.coach.enabled && settings.coach.stints {
+            if let Some(stint) = engineer.take_stint() {
+                let mut context = radio.context.lock().unwrap().clone();
+                context["stintLaps"] = stint["stintLaps"].clone();
+                ask(&app, "stint", String::new(), &settings.language, context);
+            }
+        }
+        // The spotter needs the driver's own car among the cars; the engineer speaks without.
+        let frame = frame::read(now, &physics, &graphics);
+        if let Some(frame) = &frame {
+            for event in spotter.step(frame) {
+                let call = queue::call(&event, now);
+                let wanted = match call.priority {
+                    Priority::Spotter => settings.groups.spotter,
+                    Priority::Safety | Priority::Tactical => settings.groups.traffic,
+                    _ => true,
+                };
+                if wanted {
+                    queue.push(call);
+                }
+            }
+        }
+        // Live tips: one short sentence after a corner that cost time against the driver's best lap.
+        if settings.live_tips {
+            // corner names that arrived meanwhile: the tips start again with them (their reference lap is kept on disk)
+            let version = radio.corner_names_version.load(Ordering::SeqCst);
+            if version != names_version {
+                names_version = version;
+                tips = None;
+                tips_tried = Instant::now() - Duration::from_secs(60);
+            }
+            if tips.as_ref().is_none_or(|(of, _)| *of != session) && tips_tried.elapsed() >= Duration::from_secs(5) {
+                tips_tried = Instant::now();
+                tips = Tipping::of(&app, &graphics, &settings.language).map(|tipping| (session.clone(), tipping));
+            }
+            if let (Some((of, tipping)), Some(frame)) = (tips.as_mut(), &frame) {
+                if *of == session {
+                    if let Some(tip) = tipping.tips.step(frame) {
+                        let (app, settings, spoken) = (app.clone(), settings.clone(), spoken.clone());
+                        std::thread::spawn(move || match speak(&app, &settings, &tip.text) {
+                            Ok(clip) => drop(spoken.send((tip.call, Arc::new(clip)))),
+                            Err(error) => log(&format!("radio: a live tip is not said: {error}")),
+                        });
+                    }
+                    tipping.keep_reference();
+                }
+            }
+        } else if tips.is_some() {
+            tips = None;
         }
         if playing.is_some() && !radio.speaker.lock().unwrap().busy() {
             playing = None;
         }
-        let call = match queue.next(now, playing.as_ref(), Situation::new(&frame.own, spotter.overlap())) {
+        let situation = frame.as_ref().map_or(Situation { overlap: false, straight: false }, |frame| Situation::new(&frame.own, spotter.overlap()));
+        let call = match queue.next(now, playing.as_ref(), situation) {
             Next::Play(call) | Next::Interrupt(call) => call,
             Next::Nothing => continue,
         };
         let pick = picks.entry(call.key).or_insert(0);
         *pick += 1;
         let (voice, lang) = (settings.voice.as_str(), settings.language.as_str());
-        // with the driver's name when the radio knows the car and the named call is rendered, else the plain call
-        let named = call.car.and_then(|car| radio.names.lock().unwrap().get(&car).cloned()).and_then(|name| {
+        // a sentence spoken for this call; else with the driver's name when the radio knows the car and the named
+        // call is rendered; else the plain call
+        let sentence = sentence_clips.get(&(call.key, call.at.to_bits())).map(|(_, clip)| clip.clone());
+        let named = || {
+            let name = radio.names.lock().unwrap().get(&call.car?).cloned()?;
             let text = phrases::text(named_key(call.key)?, lang, Some(name.spoken(lang)), *pick)?;
             clip(&app, voice, lang, &text)
-        });
-        let ready = named.or_else(|| clip(&app, voice, lang, &phrases::text(call.key, lang, None, *pick)?));
+        };
+        let ready = sentence.or_else(named).or_else(|| clip(&app, voice, lang, &phrases::text(call.key, lang, None, *pick)?));
         let Some(ready) = ready else {
             if missing.as_deref() != Some(call.key) {
                 log(&format!("radio: {} is not said: its clip for {voice} {lang} is not rendered", call.key));
@@ -431,6 +639,150 @@ fn run(app: tauri::AppHandle) {
     }
 }
 
+/// A call made beside the loop, on the loop's clock.
+fn call_now(app: &tauri::AppHandle, key: &'static str, priority: Priority, expires_s: f64) -> Call {
+    let at = app.state::<Radio>().clock.get().map_or(0.0, |started| started.elapsed().as_secs_f64());
+    Call { key, car: None, priority, at, expires: at + expires_s }
+}
+
+/// Puts a fixed phrase of the library into the queue from beside the loop.
+fn say_phrase(app: &tauri::AppHandle, key: &'static str) {
+    let settings = current(app);
+    let picked = app.state::<Radio>().questions.load(Ordering::SeqCst) as usize;
+    let ready = phrases::text(key, &settings.language, None, picked).and_then(|text| clip(app, &settings.voice, &settings.language, &text));
+    match (ready, app.state::<Radio>().spoken.lock().unwrap().as_ref()) {
+        (Some(ready), Some(spoken)) => drop(spoken.send((call_now(app, key, Priority::Tactical, ANSWER_EXPIRES_S), ready))),
+        _ => log(&format!("radio: {key} is not said: not rendered, or the radio does not run")),
+    }
+}
+
+/// Hands a question to the platform's page, which asks the coach's model and answers with `coach_say`: the event
+/// `coach-question` (`{ id, kind, text, language, context }`). A new question takes the place of one still being
+/// answered.
+fn ask(app: &tauri::AppHandle, kind: &str, text: String, language: &str, context: serde_json::Value) {
+    let radio = app.state::<Radio>();
+    let id = radio.questions.fetch_add(1, Ordering::SeqCst) + 1;
+    *radio.asking.lock().unwrap() = Some(id);
+    log(&format!("radio: coach question {id} ({kind}, {} characters)", text.chars().count()));
+    let _ = app.emit("coach-question", serde_json::json!({ "id": id, "kind": kind, "text": text, "language": language, "context": context }));
+}
+
+/// The driver's question as the microphone took it while the button was held: an acknowledgement at once, then the
+/// words from the recording (on this PC; the sound goes nowhere), then the question to the platform.
+fn question(app: &tauri::AppHandle, samples: Vec<f32>, rate: u32) {
+    let settings = current(app);
+    say_phrase(app, "copy_moment");
+    match listen(app, &samples, rate, &settings.language) {
+        Ok(text) if text.chars().any(char::is_alphanumeric) => {
+            let context = app.state::<Radio>().context.lock().unwrap().clone();
+            ask(app, "question", text, &settings.language, context);
+        }
+        Ok(_) => say_phrase(app, "coach_not_understood"),
+        Err(error) => {
+            log(&format!("radio: the question was not understood: {error}"));
+            say_phrase(app, "coach_failed");
+        }
+    }
+}
+
+/// The words of a recording, recognised on this PC (Whisper base on the CPU); empty for silence and noise.
+fn listen(app: &tauri::AppHandle, samples: &[f32], rate: u32, language: &str) -> Result<String, String> {
+    let radio = app.state::<Radio>();
+    let mut listener = radio.listener.lock().unwrap();
+    if listener.is_none() {
+        let dir = listen_dir(app).ok_or("failed")?;
+        *listener = Some(dd_voice::Listener::load(&dir, VOICE_THREADS).map_err(|error| error.code())?);
+    }
+    let started = Instant::now();
+    let heard = dd_voice::resample(samples, rate);
+    let text = listener.as_mut().expect("loaded above").transcribe(&heard, language).map_err(|error| error.code())?;
+    log(&format!("radio: {:.1} s of speech became {} characters in {} ms", heard.len() as f32 / dd_voice::Listener::RATE as f32, text.chars().count(), started.elapsed().as_millis()));
+    Ok(text)
+}
+
+/// Starts watching the coach's button once: while the radio and the coach are on, holding it opens the microphone.
+fn start_talk(app: &tauri::AppHandle) {
+    let (binding, live, asked) = (app.clone(), app.clone(), app.clone());
+    crate::talk::watch(
+        move || {
+            let settings = current(&binding);
+            (settings.enabled && settings.coach.enabled).then_some(())?;
+            Some(crate::talk::Binding { button: settings.coach.button?, microphone: settings.coach.microphone })
+        },
+        move || {
+            // the microphone delivers: a short tone tells the driver to speak
+            let settings = current(&live);
+            let tone: Vec<f32> = (0..(Engine::RATE / 16)).map(|i| 0.25 * (i as f32 * 2.0 * std::f32::consts::PI * 880.0 / Engine::RATE as f32).sin() * (1.0 - i as f32 / (Engine::RATE / 16) as f32)).collect();
+            let _ = live.state::<Radio>().speaker.lock().unwrap().play(&tone, Engine::RATE, f32::from(settings.volume) / 100.0, settings.device.as_deref());
+        },
+        move |samples, rate| {
+            // on the watcher's thread: hand over at once, or the next press is not seen
+            let app = asked.clone();
+            std::thread::spawn(move || question(&app, samples, rate));
+        },
+    );
+}
+
+/// One sentence of the coach's answer to question `id`, from the platform's page: spoken and queued in the order
+/// the sentences come. Sentences of a question that is no longer the one asked are dropped.
+pub fn coach_say(app: &tauri::AppHandle, id: u64, text: String) {
+    let radio = app.state::<Radio>();
+    if *radio.asking.lock().unwrap() != Some(id) {
+        return;
+    }
+    let text: String = text.trim().chars().take(400).collect();
+    if text.is_empty() {
+        return;
+    }
+    let mut answers = radio.answers.lock().unwrap();
+    let sender = answers.get_or_insert_with(|| {
+        let (sender, sentences) = std::sync::mpsc::channel::<(u64, String)>();
+        let app = app.clone();
+        std::thread::spawn(move || {
+            for (id, text) in sentences {
+                let radio = app.state::<Radio>();
+                if *radio.asking.lock().unwrap() != Some(id) {
+                    continue;
+                }
+                let settings = current(&app);
+                match speak(&app, &settings, &phrases::spoken(&text, &settings.language)) {
+                    Ok(clip) => {
+                        if let Some(spoken) = radio.spoken.lock().unwrap().as_ref() {
+                            let _ = spoken.send((call_now(&app, COACH_ANSWER, Priority::Tactical, ANSWER_EXPIRES_S), Arc::new(clip)));
+                        }
+                    }
+                    Err(error) => log(&format!("radio: a sentence of the coach is not said: {error}")),
+                }
+            }
+        });
+        sender
+    });
+    let _ = sender.send((id, text));
+}
+
+/// The answer to question `id` is complete.
+pub fn coach_done(id: u64) {
+    log(&format!("radio: coach question {id} is answered"));
+}
+
+/// Question `id` got no answer: the coach says why with a fixed phrase.
+pub fn coach_problem(app: &tauri::AppHandle, id: u64, problem: &str) {
+    let radio = app.state::<Radio>();
+    {
+        let mut asking = radio.asking.lock().unwrap();
+        if *asking != Some(id) {
+            return;
+        }
+        *asking = None;
+    }
+    log(&format!("radio: coach question {id} failed: {problem}"));
+    say_phrase(app, match problem {
+        "tank-empty" => "coach_tank_empty",
+        "not-available" | "too-many" => "coach_not_available",
+        _ => "coach_failed",
+    });
+}
+
 /// What `radio_status` answers.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -447,6 +799,11 @@ pub struct RadioStatus {
     library_ready: bool,
     /// The model's licence notice, to show where the voices are chosen
     licence: &'static str,
+    /// Whether the speech recognition of the coach's push-to-talk is on this PC, the size of its download and its
+    /// licence notice
+    listen_ready: bool,
+    listen_bytes: u64,
+    listen_licence: &'static str,
 }
 
 pub fn status(app: &tauri::AppHandle) -> RadioStatus {
@@ -457,7 +814,7 @@ pub fn status(app: &tauri::AppHandle) -> RadioStatus {
     });
     let downloading = *radio.downloading.lock().unwrap();
     let rendering = *radio.rendering.lock().unwrap();
-    RadioStatus { settings, voices: Engine::voices(), model_ready: model_ready(app), model_bytes: dd_voice::MODEL_FILES.iter().map(|file| file.size).sum(), downloading, rendering, library_ready, licence: dd_voice::LICENCE_NOTICE }
+    RadioStatus { settings, voices: Engine::voices(), model_ready: model_ready(app), model_bytes: dd_voice::MODEL_FILES.iter().map(|file| file.size).sum(), downloading, rendering, library_ready, licence: dd_voice::LICENCE_NOTICE, listen_ready: listen_ready(app), listen_bytes: dd_voice::LISTEN_MODEL_FILES.iter().map(|file| file.size).sum(), listen_licence: dd_voice::LISTEN_LICENCE_NOTICE }
 }
 
 /// Whether the driver switched the team radio on on this PC.
@@ -476,12 +833,16 @@ pub fn set(app: &tauri::AppHandle, changes: &serde_json::Value) -> Result<RadioS
     log(&format!("radio_set -> {}", serde_json::to_string(&changed).unwrap_or_default()));
     let radio = app.state::<Radio>();
     *radio.settings.lock().unwrap() = Some(changed.clone());
+    if !changed.coach.enabled {
+        *radio.listener.lock().unwrap() = None;
+    }
     if changed.enabled {
         start(app);
         prepare_voice(app);
     } else {
         radio.speaker.lock().unwrap().stop();
         *radio.engine.lock().unwrap() = None;
+        *radio.listener.lock().unwrap() = None;
         radio.clips.lock().unwrap().clear();
     }
     Ok(status(app))
@@ -505,6 +866,20 @@ pub fn set_names(app: &tauri::AppHandle, names: Vec<DriverName>) {
     if changed {
         log(&format!("radio: {} cars with a driver's name", radio.names.lock().unwrap().len()));
         prepare_voice(app);
+    }
+}
+
+/// Takes the names of a track's corners from the platform's page, by the race engineer's corner numbers, so a live
+/// tip says "Hatzenbach" instead of "corner four".
+pub fn set_corner_names(app: &tauri::AppHandle, track: String, layout: String, names: std::collections::BTreeMap<u32, String>) {
+    let radio = app.state::<Radio>();
+    let names: std::collections::BTreeMap<u32, String> = names.into_iter().filter(|(_, name)| !name.is_empty() && name.chars().count() <= 60).take(400).collect();
+    let mut known = radio.corner_names.lock().unwrap();
+    let key = (track, layout);
+    if known.get(&key) != Some(&names) {
+        log(&format!("radio: {} corner names for {} {}", names.len(), key.0, key.1));
+        known.insert(key, names);
+        radio.corner_names_version.fetch_add(1, Ordering::SeqCst);
     }
 }
 
@@ -573,13 +948,23 @@ async fn download_file(client: &reqwest::Client, file: &dd_voice::ModelFile, dir
     std::fs::rename(&part, &target).map_err(|error| format!("failed: {error}"))
 }
 
-/// Downloads the voice's model (383 MB from its pinned address at Hugging Face, each file checked against its
-/// SHA-256) and tells the page how far it is with the event `radio-download`. A download that broke off goes on
-/// with the files that are missing.
-pub async fn download(app: &tauri::AppHandle) -> Result<(), String> {
+/// What `radio_download` and `radio_download_listen` fetch.
+pub enum Model {
+    Voice,
+    Listener,
+}
+
+/// Downloads the voice's model (383 MB) or the speech recognition's (74 MB) from its pinned address at Hugging Face,
+/// each file checked against its SHA-256, and tells the page how far it is with the event `radio-download`. A
+/// download that broke off goes on with the files that are missing.
+pub async fn download(app: &tauri::AppHandle, model: Model) -> Result<(), String> {
     let radio = app.state::<Radio>();
-    let dir = model_dir(app).ok_or("failed")?;
-    let total: u64 = dd_voice::MODEL_FILES.iter().map(|file| file.size).sum();
+    let (files, dir, name): (&[dd_voice::ModelFile], _, _) = match model {
+        Model::Voice => (&dd_voice::MODEL_FILES, model_dir(app), "the voice"),
+        Model::Listener => (&dd_voice::LISTEN_MODEL_FILES, listen_dir(app), "the speech recognition"),
+    };
+    let dir = dir.ok_or("failed")?;
+    let total: u64 = files.iter().map(|file| file.size).sum();
     {
         let mut downloading = radio.downloading.lock().unwrap();
         if downloading.is_some() {
@@ -587,7 +972,7 @@ pub async fn download(app: &tauri::AppHandle) -> Result<(), String> {
         }
         *downloading = Some(Progress { done: 0, total });
     }
-    log(&format!("radio_download: the model into {}", dir.display()));
+    log(&format!("radio_download: {name} into {}", dir.display()));
     if rustls::crypto::CryptoProvider::get_default().is_none() {
         let _ = rustls::crypto::ring::default_provider().install_default();
     }
@@ -595,7 +980,7 @@ pub async fn download(app: &tauri::AppHandle) -> Result<(), String> {
         let client = reqwest::Client::builder().connect_timeout(Duration::from_secs(15)).read_timeout(Duration::from_secs(60)).build().map_err(|error| format!("failed: {error}"))?;
         let mut done = 0u64;
         let mut told = Instant::now();
-        for file in &dd_voice::MODEL_FILES {
+        for file in files {
             download_file(&client, file, &dir, |bytes| {
                 done += bytes;
                 let progress = Progress { done, total };
@@ -607,14 +992,18 @@ pub async fn download(app: &tauri::AppHandle) -> Result<(), String> {
             })
             .await?;
         }
-        dd_voice::verify(&dir, false).map_err(|error| error.code())
+        match model {
+            Model::Voice => dd_voice::verify(&dir, false),
+            Model::Listener => dd_voice::verify_listener(&dir, false),
+        }
+        .map_err(|error| error.code())
     }
     .await;
     *radio.downloading.lock().unwrap() = None;
     let _ = app.emit("radio-download", Progress { done: if result.is_ok() { total } else { 0 }, total });
     match &result {
         Ok(()) => {
-            log("radio_download -> the model is complete");
+            log(&format!("radio_download -> {name} is complete"));
             prepare_voice(app);
         }
         Err(error) => log(&format!("radio_download failed: {error}")),
