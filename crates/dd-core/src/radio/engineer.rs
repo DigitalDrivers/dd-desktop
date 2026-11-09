@@ -27,7 +27,8 @@
 //!   counts a lap, not in the first seconds after the pit exit (what the flag does there is not known), and not
 //!   while the lap timer stands at 0: the game drops the flag when it puts the car on the grid and raises it at the
 //!   countdown, before any lap is timed. Said at once ([`Priority::Tactical`]: it does not wait for a straight);
-//!   live on 2026-11-09 at Brands Hatch the wait made it come 10 s after the cut.
+//!   live on 2026-11-09 at Brands Hatch the wait made it come 10 s after the cut. A lap timer at 0 (a restart on the
+//!   grid) arms it again: a restart keeps the lap count.
 //! - **Brakes very hot** when any brake is above the coach's 800 °C for 2 s; again only after all cooled below the
 //!   coach's 700 °C and at most once every three minutes.
 //! - **Tyres in the window** once a stint (the stint starts at the pit exit) when all four core temperatures are
@@ -390,7 +391,7 @@ impl Engineer {
             self.tyres_cold_seen = false;
             self.tyres_said = false;
         }
-        if s.lap_count != lap_count {
+        if s.lap_count != lap_count || !s.timed {
             self.invalid_said = false;
         }
         if let Some(lap) = self.laps.sample(graphics, physics, &NO_STATICS) {
@@ -1043,6 +1044,29 @@ mod tests {
         // the lights go out, the lap timer runs: a cut on the first lap is called
         pages.go();
         pages.drive(&mut e, 4);
+        pages.valid(false);
+        assert_eq!(keys(&pages.drive(&mut e, 20)), ["lap_invalid"]);
+    }
+
+    #[test]
+    fn a_cut_after_a_restart_on_the_same_lap_is_called_again() {
+        // the recording of 2026-11-09 (A7 183730): a cut on lap 0 called at 1080.6 s, restarts at 1091.0 and
+        // 1159.05 s without the pit lane, and the cut at 1187.0 s on lap 0 again was not called
+        let (mut e, mut pages) = (engineer(), Pages::new());
+        pages.pit(false);
+        pages.grid();
+        pages.drive(&mut e, 30);
+        pages.go();
+        pages.drive(&mut e, 100);
+        pages.valid(false);
+        assert_eq!(keys(&pages.drive(&mut e, 20)), ["lap_invalid"]);
+        // the restart: on the grid, the lap timer at 0, the flag raised at the countdown
+        pages.grid();
+        pages.drive(&mut e, 30);
+        pages.valid(true);
+        pages.drive(&mut e, 100);
+        pages.go();
+        pages.drive(&mut e, 100);
         pages.valid(false);
         assert_eq!(keys(&pages.drive(&mut e, 20)), ["lap_invalid"]);
     }
