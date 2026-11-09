@@ -46,6 +46,7 @@
     "pit_five": { "de": ["Fünf."], "en": ["Five."] },
     "pit_go": { "de": ["Los, los, los!"], "en": ["Go, go, go!"] },
     "pit_exit_traffic": { "de": ["Ausfahrt, Auto kommt!"], "en": ["Pit exit, car coming!"] },
+    "pit_exit_clear": { "de": ["Ausfahrt frei."], "en": ["Pit exit clear."] },
 
     "preview_vocative": { "de": ["{name}, Box diese Runde."], "en": ["{name}, box this lap."] },
     "preview_reference": { "de": ["{name} ist links neben dir."], "en": ["{name} is on your left."] }
