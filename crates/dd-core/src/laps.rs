@@ -12,21 +12,21 @@ use crate::evo_memory::{f32_at, text_at, GRAPHICS_SIZE, STATIC_SIZE};
 pub const PHYSICS_SIZE: usize = 800;
 
 // graphics
-const STATUS: usize = 4;
-const FUEL: usize = 196;
-const TOTAL_LAP_COUNT: usize = 2384;
-const LAST_LAPTIME_MS: usize = 2396;
+pub(crate) const STATUS: usize = 4;
+pub(crate) const FUEL: usize = 196;
+pub(crate) const TOTAL_LAP_COUNT: usize = 2384;
+pub(crate) const LAST_LAPTIME_MS: usize = 2396;
 const CAR_MODEL: usize = 3086;
-const IS_IN_PIT_LANE: usize = 3120;
-const IS_VALID_LAP: usize = 3121;
+pub(crate) const IS_IN_PIT_LANE: usize = 3120;
+pub(crate) const IS_VALID_LAP: usize = 3121;
 // physics, wheels in the order FL FR RL RR
 const SPEED_KMH: usize = 28;
 const WHEELS_PRESSURE: usize = 88;
-const TYRE_CORE_TEMPERATURE: usize = 152;
+pub(crate) const TYRE_CORE_TEMPERATURE: usize = 152;
 const RIDE_HEIGHT: usize = 268;
 const AIR_TEMP: usize = 288;
 const ROAD_TEMP: usize = 292;
-const BRAKE_TEMP: usize = 348;
+pub(crate) const BRAKE_TEMP: usize = 348;
 const GAS: usize = 4;
 const BRAKE: usize = 8;
 const GEAR: usize = 16;
@@ -43,7 +43,7 @@ const TRACK: usize = 136;
 const TRACK_CONFIGURATION: usize = 169;
 const IS_ONLINE: usize = 86;
 /// `ACEVO_STATUS`: 2 = live driving
-const LIVE: i32 = 2;
+pub(crate) const LIVE: i32 = 2;
 /// The club's cars; only their laps carry the version of the car's package.
 const CLUB_CAR_PREFIX: &str = "dd_";
 /// A lap with fewer samples (ten seconds at 10 Hz) is not summed up.
@@ -234,11 +234,11 @@ impl Sample {
     }
 }
 
-fn i32_at(page: &[u8], at: usize) -> i32 {
+pub(crate) fn i32_at(page: &[u8], at: usize) -> i32 {
     i32::from_le_bytes(page[at..at + 4].try_into().unwrap())
 }
 
-fn f32s_at<const N: usize>(page: &[u8], at: usize) -> [f32; N] {
+pub(crate) fn f32s_at<const N: usize>(page: &[u8], at: usize) -> [f32; N] {
     std::array::from_fn(|i| f32_at(page, at + i * 4))
 }
 
