@@ -1353,7 +1353,8 @@ fn copy_shared_memory(name: &str, size: usize) -> Option<(Vec<u8>, bool)> {
         let copy = (!view.is_null()).then(|| {
             let page = std::slice::from_raw_parts(view as *const u8, size);
             let copy = page.to_vec();
-            let moved = size >= 4 && page[..4] != copy[..4];
+            // read anew from the page: the game may have written to it while it was copied
+            let moved = size >= 4 && std::ptr::read_volatile(view as *const [u8; 4]) != copy[..4];
             (copy, moved)
         });
         if !view.is_null() {
@@ -1470,14 +1471,14 @@ fn radio_status(app: tauri::AppHandle) -> radio::RadioStatus {
 /// Changes the team radio's settings on this PC: an object with any of `enabled`, `voice`, `language`, `volume`,
 /// `effect`, `device`, `groups` and `coach`. Answers the status that holds now.
 #[tauri::command]
-fn radio_set(app: tauri::AppHandle, changes: serde_json::Value) -> Result<radio::RadioStatus, String> {
-    radio::set(&app, &changes)
+async fn radio_set(app: tauri::AppHandle, changes: serde_json::Value) -> Result<radio::RadioStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || radio::set(&app, &changes)).await.map_err(|_| "failed".to_string())?
 }
 
 /// The output devices of this PC for the settings' picker.
 #[tauri::command]
-fn radio_devices() -> Vec<radio::OutputDevice> {
-    radio::devices()
+async fn radio_devices() -> Vec<radio::OutputDevice> {
+    tauri::async_runtime::spawn_blocking(radio::devices).await.unwrap_or_default()
 }
 
 /// Downloads the voice's model; the event `radio-download` (`{ done, total }`, bytes) tells how far it is.
@@ -1528,8 +1529,8 @@ fn coach_say(app: tauri::AppHandle, id: u64, text: String) {
 
 /// The answer to question `id` is complete.
 #[tauri::command]
-fn coach_done(id: u64) {
-    radio::coach_done(id);
+fn coach_done(app: tauri::AppHandle, id: u64) {
+    radio::coach_done(&app, id);
 }
 
 /// Question `id` got no answer (`problem`: `tank-empty`, `not-available`, `too-many`, `failed`): the coach says so.
@@ -1547,8 +1548,8 @@ struct TalkDevices {
 
 /// The game controllers and microphones the coach's push-to-talk can use, for the settings page.
 #[tauri::command]
-fn talk_devices() -> TalkDevices {
-    TalkDevices { controllers: talk::controllers(), microphones: talk::inputs() }
+async fn talk_devices() -> Result<TalkDevices, String> {
+    tauri::async_runtime::spawn_blocking(|| TalkDevices { controllers: talk::controllers(), microphones: talk::inputs() }).await.map_err(|_| "failed".to_string())
 }
 
 /// Waits up to 10 s for the driver to press the button he wants to ask the coach with (a controller button or a

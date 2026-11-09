@@ -125,7 +125,10 @@ fn wrong_input_gives_the_right_error() {
     assert_eq!(code(engine.speak("Car left.", "en", "M6")), "unknown-voice");
     assert_eq!(code(engine.speak("Voiture à gauche.", "fr", "M1")), "unknown-language");
     assert_eq!(code(engine.speak("  \n ", "de", "M1")), "empty-text");
-    assert_eq!(engine.speak("Auto \u{e000} links.", "de", "M1"), Err(VoiceError::UnsupportedText("\u{e000}".into())));
+    assert_eq!(engine.speak("\u{e000}", "de", "M1"), Err(VoiceError::UnsupportedText("\u{e000}".into())));
+    // one sign the model does not know does not cost the sentence
+    let plain = engine.speak("Auto links.", "de", "M1").unwrap();
+    assert_eq!(engine.speak("Auto \u{e000}links.", "de", "M1").unwrap().len(), plain.len());
     let dir = temp_dir("render-errors");
     assert_eq!(render_library(&mut engine, "X1", "de", &dir, |_, _| {}).unwrap_err().code(), "unknown-voice");
     assert!(!dir.exists(), "nothing written for a refused voice");

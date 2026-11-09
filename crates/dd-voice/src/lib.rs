@@ -264,11 +264,14 @@ impl Engine {
         Ok(out)
     }
 
-    /// The model's indices of a preprocessed chunk; refuses characters it has no index for.
+    /// The model's indices of a preprocessed chunk. A character the model has no index for is left out, so one odd
+    /// sign does not cost the whole sentence; a chunk with nothing left to say but its language tags is refused.
     fn ids(&self, text: &str) -> Result<Vec<i64>, VoiceError> {
         let index = |c: char| self.indexer.get(c as usize).copied().filter(|&i| i >= 0);
         let unsupported: String = text.chars().filter(|&c| index(c).is_none()).collect();
-        if !unsupported.is_empty() {
+        // the tags `<de>` and `</de>` hold four letters
+        let said = text.chars().filter(|&c| index(c).is_some() && c.is_alphanumeric()).count().saturating_sub(4);
+        if !unsupported.is_empty() && said == 0 {
             return Err(VoiceError::UnsupportedText(unsupported));
         }
         Ok(text.chars().filter_map(index).collect())
