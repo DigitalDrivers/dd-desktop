@@ -25,7 +25,7 @@ use super::spotter::Event;
 pub enum Priority {
     /// Overlaps, three wide, clear
     Spotter,
-    /// Closing fast, slow car ahead
+    /// Closing fast, slow car ahead, traffic at the pit exit (and the engineer's pit entry warning)
     Safety,
     /// Close behind, slipstream, gaps
     Tactical,
@@ -71,6 +71,7 @@ pub fn call(event: &Event, t: f64) -> Call {
         Event::ClearAll => ("clear", None, Spotter, CLEAR_EXPIRES_S),
         Event::ClosingFast { car, .. } => ("closing_fast", Some(car), Safety, SAFETY_EXPIRES_S),
         Event::SlowCarAhead { car } => ("slow_car_ahead", Some(car), Safety, SAFETY_EXPIRES_S),
+        Event::PitExitTraffic { car } => ("pit_exit_traffic", Some(car), Safety, SAFETY_EXPIRES_S),
         Event::CloseBehind { car, .. } => ("close_behind", Some(car), Tactical, TACTICAL_EXPIRES_S),
         Event::SlipstreamBehind { car } => ("slipstream_behind", Some(car), Tactical, TACTICAL_EXPIRES_S),
         Event::InTow { car } => ("in_tow", Some(car), Tactical, TACTICAL_EXPIRES_S),
@@ -252,6 +253,7 @@ mod tests {
             (Event::CloseBehind { car, gap_s: 0.4 }, "close_behind", Some(car), Priority::Tactical, 5.0),
             (Event::SlipstreamBehind { car }, "slipstream_behind", Some(car), Priority::Tactical, 5.0),
             (Event::InTow { car }, "in_tow", Some(car), Priority::Tactical, 5.0),
+            (Event::PitExitTraffic { car }, "pit_exit_traffic", Some(car), Priority::Safety, 3.0),
         ];
         for (event, key, with, priority, life) in cases {
             assert_eq!(call(&event, 10.0), Call { key, car: with, priority, at: 10.0, expires: 10.0 + life }, "{event:?}");

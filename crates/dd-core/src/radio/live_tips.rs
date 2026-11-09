@@ -960,6 +960,7 @@ mod tests {
                 brake: if braking[k] { 0.9 } else { 0.0 },
                 in_pit_lane: false,
                 in_pit_box: false,
+                pit_exit: false,
                 lap_count: (at / len + 1e-9).floor() as i32,
                 lap_valid: true,
             };

@@ -75,12 +75,13 @@ pub struct Drive {
     jitter_m: f32,
     lag_s: f64,
     pit_lane: Box<dyn Fn(f64) -> bool>,
+    pit_exit: Box<dyn Fn(f64) -> bool>,
     cars: Vec<(CarId, CarAt)>,
 }
 
 impl Drive {
     pub fn new(own: impl Fn(f64) -> Truth + 'static) -> Self {
-        Self { hz: 20.0, seconds: 10.0, own: Box::new(own), inputs: Inputs::Contact, jitter_m: 0.0, lag_s: 0.0, pit_lane: Box::new(|_| false), cars: Vec::new() }
+        Self { hz: 20.0, seconds: 10.0, own: Box::new(own), inputs: Inputs::Contact, jitter_m: 0.0, lag_s: 0.0, pit_lane: Box::new(|_| false), pit_exit: Box::new(|_| false), cars: Vec::new() }
     }
 
     pub fn seconds(mut self, seconds: f64) -> Self {
@@ -107,6 +108,12 @@ impl Drive {
 
     pub fn pit_lane(mut self, when: impl Fn(f64) -> bool + 'static) -> Self {
         self.pit_lane = Box::new(when);
+        self
+    }
+
+    /// The own car is at the pit exit (`car_location` 3).
+    pub fn pit_exit(mut self, when: impl Fn(f64) -> bool + 'static) -> Self {
+        self.pit_exit = Box::new(when);
         self
     }
 
@@ -162,6 +169,7 @@ impl Drive {
                         brake: 0.0,
                         in_pit_lane: (self.pit_lane)(t),
                         in_pit_box: false,
+                        pit_exit: (self.pit_exit)(t),
                         lap_count: 0,
                         lap_valid: true,
                     },

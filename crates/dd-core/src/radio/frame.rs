@@ -28,6 +28,9 @@ const TOTAL_LAP_COUNT: usize = 2384;
 const IS_IN_PIT_BOX: usize = 3119;
 const IS_IN_PIT_LANE: usize = 3120;
 const IS_VALID_LAP: usize = 3121;
+/// `car_location` (`ACEVO_CAR_LOCATION`): 3 = the pit exit
+const CAR_LOCATION: usize = 1388;
+const PIT_EXIT: i32 = 3;
 const CAR_COORDINATES: usize = 3124;
 const CAR_IDS: usize = 3940;
 const SLOTS: usize = 60;
@@ -66,6 +69,9 @@ pub struct Own {
     pub brake: f32,
     pub in_pit_lane: bool,
     pub in_pit_box: bool,
+    /// `car_location` is the pit exit: the end of the pit lane where the car joins the track (4.3 s at Brands Hatch
+    /// on 2026-11-09, with `is_in_pit_lane` still set)
+    pub pit_exit: bool,
     /// `total_lap_count`: the laps the game counted (on Touristenfahrten at the end split, see [`crate::laps`])
     pub lap_count: i32,
     /// `is_valid_lap`: the lap being driven is still valid
@@ -126,6 +132,7 @@ pub fn read(t: f64, physics: &[u8], graphics: &[u8]) -> Option<Frame> {
             brake: f32_at(physics, BRAKE),
             in_pit_lane: graphics[IS_IN_PIT_LANE] != 0,
             in_pit_box: graphics[IS_IN_PIT_BOX] != 0,
+            pit_exit: i32::from_le_bytes(graphics[CAR_LOCATION..CAR_LOCATION + 4].try_into().unwrap()) == PIT_EXIT,
             lap_count: i32::from_le_bytes(graphics[TOTAL_LAP_COUNT..TOTAL_LAP_COUNT + 4].try_into().unwrap()),
             lap_valid: graphics[IS_VALID_LAP] != 0,
         },
@@ -202,6 +209,11 @@ mod tests {
         let frame = read(0.0, &physics, &graphics).unwrap();
         assert_eq!(frame.own.contact, None);
         assert_eq!((frame.own.in_pit_lane, frame.own.in_pit_box, frame.live, frame.own.lap_valid), (true, true, false, false));
+        assert!(!frame.own.pit_exit, "car_location 0");
+        for (location, exit) in [(1, false), (2, false), (3, true), (4, false)] {
+            graphics[CAR_LOCATION..CAR_LOCATION + 4].copy_from_slice(&(location as i32).to_le_bytes());
+            assert_eq!(read(0.0, &physics, &graphics).unwrap().own.pit_exit, exit, "{location}");
+        }
     }
 
     #[test]
