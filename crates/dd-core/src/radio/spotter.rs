@@ -90,6 +90,10 @@ pub struct Config {
     pub closing_min_ms: f32,
     pub closing_reach_s: f32,
     pub closing_every_s: f64,
+    /// ... and not while the own car brakes harder than this (pedal 0 to 1): a car that brakes later behind it
+    /// closes fast but stays behind. Such a car uses up its call all the same, else it would come at the brake's
+    /// release.
+    pub closing_max_brake: f32,
     /// "Close behind": within this time gap for `close_hold_s`; once per car per `close_every_s`, again after
     /// `close_repeat_s` while the pressure holds
     pub close_gap_s: f32,
@@ -151,6 +155,7 @@ impl Default for Config {
             closing_min_ms: 5.0,
             closing_reach_s: 3.0,
             closing_every_s: 30.0,
+            closing_max_brake: 0.1,
             close_gap_s: 0.6,
             close_hold_s: 3.0,
             close_every_s: 60.0,
@@ -597,7 +602,9 @@ impl Spotter {
                 && due(limits.closing_fast, t, c.closing_every_s)
             {
                 limits.closing_fast = Some(t);
-                calls.push(Event::ClosingFast { car: car.id, gap_s: behind });
+                if frame.own.brake <= c.closing_max_brake {
+                    calls.push(Event::ClosingFast { car: car.id, gap_s: behind });
+                }
             }
             if long < -c.car_length_m && lat.abs() <= c.in_line_lateral_m && behind < c.close_gap_s {
                 let since = *limits.close_since.get_or_insert(t);
@@ -994,6 +1001,18 @@ mod tests {
             assert!(t < 3.77 - 2.0, "{t}");
             assert!(gap_s > 0.0 && gap_s < 2.5, "{gap_s}");
         }
+    }
+
+    #[test]
+    fn a_car_closing_while_the_driver_brakes_is_not_called_and_not_after_the_brake_either() {
+        // the recording of 2026-11-09: 17 of 20 "closing fast" came in braking zones, from cars that braked later
+        // and stayed 9 to 26 m behind; with only the brake gate they came at the brake's release instead
+        let mut frames = Drive::new(straight(40.0, 120.0)).seconds(8.0).beside(1, |t| Some((-80.0 + 20.0 * t as f32, 3.0, 0.0))).frames();
+        for frame in frames.iter_mut().filter(|f| f.t < 2.0) {
+            frame.own.brake = 1.0;
+        }
+        let timeline = run(&frames);
+        assert!(!events(&timeline).iter().any(|e| matches!(e, Event::ClosingFast { .. })), "{timeline:?}");
     }
 
     #[test]
