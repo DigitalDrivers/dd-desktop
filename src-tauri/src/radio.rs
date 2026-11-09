@@ -121,6 +121,7 @@ use std::time::{Duration, Instant};
 use dd_core::evo_memory;
 use dd_core::laps;
 use dd_core::radio::effect::{self, Shape};
+use dd_core::radio::engineer::{self, Engineer, Group};
 use dd_core::radio::frame::{self, CarId};
 use dd_core::radio::queue::{self, Call, Next, Priority, Queue, Situation};
 use dd_core::radio::settings::{self, Settings};
@@ -367,6 +368,15 @@ pub fn start(app: &tauri::AppHandle) {
     }
 }
 
+/// The car and the track the game shows, as the bytes of their names: the engineer starts over when they change.
+fn session_of(graphics: &[u8], statics: Option<&[u8]>) -> Vec<u8> {
+    const CAR_MODEL: std::ops::Range<usize> = 3086..3119;
+    const TRACK_AND_LAYOUT: std::ops::Range<usize> = 136..202;
+    let mut session = graphics[CAR_MODEL].to_vec();
+    session.extend_from_slice(statics.map_or(&[][..], |statics| &statics[TRACK_AND_LAYOUT]));
+    session
+}
+
 fn run(app: tauri::AppHandle) {
     let radio = app.state::<Radio>();
     let started = Instant::now();
@@ -375,6 +385,14 @@ fn run(app: tauri::AppHandle) {
     let mut playing: Option<Call> = None;
     let mut picks: HashMap<&'static str, usize> = HashMap::new();
     let mut missing: Option<String> = None;
+    // The engineer for the car, the track and the language of the moment.
+    let mut engineer: Option<(Vec<u8>, String, Engineer)> = None;
+    let mut session: Vec<u8> = Vec::new();
+    let mut ticks = 0u32;
+    // Sentences the engineer builds are spoken beside the loop, so the spotter never waits for the voice; a
+    // sentence joins the queue when its sound is there.
+    let (spoken, sentences) = std::sync::mpsc::channel::<(Call, Arc<Vec<f32>>)>();
+    let mut sentence_clips: HashMap<&'static str, Arc<Vec<f32>>> = HashMap::new();
     loop {
         std::thread::sleep(Duration::from_millis(50));
         let settings = current(&app);
@@ -385,34 +403,71 @@ fn run(app: tauri::AppHandle) {
         let Some(physics) = crate::read_shared_memory("Local\\acevo_pmf_physics", laps::PHYSICS_SIZE) else { continue };
         let Some(graphics) = crate::read_shared_memory("Local\\acevo_pmf_graphics", evo_memory::GRAPHICS_SIZE) else { continue };
         let now = started.elapsed().as_secs_f64();
-        let Some(frame) = frame::read(now, &physics, &graphics) else { continue };
-        for event in spotter.step(&frame) {
-            let call = queue::call(&event, now);
-            let wanted = match call.priority {
-                Priority::Spotter => settings.groups.spotter,
-                Priority::Safety | Priority::Tactical => settings.groups.traffic,
-                _ => true,
+        if ticks % 20 == 0 {
+            session = session_of(&graphics, crate::read_shared_memory("Local\\acevo_pmf_static", evo_memory::STATIC_SIZE).as_deref());
+        }
+        ticks = ticks.wrapping_add(1);
+        if engineer.as_ref().is_none_or(|(of, lang, _)| *of != session || *lang != settings.language) {
+            engineer = Some((session.clone(), settings.language.clone(), Engineer::new(engineer::Config::default(), &settings.language)));
+        }
+        let (_, _, engineer) = engineer.as_mut().expect("made above");
+        for say in engineer.step(now, &physics, &graphics) {
+            let wanted = match say.group {
+                Group::Fuel => settings.groups.fuel,
+                Group::Laps => settings.groups.laps,
+                Group::Car => settings.groups.car,
             };
-            if wanted {
-                queue.push(call);
+            match say.text {
+                _ if !wanted => {}
+                None => queue.push(say.call),
+                Some(text) => {
+                    let (app, settings, spoken) = (app.clone(), settings.clone(), spoken.clone());
+                    std::thread::spawn(move || match speak(&app, &settings, &text) {
+                        Ok(clip) => drop(spoken.send((say.call, Arc::new(clip)))),
+                        Err(error) => log(&format!("radio: {} is not said: {error}", say.call.key)),
+                    });
+                }
+            }
+        }
+        for (call, clip) in sentences.try_iter() {
+            sentence_clips.insert(call.key, clip);
+            queue.push(call);
+        }
+        // The spotter needs the driver's own car among the cars; the engineer speaks without.
+        let frame = frame::read(now, &physics, &graphics);
+        if let Some(frame) = &frame {
+            for event in spotter.step(frame) {
+                let call = queue::call(&event, now);
+                let wanted = match call.priority {
+                    Priority::Spotter => settings.groups.spotter,
+                    Priority::Safety | Priority::Tactical => settings.groups.traffic,
+                    _ => true,
+                };
+                if wanted {
+                    queue.push(call);
+                }
             }
         }
         if playing.is_some() && !radio.speaker.lock().unwrap().busy() {
             playing = None;
         }
-        let call = match queue.next(now, playing.as_ref(), Situation::new(&frame.own, spotter.overlap())) {
+        let situation = frame.as_ref().map_or(Situation { overlap: false, straight: false }, |frame| Situation::new(&frame.own, spotter.overlap()));
+        let call = match queue.next(now, playing.as_ref(), situation) {
             Next::Play(call) | Next::Interrupt(call) => call,
             Next::Nothing => continue,
         };
         let pick = picks.entry(call.key).or_insert(0);
         *pick += 1;
         let (voice, lang) = (settings.voice.as_str(), settings.language.as_str());
-        // with the driver's name when the radio knows the car and the named call is rendered, else the plain call
-        let named = call.car.and_then(|car| radio.names.lock().unwrap().get(&car).cloned()).and_then(|name| {
+        // a sentence spoken for this call; else with the driver's name when the radio knows the car and the named
+        // call is rendered; else the plain call
+        let sentence = sentence_clips.get(call.key).cloned();
+        let named = || {
+            let name = radio.names.lock().unwrap().get(&call.car?).cloned()?;
             let text = phrases::text(named_key(call.key)?, lang, Some(name.spoken(lang)), *pick)?;
             clip(&app, voice, lang, &text)
-        });
-        let ready = named.or_else(|| clip(&app, voice, lang, &phrases::text(call.key, lang, None, *pick)?));
+        };
+        let ready = sentence.or_else(named).or_else(|| clip(&app, voice, lang, &phrases::text(call.key, lang, None, *pick)?));
         let Some(ready) = ready else {
             if missing.as_deref() != Some(call.key) {
                 log(&format!("radio: {} is not said: its clip for {voice} {lang} is not rendered", call.key));
