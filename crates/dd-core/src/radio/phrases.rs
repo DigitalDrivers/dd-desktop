@@ -24,7 +24,7 @@ pub const LANGUAGES: [&str; 2] = ["de", "en"];
 pub const NAME: &str = "{name}";
 
 /// The calls without a name: what the spotter, the queue and the engineer emit, and the radio's own sentences.
-const FIXED: [&str; 23] = [
+const FIXED: [&str; 27] = [
     "car_left",
     "car_right",
     "three_wide",
@@ -41,6 +41,10 @@ const FIXED: [&str; 23] = [
     "slow_car_ahead",
     "radio_check",
     "copy_moment",
+    "coach_tank_empty",
+    "coach_not_available",
+    "coach_failed",
+    "coach_not_understood",
     "fuel_low",
     "fuel_box_this_lap",
     "lap_invalid",

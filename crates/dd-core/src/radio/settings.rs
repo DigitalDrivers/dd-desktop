@@ -67,6 +67,8 @@ pub struct Coach {
     pub button: Option<Button>,
     /// The input device's id as the sound system names it; None for the PC's default microphone
     pub microphone: Option<String>,
+    /// The coach sums up a stint when the car is back in its box; off until the driver switches it on
+    pub stints: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -206,7 +208,7 @@ mod tests {
     #[test]
     fn the_coach_s_microphone_is_off_without_a_button_until_the_driver_chooses() {
         let dir = dir("coach-defaults");
-        assert_eq!(load(&dir).coach, Coach { enabled: false, button: None, microphone: None });
+        assert_eq!(load(&dir).coach, Coach { enabled: false, button: None, microphone: None, stints: false });
         // a file from before the coach keeps its settings and gets the coach's defaults
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join(FILE), br#"{ "enabled": true, "voice": "F2", "volume": 40 }"#).unwrap();
@@ -232,7 +234,7 @@ mod tests {
         assert_eq!(file["coach"]["button"], json!({ "kind": "key", "code": 0x7C, "name": "F13" }));
         assert!(settings.coach.enabled && settings.coach.microphone.is_some(), "the rest of the coach stays");
         assert_eq!(load(&dir), settings);
-        assert_eq!(change(&dir, &json!({ "coach": { "button": null, "microphone": null } })).unwrap().coach, Coach { enabled: true, button: None, microphone: None });
+        assert_eq!(change(&dir, &json!({ "coach": { "button": null, "microphone": null } })).unwrap().coach, Coach { enabled: true, button: None, microphone: None, stints: false });
         fs::remove_dir_all(&dir).unwrap();
     }
 

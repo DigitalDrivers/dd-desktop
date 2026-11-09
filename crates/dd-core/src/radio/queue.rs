@@ -124,6 +124,11 @@ pub struct Queue {
     started: HashMap<&'static str, f64>,
     /// Seconds a key waits after a call of it started, by key
     pub cooldowns: HashMap<&'static str, f64>,
+    /// Keys whose calls are the sentences of one answer: the next follows the last without the gap between
+    /// messages
+    pub continuing: std::collections::HashSet<&'static str>,
+    /// The key of the call handed out last
+    last_key: Option<&'static str>,
 }
 
 impl Default for Queue {
@@ -134,7 +139,7 @@ impl Default for Queue {
 
 impl Queue {
     pub fn new() -> Self {
-        Self { waiting: Vec::new(), arrivals: 0, last_overlap: f64::NEG_INFINITY, last_busy: f64::NEG_INFINITY, started: HashMap::new(), cooldowns: HashMap::new() }
+        Self { waiting: Vec::new(), arrivals: 0, last_overlap: f64::NEG_INFINITY, last_busy: f64::NEG_INFINITY, started: HashMap::new(), cooldowns: HashMap::new(), continuing: std::collections::HashSet::new(), last_key: None }
     }
 
     pub fn push(&mut self, call: Call) {
@@ -168,7 +173,8 @@ impl Queue {
                 Some(p) => (c.priority <= Priority::Safety && c.priority < p.priority).then_some(true),
                 None if c.priority <= Priority::Safety => Some(false),
                 None => {
-                    let quiet = now - self.last_overlap >= QUIET_AFTER_OVERLAP_S && now - self.last_busy >= GAP_S;
+                    let follows = self.last_key == Some(c.key) && self.continuing.contains(c.key);
+                    let quiet = now - self.last_overlap >= QUIET_AFTER_OVERLAP_S && (follows || now - self.last_busy >= GAP_S);
                     let straight = c.priority == Priority::Tactical || situation.straight || now - c.at >= STRAIGHT_WAIT_S;
                     (quiet && straight).then_some(false)
                 }
@@ -179,6 +185,7 @@ impl Queue {
         };
         let (call, _) = self.waiting.remove(i);
         self.started.insert(call.key, now);
+        self.last_key = Some(call.key);
         if call.priority != Priority::Spotter {
             self.last_busy = now;
         }
@@ -269,6 +276,27 @@ mod tests {
         queue.push(call(&Event::ClosingFast { car: (0, 1), gap_s: 1.0 }, 1.0));
         assert!(matches!(queue.next(1.0, Some(&lap), CALM), Next::Interrupt(Call { key: "closing_fast", .. })));
         assert_eq!(queue.waiting().count(), 0);
+    }
+
+    #[test]
+    fn the_sentences_of_one_answer_follow_each_other_without_the_gap_between_messages() {
+        let answer = |at: f64| Call { key: "coach_answer", car: None, priority: Priority::Tactical, at, expires: at + 30.0 };
+        let mut queue = Queue::new();
+        queue.continuing.insert("coach_answer");
+        queue.push(answer(0.0));
+        queue.push(answer(0.1));
+        queue.push(engineer("fuel_laps", 0.0));
+        let first = played(queue.next(0.2, None, CALM));
+        assert_eq!(queue.next(1.0, Some(&first), CALM), Next::Nothing, "the first sentence is being said");
+        assert_eq!(played(queue.next(1.5, None, CALM)).at, 0.1, "the second follows at once");
+        assert_eq!(queue.next(2.5, None, CALM), Next::Nothing, "another message keeps its distance");
+        assert_eq!(played(queue.next(4.5, None, CALM)).key, "fuel_laps");
+        // a car alongside still comes first
+        queue.push(answer(5.0));
+        queue.push(answer(5.1));
+        let first = played(queue.next(8.0, None, CALM));
+        queue.push(call(&Event::CarLeft { car: (0, 1) }, 8.2));
+        assert!(matches!(queue.next(8.2, Some(&first), ALONGSIDE), Next::Interrupt(Call { key: "car_left", .. })));
     }
 
     #[test]

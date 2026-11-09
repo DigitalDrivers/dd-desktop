@@ -29,6 +29,11 @@
       "en": ["Copy, stand by.", "Copy, one moment.", "Understood, checking now.", "Copy, give me a second."]
     },
 
+    "coach_tank_empty": { "de": ["Der KI-Tank ist leer."], "en": ["The AI tank is empty."] },
+    "coach_not_available": { "de": ["Der KI-Coach ist gerade nicht erreichbar."], "en": ["The AI coach is not available right now."] },
+    "coach_failed": { "de": ["Das hat nicht geklappt. Frag noch mal."], "en": ["That did not work. Ask again."] },
+    "coach_not_understood": { "de": ["Nicht verstanden. Sag es noch mal."], "en": ["Did not copy. Say again."] },
+
     "fuel_low": { "de": ["Sprit wird knapp."], "en": ["Fuel is getting low."] },
     "fuel_box_this_lap": { "de": ["Box diese Runde, zum Tanken."], "en": ["Box this lap for fuel."] },
     "lap_invalid": { "de": ["Runde ungültig."], "en": ["Lap invalid."] },

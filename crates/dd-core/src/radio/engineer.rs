@@ -39,7 +39,7 @@ use std::collections::VecDeque;
 use super::phrases;
 use super::queue::{Call, Priority};
 use crate::engineer::measure::{HOT, VERY_HOT};
-use crate::evo_memory::{f32_at, GRAPHICS_SIZE, STATIC_SIZE};
+use crate::evo_memory::{self, f32_at, GRAPHICS_SIZE, STATIC_SIZE};
 use crate::laps::{self, i32_at, f32s_at, LapRecorder, LapSummary, PHYSICS_SIZE};
 
 /// An engineer's call is still worth saying this long (research §3: 20 to 30 s).
@@ -120,6 +120,7 @@ struct Sample {
     fuel: f32,
     valid: bool,
     pit_lane: bool,
+    pit_box: bool,
     /// FL FR RL RR
     brake_temp: [f32; 4],
     core_temp: [f32; 4],
@@ -133,6 +134,7 @@ impl Sample {
             fuel: f32_at(graphics, laps::FUEL),
             valid: graphics[laps::IS_VALID_LAP] != 0,
             pit_lane: graphics[laps::IS_IN_PIT_LANE] != 0,
+            pit_box: graphics[evo_memory::IS_IN_PIT_BOX] != 0,
             brake_temp: f32s_at(physics, laps::BRAKE_TEMP),
             core_temp: f32s_at(physics, laps::TYRE_CORE_TEMPERATURE),
         })
@@ -164,7 +166,18 @@ pub struct Engineer {
     brakes_said_at: Option<f64>,
     tyres_cold_seen: bool,
     tyres_said: bool,
+    // for the coach
+    /// The laps since the car left the pits, without the ones through the pit lane
+    stint: Vec<LapSummary>,
+    /// The stint was handed out (or is too short) since the car came back to its box
+    stint_taken: bool,
+    in_box: bool,
+    /// Fuel, tyre core and brake temperatures of the newest live sample
+    now: Option<(f32, [f32; 4], [f32; 4])>,
 }
+
+/// The flying laps a stint needs before the coach sums it up.
+pub const STINT_LAPS: usize = 3;
 
 fn say(key: &'static str, group: Group, t: f64, text: Option<String>) -> Say {
     Say { call: Call { key, car: None, priority: Priority::Engineer, at: t, expires: t + EXPIRES_S }, text, group }
@@ -192,7 +205,48 @@ impl Engineer {
             brakes_said_at: None,
             tyres_cold_seen: false,
             tyres_said: false,
+            stint: Vec::new(),
+            stint_taken: false,
+            in_box: false,
+            now: None,
         }
+    }
+
+    /// What the coach's model gets to answer a question: the fuel, the best and the last lap, the laps of the stint
+    /// and the car's temperatures now, as the pages give them. The shell adds the car and the track.
+    pub fn context(&self) -> serde_json::Value {
+        let per_lap = (!self.fuel_used.is_empty()).then(|| self.fuel_used.iter().map(|l| *l as f64).sum::<f64>() / self.fuel_used.len() as f64);
+        let fuel = self.now.map(|(fuel, _, _)| fuel as f64);
+        let laps: Vec<serde_json::Value> = self
+            .stint
+            .iter()
+            .map(|lap| {
+                serde_json::json!({
+                    "lapTimeMs": lap.lap_time_ms, "valid": lap.valid, "fuelUsedL": lap.fuel_used_l, "topSpeedKmh": lap.top_speed_kmh,
+                    "latGMax": lap.lat_g_max, "brakeGMax": lap.brake_g_max, "balanceDeg": lap.balance_deg,
+                })
+            })
+            .collect();
+        serde_json::json!({
+            "fuelL": fuel,
+            "fuelPerLapL": per_lap,
+            "fuelLaps": fuel.zip(per_lap).map(|(fuel, per_lap)| fuel / per_lap),
+            "bestLapMs": self.given_best.into_iter().chain(self.session_best).min(),
+            "lastLapMs": self.stint.last().map(|lap| lap.lap_time_ms),
+            "stintLaps": laps,
+            "tyresCoreC": self.now.map(|(_, tyres, _)| tyres),
+            "brakesC": self.now.map(|(_, _, brakes)| brakes),
+        })
+    }
+
+    /// The stint to sum up, once: the car is back in its box after at least `STINT_LAPS` flying laps. The same
+    /// shape as `context`.
+    pub fn take_stint(&mut self) -> Option<serde_json::Value> {
+        if !self.in_box || self.stint_taken {
+            return None;
+        }
+        self.stint_taken = true;
+        (self.stint.len() >= STINT_LAPS).then(|| self.context())
     }
 
     /// The driver's best lap on this car and track before this session, if the app knows one (the shell passes it
@@ -215,10 +269,14 @@ impl Engineer {
             return out;
         };
         self.watch_fuel(s.fuel);
+        self.now = Some((s.fuel, s.core_temp, s.brake_temp));
+        self.in_box = s.pit_box;
         let (lap_count, was_valid, was_in_pit) = self.last.unwrap_or((s.lap_count, s.valid, s.pit_lane));
         self.last = Some((s.lap_count, s.valid, s.pit_lane));
         if was_in_pit && !s.pit_lane {
             self.pit_exit_at = Some(t);
+            self.stint.clear();
+            self.stint_taken = false;
             self.invalid_said = false;
             self.tyres_cold_seen = false;
             self.tyres_said = false;
@@ -259,6 +317,7 @@ impl Engineer {
         if lap.pit {
             return;
         }
+        self.stint.push(lap.clone());
         if lap.valid {
             let ms = lap.lap_time_ms as i64;
             let best = self.given_best.into_iter().chain(self.session_best).min();
@@ -445,6 +504,66 @@ mod tests {
             said.extend(self.step(engineer));
             said
         }
+    }
+
+    #[test]
+    fn the_coach_s_context_tells_the_fuel_the_laps_of_the_stint_and_the_car_s_temperatures() {
+        let (mut e, mut pages) = (engineer(), Pages::new());
+        assert_eq!(e.context()["stintLaps"], serde_json::json!([]), "nothing driven yet");
+        on_a_flying_lap(&mut e, &mut pages);
+        pages.lap(&mut e, 4.0, 95_300);
+        pages.valid(false);
+        pages.lap(&mut e, 4.0, 96_000);
+        pages.valid(true);
+        pages.brakes([520.0, 510.0, 400.0, 405.0]);
+        pages.step(&mut e);
+        let context = e.context();
+        assert_eq!(context["bestLapMs"], 95_300);
+        assert_eq!(context["lastLapMs"], 96_000);
+        assert_eq!(context["stintLaps"].as_array().unwrap().len(), 2, "the out-lap through the pit lane is no lap of the stint");
+        assert_eq!(context["stintLaps"][0]["lapTimeMs"], 95_300);
+        assert_eq!(context["stintLaps"][1]["valid"], false);
+        assert!((context["fuelPerLapL"].as_f64().unwrap() - 4.0).abs() < 0.01);
+        assert!((context["fuelL"].as_f64().unwrap() - 19.0).abs() < 0.01, "30 l less 3 + 4 + 4");
+        assert!((context["fuelLaps"].as_f64().unwrap() - 4.75).abs() < 0.01);
+        assert_eq!(context["tyresCoreC"], serde_json::json!([85.0, 85.0, 85.0, 85.0]));
+        assert_eq!(context["brakesC"], serde_json::json!([520.0, 510.0, 400.0, 405.0]));
+    }
+
+    #[test]
+    fn a_stint_of_three_flying_laps_is_handed_out_once_when_the_car_is_back_in_its_box() {
+        let (mut e, mut pages) = (engineer(), Pages::new());
+        on_a_flying_lap(&mut e, &mut pages);
+        for ms in [95_300, 94_800] {
+            pages.lap(&mut e, 4.0, ms);
+        }
+        // back in the box after two laps: too short to sum up
+        pages.pit(true);
+        pages.graphics[evo_memory::IS_IN_PIT_BOX] = 1;
+        pages.drive(&mut e, 5);
+        assert!(e.take_stint().is_none());
+        pages.graphics[evo_memory::IS_IN_PIT_BOX] = 0;
+        on_a_flying_lap_again(&mut e, &mut pages);
+        for ms in [95_300, 94_800, 94_100] {
+            pages.lap(&mut e, 4.0, ms);
+            assert!(e.take_stint().is_none(), "on track");
+        }
+        pages.pit(true);
+        pages.drive(&mut e, 5);
+        assert!(e.take_stint().is_none(), "in the pit lane, not in the box yet");
+        pages.graphics[evo_memory::IS_IN_PIT_BOX] = 1;
+        pages.drive(&mut e, 5);
+        let stint = e.take_stint().expect("three flying laps and back in the box");
+        assert_eq!(stint["stintLaps"].as_array().unwrap().len(), 3);
+        assert_eq!(stint["stintLaps"][2]["lapTimeMs"], 94_100);
+        pages.drive(&mut e, 5);
+        assert!(e.take_stint().is_none(), "once");
+    }
+
+    /// Out of the box a second time: the out-lap, then the next lap counts.
+    fn on_a_flying_lap_again(e: &mut Engineer, pages: &mut Pages) {
+        pages.leave_the_box(e);
+        pages.lap(e, 3.0, 130_000);
     }
 
     fn keys(said: &[Say]) -> Vec<&'static str> {
