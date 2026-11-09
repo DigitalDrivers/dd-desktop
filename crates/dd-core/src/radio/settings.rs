@@ -1,6 +1,6 @@
 //! The team radio's settings on this PC (`radio.json` in the app's config folder): the headset, the voice and what
-//! the coach says are a matter of the PC the driver sits at, so the platform does not keep them. The driver's radio
-//! name is the platform's, because other drivers hear it.
+//! the spotter, the race engineer and the coach say are a matter of the PC the driver sits at, so the platform does
+//! not keep them. The driver's radio name is the platform's, because other drivers hear it.
 
 use std::fs;
 use std::io;
@@ -8,30 +8,52 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use super::engineer::Group;
+use super::queue::{Call, Priority};
+
 const FILE: &str = "radio.json";
 
 /// The voices the engine brings: five male, five female, each speaks German and English.
 pub const VOICES: [&str; 10] = ["M1", "M2", "M3", "M4", "M5", "F1", "F2", "F3", "F4", "F5"];
 pub const LANGUAGES: [&str; 2] = ["de", "en"];
 
-/// Which kinds of calls the driver wants to hear.
+/// The coach (push-to-talk, live tips, the stint's summary, the AI's answers) ships later. While this is false the
+/// settings page hides the coach's block and the coach stays off whatever a file says; its code stays.
+pub const COACH_AVAILABLE: bool = false;
+
+/// The spotter: cars beside the driver and, with `traffic`, cars around him.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-pub struct Groups {
+pub struct Spotter {
     /// Cars beside the driver: left, right, three wide, clear
-    pub spotter: bool,
+    pub enabled: bool,
     /// Cars closing from behind, close behind, in the slipstream, slow ahead
     pub traffic: bool,
-    pub fuel: bool,
-    /// Lap times, personal bests, invalid laps
-    pub laps: bool,
-    /// Brakes, tyres, pit limiter
-    pub car: bool,
 }
 
-impl Default for Groups {
+impl Default for Spotter {
     fn default() -> Self {
-        Self { spotter: true, traffic: true, fuel: true, laps: true, car: true }
+        Self { enabled: true, traffic: true }
+    }
+}
+
+/// The race engineer and the kinds of calls he makes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Engineer {
+    pub enabled: bool,
+    /// Lap times, personal bests, invalid laps
+    pub laps: bool,
+    pub fuel: bool,
+    /// Brakes, tyres
+    pub car: bool,
+    /// The pit lane: entry speed, limiter, the stop's countdown, traffic or clear at the pit exit
+    pub pit: bool,
+}
+
+impl Default for Engineer {
+    fn default() -> Self {
+        Self { enabled: true, laps: true, fuel: true, car: true, pit: true }
     }
 }
 
@@ -62,8 +84,11 @@ impl Button {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Coach {
-    /// Off until the driver switches the coach's microphone on
+    /// Off until the driver switches the coach on; off while the coach is not available ([`COACH_AVAILABLE`])
     pub enabled: bool,
+    /// Live tips: after a corner the coach says where it cost time against the driver's best lap. Off until the
+    /// driver switches it on.
+    pub live_tips: bool,
     pub button: Option<Button>,
     /// The input device's id as the sound system names it; None for the PC's default microphone
     pub microphone: Option<String>,
@@ -85,16 +110,14 @@ pub struct Settings {
     pub effect: u8,
     /// The output device's id as the sound system names it; None for the PC's default device
     pub device: Option<String>,
-    pub groups: Groups,
-    /// Live tips: after a corner the coach says where it cost time against the driver's best lap. Off until the
-    /// driver switches it on.
-    pub live_tips: bool,
+    pub spotter: Spotter,
+    pub engineer: Engineer,
     pub coach: Coach,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { enabled: false, voice: VOICES[0].to_string(), language: LANGUAGES[0].to_string(), volume: 80, effect: 100, device: None, groups: Groups::default(), live_tips: false, coach: Coach::default() }
+        Self { enabled: false, voice: VOICES[0].to_string(), language: LANGUAGES[0].to_string(), volume: 80, effect: 100, device: None, spotter: Spotter::default(), engineer: Engineer::default(), coach: Coach::default() }
     }
 }
 
@@ -113,8 +136,35 @@ impl Settings {
         self.device = self.device.filter(|device| !device.is_empty() && device.len() <= 300);
         self.coach.button = self.coach.button.filter(Button::sane);
         self.coach.microphone = self.coach.microphone.filter(|device| !device.is_empty() && device.len() <= 300);
+        if !COACH_AVAILABLE {
+            self.coach.enabled = false;
+            self.coach.live_tips = false;
+        }
         self
     }
+}
+
+/// Whether the driver wants to hear a spotter's call. The pit exit's traffic or clear belongs to the engineer's pit
+/// lane.
+pub fn wanted_spotter(settings: &Settings, call: &Call) -> bool {
+    match (call.key, call.priority) {
+        ("pit_exit_traffic" | "pit_exit_clear", _) => wanted_engineer(settings, Group::Pit),
+        (_, Priority::Spotter) => settings.spotter.enabled,
+        (_, Priority::Safety | Priority::Tactical) => settings.spotter.enabled && settings.spotter.traffic,
+        _ => true,
+    }
+}
+
+/// Whether the driver wants to hear the engineer's calls of a group.
+pub fn wanted_engineer(settings: &Settings, group: Group) -> bool {
+    let engineer = &settings.engineer;
+    engineer.enabled
+        && match group {
+            Group::Laps => engineer.laps,
+            Group::Fuel => engineer.fuel,
+            Group::Car => engineer.car,
+            Group::Pit => engineer.pit,
+        }
 }
 
 /// The settings on this PC; the defaults while the driver has set nothing or the file is unreadable.
@@ -151,6 +201,7 @@ fn merge(into: &mut serde_json::Value, from: &serde_json::Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::radio::queue;
     use serde_json::json;
 
     fn dir(tag: &str) -> std::path::PathBuf {
@@ -160,36 +211,86 @@ mod tests {
     }
 
     #[test]
-    fn the_radio_is_off_with_every_call_group_on_until_the_driver_chooses() {
+    fn the_radio_is_off_with_the_spotter_and_the_engineer_on_until_the_driver_chooses() {
         let dir = dir("defaults");
         let settings = load(&dir);
         assert_eq!(settings, Settings::default());
         assert!(!settings.enabled);
         assert_eq!((settings.voice.as_str(), settings.language.as_str(), settings.volume, settings.effect), ("M1", "de", 80, 100));
-        assert_eq!(settings.groups, Groups { spotter: true, traffic: true, fuel: true, laps: true, car: true });
-        assert!(!settings.live_tips);
-        // a file of a version before the live tips reads as before
+        assert_eq!(settings.spotter, Spotter { enabled: true, traffic: true });
+        assert_eq!(settings.engineer, Engineer { enabled: true, laps: true, fuel: true, car: true, pit: true });
+        assert_eq!(settings.coach, Coach::default());
+        // a file of a version before the three blocks still loads: its call groups and live tips are left out, the
+        // blocks take their defaults
         fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join(FILE), br#"{ "enabled": true, "voice": "F2" }"#).unwrap();
+        fs::write(dir.join(FILE), br#"{ "enabled": true, "voice": "F2", "groups": { "spotter": false, "fuel": false }, "liveTips": true }"#).unwrap();
         assert_eq!(load(&dir), Settings { enabled: true, voice: "F2".into(), ..Settings::default() });
-        assert!(change(&dir, &json!({ "liveTips": true })).unwrap().live_tips);
         fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
     fn a_change_touches_only_what_it_names_and_stays() {
         let dir = dir("change");
-        let settings = change(&dir, &json!({ "enabled": true, "voice": "F3", "groups": { "fuel": false } })).unwrap();
+        let settings = change(&dir, &json!({ "enabled": true, "voice": "F3", "engineer": { "fuel": false } })).unwrap();
         assert!(settings.enabled);
         assert_eq!(settings.voice, "F3");
-        assert_eq!(settings.groups, Groups { fuel: false, ..Groups::default() });
-        let settings = change(&dir, &json!({ "volume": 55, "device": "wasapi:{0.0.0.00000000}.{abc}" })).unwrap();
+        assert_eq!(settings.engineer, Engineer { fuel: false, ..Engineer::default() });
+        assert_eq!(settings.spotter, Spotter::default());
+        let settings = change(&dir, &json!({ "volume": 55, "device": "wasapi:{0.0.0.00000000}.{abc}", "spotter": { "traffic": false } })).unwrap();
         assert_eq!((settings.enabled, settings.voice.as_str(), settings.volume), (true, "F3", 55));
         assert_eq!(settings.device.as_deref(), Some("wasapi:{0.0.0.00000000}.{abc}"));
-        assert!(!settings.groups.fuel);
+        assert!(!settings.engineer.fuel);
+        assert_eq!(settings.spotter, Spotter { enabled: true, traffic: false });
         assert_eq!(load(&dir), settings);
         assert_eq!(change(&dir, &json!({ "device": null })).unwrap().device, None);
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_coach_stays_off_while_it_is_not_available() {
+        let dir = dir("coach-available");
+        let settings = change(&dir, &json!({ "coach": { "enabled": true, "liveTips": true, "stints": true, "microphone": "wasapi:{0.0.1.00000000}.{mic}" } })).unwrap();
+        assert_eq!((settings.coach.enabled, settings.coach.live_tips), (COACH_AVAILABLE, COACH_AVAILABLE));
+        assert!(settings.coach.stints && settings.coach.microphone.is_some(), "the rest of the coach is kept");
+        // a file that has the coach on
+        fs::write(dir.join(FILE), br#"{ "coach": { "enabled": true, "liveTips": true } }"#).unwrap();
+        let coach = load(&dir).coach;
+        assert_eq!((coach.enabled, coach.live_tips), (COACH_AVAILABLE, COACH_AVAILABLE));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn each_block_and_group_silences_its_own_calls() {
+        use crate::radio::spotter::Event;
+        let car = (1, 2);
+        let calls = [
+            Event::CarLeft { car },
+            Event::ClearAll,
+            Event::SlowCarAhead { car },
+            Event::InTow { car },
+            Event::PitExitTraffic { car },
+            Event::PitExitClear,
+        ]
+        .map(|event| queue::call(&event, 0.0));
+        let heard = |settings: &Settings| calls.iter().filter(|call| wanted_spotter(settings, call)).map(|call| call.key).collect::<Vec<_>>();
+        let on = Settings::default();
+        assert_eq!(heard(&on), ["car_left", "clear", "slow_car_ahead", "in_tow", "pit_exit_traffic", "pit_exit_clear"]);
+        let traffic_off = Settings { spotter: Spotter { traffic: false, ..Spotter::default() }, ..Settings::default() };
+        assert_eq!(heard(&traffic_off), ["car_left", "clear", "pit_exit_traffic", "pit_exit_clear"]);
+        let spotter_off = Settings { spotter: Spotter { enabled: false, traffic: true }, ..Settings::default() };
+        assert_eq!(heard(&spotter_off), ["pit_exit_traffic", "pit_exit_clear"], "the pit exit is the engineer's");
+        let pit_off = Settings { engineer: Engineer { pit: false, ..Engineer::default() }, ..Settings::default() };
+        assert_eq!(heard(&pit_off), ["car_left", "clear", "slow_car_ahead", "in_tow"]);
+        let engineer_off = Settings { engineer: Engineer { enabled: false, ..Engineer::default() }, ..Settings::default() };
+        assert_eq!(heard(&engineer_off), ["car_left", "clear", "slow_car_ahead", "in_tow"]);
+
+        let groups = [Group::Laps, Group::Fuel, Group::Car, Group::Pit];
+        let wanted = |settings: &Settings| groups.map(|group| wanted_engineer(settings, group));
+        assert_eq!(wanted(&on), [true; 4]);
+        assert_eq!(wanted(&engineer_off), [false; 4]);
+        assert_eq!(wanted(&pit_off), [true, true, true, false]);
+        let some_off = Settings { engineer: Engineer { laps: false, car: false, ..Engineer::default() }, ..Settings::default() };
+        assert_eq!(wanted(&some_off), [false, true, false, true]);
     }
 
     #[test]
@@ -208,7 +309,7 @@ mod tests {
     #[test]
     fn the_coach_s_microphone_is_off_without_a_button_until_the_driver_chooses() {
         let dir = dir("coach-defaults");
-        assert_eq!(load(&dir).coach, Coach { enabled: false, button: None, microphone: None, stints: false });
+        assert_eq!(load(&dir).coach, Coach { enabled: false, live_tips: false, button: None, microphone: None, stints: false });
         // a file from before the coach keeps its settings and gets the coach's defaults
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join(FILE), br#"{ "enabled": true, "voice": "F2", "volume": 40 }"#).unwrap();
@@ -232,9 +333,9 @@ mod tests {
         assert_eq!(settings.coach.button, Some(Button::Key { code: 0x7C, name: "F13".into() }));
         let file: serde_json::Value = serde_json::from_slice(&fs::read(dir.join(FILE)).unwrap()).unwrap();
         assert_eq!(file["coach"]["button"], json!({ "kind": "key", "code": 0x7C, "name": "F13" }));
-        assert!(settings.coach.enabled && settings.coach.microphone.is_some(), "the rest of the coach stays");
+        assert!(settings.coach.enabled == COACH_AVAILABLE && settings.coach.microphone.is_some(), "the rest of the coach stays");
         assert_eq!(load(&dir), settings);
-        assert_eq!(change(&dir, &json!({ "coach": { "button": null, "microphone": null } })).unwrap().coach, Coach { enabled: true, button: None, microphone: None, stints: false });
+        assert_eq!(change(&dir, &json!({ "coach": { "button": null, "microphone": null } })).unwrap().coach, Coach { enabled: COACH_AVAILABLE, live_tips: false, button: None, microphone: None, stints: false });
         fs::remove_dir_all(&dir).unwrap();
     }
 

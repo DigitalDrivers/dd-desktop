@@ -126,6 +126,8 @@ pub enum Group {
     Laps,
     /// Brakes, tyres
     Car,
+    /// The pit lane: entry speed, limiter, the stop's countdown
+    Pit,
 }
 
 /// What the engineer wants said.
@@ -406,7 +408,7 @@ impl Engineer {
         self.watch_lock(t, s.lock, &mut out);
         let was_at = self.location.replace(s.location);
         if was_at == Some(TRACK) && matches!(s.location, PIT_ENTRY | PIT_LANE) && s.over_pit_limit {
-            let warning = say_within("pit_entry_speed", Group::Car, t, SAFETY_EXPIRES_S, None);
+            let warning = say_within("pit_entry_speed", Group::Pit, t, SAFETY_EXPIRES_S, None);
             out.push(Say { call: Call { priority: Priority::Safety, ..warning.call }, ..warning });
         }
         if matches!(was_at, Some(TRACK | PIT_ENTRY)) && s.location == PIT_LANE {
@@ -460,11 +462,11 @@ impl Engineer {
         };
         if let Some(seconds) = time_left {
             self.lock_said_at = t;
-            out.push(say_within("pit_stop_time", Group::Car, t, PIT_EXPIRES_S, Some(phrases::pit_stop_time(seconds as u64, &self.lang))));
+            out.push(say_within("pit_stop_time", Group::Pit, t, PIT_EXPIRES_S, Some(phrases::pit_stop_time(seconds as u64, &self.lang))));
         }
         for (mark, key) in [(10_000.0, "pit_ten"), (5_000.0, "pit_five"), (0.0, "pit_go")] {
             if crossed(mark) {
-                out.push(say_within(key, Group::Car, t, COUNT_EXPIRES_S, None));
+                out.push(say_within(key, Group::Pit, t, COUNT_EXPIRES_S, None));
             }
         }
     }
@@ -472,7 +474,7 @@ impl Engineer {
     fn watch_limiter(&mut self, t: f64, s: &Sample, out: &mut Vec<Say>) {
         let known = self.limiter.replace(s.limiter);
         if s.speed >= ROLLING_MS && known.is_some_and(|known| known != s.limiter) {
-            out.push(say_within(if s.limiter { "limiter_on" } else { "limiter_off" }, Group::Car, t, PIT_EXPIRES_S, None));
+            out.push(say_within(if s.limiter { "limiter_on" } else { "limiter_off" }, Group::Pit, t, PIT_EXPIRES_S, None));
         }
     }
 
@@ -1180,7 +1182,7 @@ mod tests {
         pages.limiter(false);
         let said = pages.drive(&mut e, 5);
         assert_eq!(keys(&said), ["limiter_off"]);
-        assert_eq!((said[0].group, said[0].call.priority, said[0].text.as_deref()), (Group::Car, Priority::Engineer, None));
+        assert_eq!((said[0].group, said[0].call.priority, said[0].text.as_deref()), (Group::Pit, Priority::Engineer, None));
         assert!((said[0].call.expires - said[0].call.at - PIT_EXPIRES_S).abs() < 1e-9, "a limiter call is stale soon");
         pages.limiter(true);
         assert_eq!(keys(&pages.drive(&mut e, 5)), ["limiter_on"]);
@@ -1215,7 +1217,7 @@ mod tests {
         pages.pit_speeding(0.7);
         let said = pages.drive(&mut e, 20);
         assert_eq!(keys(&said), ["pit_entry_speed"]);
-        assert_eq!((said[0].group, said[0].call.priority, said[0].text.as_deref()), (Group::Car, Priority::Safety, None));
+        assert_eq!((said[0].group, said[0].call.priority, said[0].text.as_deref()), (Group::Pit, Priority::Safety, None));
         assert!((said[0].call.expires - said[0].call.at - SAFETY_EXPIRES_S).abs() < 1e-9);
         pages.location(PIT_LANE);
         assert!(!keys(&pages.drive(&mut e, 20)).contains(&"pit_entry_speed"), "once an entry");
@@ -1241,7 +1243,7 @@ mod tests {
         pages.drive(&mut e, 5);
         pages.location(PIT_LANE);
         pages.drive(&mut e, 5);
-        let warnings: Vec<Say> = pages.said.iter().filter(|s| s.group == Group::Car).cloned().collect();
+        let warnings: Vec<Say> = pages.said.iter().filter(|s| s.group == Group::Pit).cloned().collect();
         assert_eq!(keys(&warnings), ["pit_entry_speed"; 3]);
         // from the pit exit back into the pit lane (the game put the car in its box): nothing
         pages.location(PIT_EXIT);
@@ -1271,7 +1273,7 @@ mod tests {
         assert_eq!(keys(&said), ["pit_stop_time", "pit_ten", "pit_five", "pit_go"]);
         let at: Vec<f64> = said.iter().map(|s| ((s.call.at - t0) * 100.0).round() / 100.0).collect();
         assert_eq!(at, [0.0, 24.0, 29.0, 34.0]);
-        assert!(said.iter().all(|s| s.group == Group::Car && s.call.priority == Priority::Engineer));
+        assert!(said.iter().all(|s| s.group == Group::Pit && s.call.priority == Priority::Engineer));
         let life: Vec<f64> = said.iter().map(|s| ((s.call.expires - s.call.at) * 100.0).round() / 100.0).collect();
         assert_eq!(life, [PIT_EXPIRES_S, COUNT_EXPIRES_S, COUNT_EXPIRES_S, COUNT_EXPIRES_S]);
         // A2 483.3 s, back to the pits: 84,983 ms
