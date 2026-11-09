@@ -44,7 +44,7 @@
     "pit_entry_speed": { "de": ["Boxeneinfahrt, Tempo runter!"], "en": ["Pit entry, slow down!"] },
     "pit_ten": { "de": ["Zehn Sekunden."], "en": ["Ten seconds."] },
     "pit_five": { "de": ["Fünf."], "en": ["Five."] },
-    "pit_go": { "de": ["Los, los, los!"], "en": ["Go, go, go!"] },
+    "pit_go": { "de": ["Freigabe. Los."], "en": ["Release. Go."] },
     "pit_exit_traffic": { "de": ["Ausfahrt, Auto kommt!"], "en": ["Pit exit, car coming!"] },
     "pit_exit_clear": { "de": ["Ausfahrt frei."], "en": ["Pit exit clear."] },
 
