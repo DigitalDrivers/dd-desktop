@@ -27,7 +27,7 @@ pub enum Priority {
     Spotter,
     /// Closing fast, slow car ahead, traffic or clear at the pit exit (and the engineer's pit entry warning)
     Safety,
-    /// Close behind, slipstream, gaps
+    /// Close behind, slipstream, gaps (and the engineer's invalid lap)
     Tactical,
     /// Fuel, lap times, tyres, limiter
     Engineer,
