@@ -106,9 +106,14 @@ fn video_from_logs(logs: &Path) -> Option<GameVideo> {
     found.into_iter().take(LOGS_LOOKED_AT).find_map(|(_, path)| game_check::parse(&String::from_utf8_lossy(&fs::read(path).ok()?)))
 }
 
-pub fn check(app: &tauri::AppHandle) -> Result<GameCheck, String> {
+/// The video settings the game logged last; the OBS helper takes the canvas and the graphics card from them.
+pub fn video(app: &tauri::AppHandle) -> Result<GameVideo, String> {
     let logs = find_ac_evo_user_dir(app).ok_or_else(|| "ac-evo-not-found".to_string())?.join("Logs");
-    let video = video_from_logs(&logs).ok_or_else(|| "no-video-settings".to_string())?;
+    video_from_logs(&logs).ok_or_else(|| "no-video-settings".to_string())
+}
+
+pub fn check(app: &tauri::AppHandle) -> Result<GameCheck, String> {
+    let video = video(app)?;
     let checks = game_check::judge(&video);
     log(&format!(
         "game_check -> settings of {}: {}",

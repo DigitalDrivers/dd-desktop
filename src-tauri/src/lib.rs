@@ -22,6 +22,7 @@ use serde::Serialize;
 use tauri::{Emitter, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
+mod obs;
 mod radio;
 pub mod talk;
 mod replays;
@@ -1596,6 +1597,49 @@ async fn game_check(app: tauri::AppHandle) -> Result<replays::GameCheck, String>
     replays::check(&app)
 }
 
+/// The OBS helper's state on this PC: OBS found and supported, the card, the tier a recording uses, the drive. The
+/// JSON of this and the other `obs_*` commands is described at the top of `obs.rs`.
+#[tauri::command]
+async fn obs_status(app: tauri::AppHandle) -> Result<obs::Status, String> {
+    tauri::async_runtime::spawn_blocking(move || obs::status(&app)).await.map_err(|_| "failed".to_string())
+}
+
+/// Sets up OBS with our profile and scene collection and starts it minimised (OBS must be closed).
+#[tauri::command]
+async fn obs_prepare(app: tauri::AppHandle) -> Result<obs::Status, String> {
+    tauri::async_runtime::spawn_blocking(move || obs::prepare(&app)).await.map_err(|_| "failed".to_string())?
+}
+
+/// Tests 15 s per tier while a replay plays and leaves OBS on the best tier that drops no frames; events `obs-test`.
+#[tauri::command]
+async fn obs_quality_test(app: tauri::AppHandle) -> Result<obs::QualityTest, String> {
+    tauri::async_runtime::spawn_blocking(move || obs::quality_test(&app)).await.map_err(|_| "failed".to_string())?
+}
+
+/// Starts recording (`{ watermark?, seconds? }`); events `obs-recording` every second.
+#[tauri::command]
+async fn obs_record_start(app: tauri::AppHandle, watermark: Option<String>, seconds: Option<f64>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || obs::record_start(&app, watermark, seconds)).await.map_err(|_| "failed".to_string())?
+}
+
+/// Stops recording and answers the file and its numbers.
+#[tauri::command]
+async fn obs_record_stop(app: tauri::AppHandle) -> Result<obs::Recorded, String> {
+    tauri::async_runtime::spawn_blocking(move || obs::record_stop(&app)).await.map_err(|_| "failed".to_string())?
+}
+
+/// Closes the app's OBS and puts the driver's OBS back as it was.
+#[tauri::command]
+async fn obs_restore(app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || obs::restore(&app)).await.map_err(|_| "failed".to_string())?
+}
+
+/// Opens a recording (`{ path }`, an .mp4 in the recording folder) with the default player.
+#[tauri::command]
+fn obs_open_video(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    obs::open_video(&app, &path)
+}
+
 /// `--record <file> [--hz <n>] [--seconds <n>] [--label <text>]` records the game's shared memory without opening
 /// the app, until Enter is pressed or the seconds are over, and prints a status line every second: what the test
 /// scripts start. Answers the exit code, None without `--record`. A release build has no console and ignores it.
@@ -1970,6 +2014,7 @@ pub fn run() {
         .manage(Engineer::default())
         .manage(Recording::default())
         .manage(radio::Radio::default())
+        .manage(obs::Obs::default())
         .setup(|app| {
             // The race engineer keeps its lap list whenever the game runs while its switch is on, and evaluates
             // ended sessions every 5 minutes.
@@ -2009,7 +2054,7 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status, engineer_status, engineer_enable, engineer_sessions, engineer_session, engineer_traces, engineer_evaluate, engineer_forget, engineer_forget_session, engineer_keep, engineer_profile, engineer_seen, engineer_digests, engineer_digests_sent, coach_focus_get, coach_focus_set, recorder_start, recorder_stop, radio_status, radio_set, radio_devices, radio_download, radio_test, radio_preview, radio_names, radio_corner_names, talk_devices, talk_capture, coach_say, coach_done, coach_problem, radio_download_listen, replay_list, replay_keep, replay_delete, replay_open_folder, game_check])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status, engineer_status, engineer_enable, engineer_sessions, engineer_session, engineer_traces, engineer_evaluate, engineer_forget, engineer_forget_session, engineer_keep, engineer_profile, engineer_seen, engineer_digests, engineer_digests_sent, coach_focus_get, coach_focus_set, recorder_start, recorder_stop, radio_status, radio_set, radio_devices, radio_download, radio_test, radio_preview, radio_names, radio_corner_names, talk_devices, talk_capture, coach_say, coach_done, coach_problem, radio_download_listen, replay_list, replay_keep, replay_delete, replay_open_folder, game_check, obs_status, obs_prepare, obs_quality_test, obs_record_start, obs_record_stop, obs_restore, obs_open_video])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
