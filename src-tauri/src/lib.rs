@@ -1470,7 +1470,7 @@ fn radio_status(app: tauri::AppHandle) -> radio::RadioStatus {
 }
 
 /// Changes the team radio's settings on this PC: an object with any of `enabled`, `voice`, `language`, `volume`,
-/// `effect`, `device`, `groups` and `coach`. Answers the status that holds now.
+/// `effect`, `device`, `spotter`, `engineer` and `coach`. Answers the status that holds now.
 #[tauri::command]
 async fn radio_set(app: tauri::AppHandle, changes: serde_json::Value) -> Result<radio::RadioStatus, String> {
     tauri::async_runtime::spawn_blocking(move || radio::set(&app, &changes)).await.map_err(|_| "failed".to_string())?

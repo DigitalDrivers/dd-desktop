@@ -121,7 +121,7 @@ use std::time::{Duration, Instant};
 use dd_core::evo_memory;
 use dd_core::laps;
 use dd_core::radio::effect::{self, Shape};
-use dd_core::radio::engineer::{self, Engineer, Group};
+use dd_core::radio::engineer::{self, Engineer};
 use dd_core::radio::frame::{self, CarId};
 use dd_core::radio::live_tips::{self, LiveTips};
 use dd_core::radio::queue::{self, Call, Next, Priority, Queue, Situation};
@@ -432,7 +432,10 @@ pub fn start(app: &tauri::AppHandle) {
         log("radio: reading AC EVO's shared memory every 50 ms while the team radio is on");
         let looping = app.clone();
         std::thread::spawn(move || run(looping));
-        start_talk(app);
+        // the coach's push-to-talk is not watched at all until the coach ships
+        if settings::COACH_AVAILABLE {
+            start_talk(app);
+        }
     }
 }
 
@@ -531,11 +534,7 @@ fn run(app: tauri::AppHandle) {
             }
             let (_, _, engineer) = engineer.as_mut().expect("made above");
             for say in engineer.step(now, physics, graphics) {
-                let wanted = match say.group {
-                    Group::Fuel => settings.groups.fuel,
-                    Group::Laps => settings.groups.laps,
-                    Group::Car => settings.groups.car,
-                };
+                let wanted = settings::wanted_engineer(&settings, say.group);
                 match say.text {
                     _ if !wanted => {}
                     None => queue.push(say.call),
@@ -568,18 +567,13 @@ fn run(app: tauri::AppHandle) {
             if let Some(frame) = &frame {
                 for event in spotter.step(frame) {
                     let call = queue::call(&event, now);
-                    let wanted = match call.priority {
-                        Priority::Spotter => settings.groups.spotter,
-                        Priority::Safety | Priority::Tactical => settings.groups.traffic,
-                        _ => true,
-                    };
-                    if wanted {
+                    if settings::wanted_spotter(&settings, &call) {
                         queue.push(call);
                     }
                 }
             }
             // Live tips: one short sentence after a corner that cost time against the driver's best lap.
-            if settings.live_tips {
+            if settings.coach.enabled && settings.coach.live_tips {
                 // corner names that arrived meanwhile: the tips start again with them (their reference lap is kept on
                 // disk)
                 let version = radio.corner_names_version.load(Ordering::SeqCst);
@@ -851,6 +845,8 @@ pub struct RadioStatus {
     listen_ready: bool,
     listen_bytes: u64,
     listen_licence: &'static str,
+    /// Whether the coach ships in this version: the page shows the coach's block only then
+    coach_available: bool,
 }
 
 pub fn status(app: &tauri::AppHandle) -> RadioStatus {
@@ -861,7 +857,7 @@ pub fn status(app: &tauri::AppHandle) -> RadioStatus {
     });
     let downloading = *radio.downloading.lock().unwrap();
     let rendering = *radio.rendering.lock().unwrap();
-    RadioStatus { settings, voices: Engine::voices(), model_ready: model_ready(app), model_bytes: dd_voice::MODEL_FILES.iter().map(|file| file.size).sum(), downloading, rendering, library_ready, licence: dd_voice::LICENCE_NOTICE, listen_ready: listen_ready(app), listen_bytes: dd_voice::LISTEN_MODEL_FILES.iter().map(|file| file.size).sum(), listen_licence: dd_voice::LISTEN_LICENCE_NOTICE }
+    RadioStatus { settings, voices: Engine::voices(), model_ready: model_ready(app), model_bytes: dd_voice::MODEL_FILES.iter().map(|file| file.size).sum(), downloading, rendering, library_ready, licence: dd_voice::LICENCE_NOTICE, listen_ready: listen_ready(app), listen_bytes: dd_voice::LISTEN_MODEL_FILES.iter().map(|file| file.size).sum(), listen_licence: dd_voice::LISTEN_LICENCE_NOTICE, coach_available: settings::COACH_AVAILABLE }
 }
 
 /// Whether the driver switched the team radio on on this PC.
