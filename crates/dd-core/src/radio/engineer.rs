@@ -47,8 +47,9 @@
 //!   the game's `fuel_liter_per_lap`, before the first lap its own guess), less the tank, up to `max_fuel`. The
 //!   service is done in the first sample of the stop, so the number comes before the box. Without a lap count
 //!   (`total_lap` 0) or any fuel per lap it says, once a session, what is missing. On 2026-11-09 the static page said
-//!   `is_timed_race` 1 for the same race that had `total_lap` 10 and 32:30 of `time_left`; which of them ends the race
-//!   is not known yet, the sentence says the laps it counted.
+//!   `is_timed_race` 1 for races with `total_lap` 10 and 32:30 of `time_left`, and the next recording starts with
+//!   such a race "Ended" at the leader's `current_lap` 11 (by the clock the leader's 97 s laps would have made about
+//!   20): the lap count is the distance, the flag is not read. The sentence says the laps it counted.
 //! - **The stop's countdown** from `control_lock_time` (ms, -1 while the car is free; recordings of 2026-11-09): it
 //!   jumps up when the car stops in its box, with fuel, tyres and repairs already done in that sample, and counts
 //!   down to -1 when the car may go (34 s for a stop, 85 s and 80 s after "back to the pits"). The time left when it
