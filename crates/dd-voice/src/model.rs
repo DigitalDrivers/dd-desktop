@@ -93,7 +93,11 @@ fn sha256_of(path: &Path) -> std::io::Result<String> {
 /// Whether every model file is in `model_dir` with its size, and with `sha256` also its SHA-256 (reads all
 /// 383 MiB, about a second; worth it once after the download, not on every start).
 pub fn verify(model_dir: &Path, sha256: bool) -> Result<(), VoiceError> {
-    for file in &MODEL_FILES {
+    check(&MODEL_FILES, model_dir, sha256)
+}
+
+fn check(files: &[ModelFile], model_dir: &Path, sha256: bool) -> Result<(), VoiceError> {
+    for file in files {
         let path = model_dir.join(file.path);
         let size = std::fs::metadata(&path).map_err(|_| VoiceError::ModelMissing(file.path))?.len();
         if size != file.size {
@@ -104,6 +108,46 @@ pub fn verify(model_dir: &Path, sha256: bool) -> Result<(), VoiceError> {
         }
     }
     Ok(())
+}
+
+/// The commit of `onnx-community/whisper-base` every download URL of the listener is pinned to.
+pub const LISTEN_MODEL_REVISION: &str = "27a07b4b52b3a4c5886134bb4320e93e1a4bbc7c";
+
+macro_rules! listen_file {
+    ($path:literal, $size:literal, $sha256:literal) => {
+        ModelFile {
+            path: $path,
+            size: $size,
+            sha256: $sha256,
+            url: concat!("https://huggingface.co/onnx-community/whisper-base/resolve/27a07b4b52b3a4c5886134bb4320e93e1a4bbc7c/", $path),
+        }
+    };
+}
+
+/// The listener's ONNX files.
+pub(crate) const LISTEN_ENCODER: &str = "onnx/encoder_model_int8.onnx";
+pub(crate) const LISTEN_DECODER: &str = "onnx/decoder_model_merged_int8.onnx";
+
+/// Everything the listener reads: Whisper base (multilingual) as `onnx-community`'s export, the int8-quantised
+/// encoder and merged decoder. 77,971,875 bytes (74 MiB) in all. The SHA-256 of the ONNX files are the
+/// repository's LFS ids, the JSON files match the commit's git blob ids (checked 2026-11-09).
+pub const LISTEN_MODEL_FILES: [ModelFile; 6] = [
+    listen_file!("config.json", 2_243, "f4d0608f7d918166da7edb3e188de5ef1bfe70d9802e785d271fd88111e9cf4b"),
+    listen_file!("generation_config.json", 3_832, "61070cf8de25b1e9256e8e102ded49d8d24a8369ed36ef84fdf21549e68125a0"),
+    listen_file!("added_tokens.json", 34_604, "9715fd2243b6f06a5858b5e32950d2853f73dd5bc201aafcf76f5082a2d8acd1"),
+    listen_file!("vocab.json", 1_036_584, "50d6a919f0a0601d56a04eb583c780d18553aa388254ba3158eb6a00f13e2c1a"),
+    listen_file!("onnx/encoder_model_int8.onnx", 23_201_297, "ca6177401f86a2c6b4dc5f7fc02fbca680678906bd0c22f6d89f0b80f124253f"),
+    listen_file!("onnx/decoder_model_merged_int8.onnx", 53_693_315, "fa3ef9902734ce5ae6f9ef2bdb2ba9a6c4b5785b09f4f420ce036573dc9d090b"),
+];
+
+/// What the app shows next to the radio's speech recognition.
+pub const LISTEN_LICENCE_NOTICE: &str = "Speech recognition: Whisper by OpenAI, Copyright (c) 2022 OpenAI, MIT License \
+(https://github.com/openai/whisper/blob/main/LICENSE); ONNX export by onnx-community on Hugging Face \
+(https://huggingface.co/onnx-community/whisper-base, Apache License 2.0).";
+
+/// Whether every listener file is in `model_dir` with its size, and with `sha256` also its SHA-256 (74 MiB).
+pub fn verify_listener(model_dir: &Path, sha256: bool) -> Result<(), VoiceError> {
+    check(&LISTEN_MODEL_FILES, model_dir, sha256)
 }
 
 #[cfg(test)]
@@ -120,6 +164,18 @@ mod tests {
         for (voice, file) in crate::VOICES.iter().zip(VOICE_FILES) {
             assert_eq!(file, format!("voice_styles/{voice}.json"));
             assert!(MODEL_FILES.iter().any(|f| f.path == file));
+        }
+    }
+
+    #[test]
+    fn the_listener_table_is_consistent() {
+        assert_eq!(LISTEN_MODEL_FILES.iter().map(|f| f.size).sum::<u64>(), 77_971_875);
+        for f in &LISTEN_MODEL_FILES {
+            assert!(f.url.ends_with(f.path) && f.url.contains(LISTEN_MODEL_REVISION), "{}", f.url);
+            assert!(f.sha256.len() == 64 && f.sha256.bytes().all(|b| b.is_ascii_hexdigit()), "{}", f.path);
+        }
+        for path in [LISTEN_ENCODER, LISTEN_DECODER] {
+            assert!(LISTEN_MODEL_FILES.iter().any(|f| f.path == path), "{path}");
         }
     }
 

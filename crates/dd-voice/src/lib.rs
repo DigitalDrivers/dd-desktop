@@ -12,10 +12,15 @@
 //! - Each chunk is cut at its predicted duration, as supertone-inc's own Rust example does; the SDK returns the
 //!   vocoder's padded output, up to 3,071 samples (70 ms) longer.
 //! - Only "de" and "en": the model knows 31 languages, the radio speaks two.
+//!
+//! The ears are [`Listener`]: Whisper base turning the driver's push-to-talk question into text (`listen.rs`).
 
+mod audio;
 mod library;
+mod listen;
 mod model;
 mod text;
+mod tokens;
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -26,7 +31,11 @@ use ort::value::TensorRef;
 use serde::Deserialize;
 
 pub use library::{is_rendered, load_clip, render_library, render_names, Rendered};
-pub use model::{verify, ModelFile, LICENCE_NOTICE, MODEL_FILES, MODEL_REVISION};
+pub use audio::{log_mel, resample};
+pub use listen::{max_tokens, Listener, Transcript, Verdict, GATE_DBFS, LOGPROB, NO_SPEECH};
+pub use model::{
+    verify, verify_listener, ModelFile, LICENCE_NOTICE, LISTEN_LICENCE_NOTICE, LISTEN_MODEL_FILES, LISTEN_MODEL_REVISION, MODEL_FILES, MODEL_REVISION,
+};
 
 /// The voices the model ships with.
 pub const VOICES: [&str; 10] = ["M1", "M2", "M3", "M4", "M5", "F1", "F2", "F3", "F4", "F5"];
