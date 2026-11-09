@@ -23,6 +23,7 @@ use tauri::{Emitter, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
 mod radio;
+mod replays;
 
 /// Address of the hosted interface: the platform for a release build, a platform on this PC for a development
 /// build (`npm run dev`). `DD_PLATFORM_URL` overrides it.
@@ -1504,6 +1505,39 @@ fn radio_names(app: tauri::AppHandle, names: Vec<radio::DriverName>) {
     radio::set_names(&app, names);
 }
 
+/// The game's replays, each folder the newest first, read from the files' headers: `{ saved, temp, savedBytes,
+/// tempBytes, folder }`. Since 0.29.0.
+#[tauri::command]
+async fn replay_list(app: tauri::AppHandle) -> Result<replays::ReplayList, String> {
+    replays::list(&app)
+}
+
+/// Keeps a Temp replay (`{ name }`), which the game would rotate out, by moving it to Saved; answers its name
+/// there. Refused while the game runs. Since 0.29.0.
+#[tauri::command]
+async fn replay_keep(app: tauri::AppHandle, name: String) -> Result<String, String> {
+    replays::keep(&app, &name)
+}
+
+/// Deletes one replay (`{ folder: "saved" | "temp", name }`). Refused while the game runs. Since 0.29.0.
+#[tauri::command]
+async fn replay_delete(app: tauri::AppHandle, folder: dd_core::replays::Folder, name: String) -> Result<(), String> {
+    replays::delete(&app, folder, &name)
+}
+
+/// Opens the game's Replay folder in Explorer. Since 0.29.0.
+#[tauri::command]
+fn replay_open_folder(app: tauri::AppHandle) -> Result<(), String> {
+    replays::open_folder(&app)
+}
+
+/// Judges the video settings the game logged last for a recording: `{ checks: [{ id, level, value }], video }`.
+/// Only reads the game's log. Since 0.29.0.
+#[tauri::command]
+async fn game_check(app: tauri::AppHandle) -> Result<replays::GameCheck, String> {
+    replays::check(&app)
+}
+
 /// `--record <file> [--hz <n>] [--seconds <n>] [--label <text>]` records the game's shared memory without opening
 /// the app, until Enter is pressed or the seconds are over, and prints a status line every second: what the test
 /// scripts start. Answers the exit code, None without `--record`. A release build has no console and ignores it.
@@ -1917,7 +1951,7 @@ pub fn run() {
                 .build()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status, engineer_status, engineer_enable, engineer_sessions, engineer_session, engineer_traces, engineer_evaluate, engineer_forget, engineer_forget_session, engineer_keep, engineer_profile, engineer_seen, engineer_digests, engineer_digests_sent, coach_focus_get, coach_focus_set, recorder_start, recorder_stop, radio_status, radio_set, radio_devices, radio_download, radio_test, radio_preview, radio_names])
+        .invoke_handler(tauri::generate_handler![platform_url, system_check, show_toast, setup_status, install_setup, remove_setups, update_check, update_install, update_at_start, launch_ac_evo, car_status, install_car, fix_game_start, live_snapshot, take_laps, upload_motec, motec_status, engineer_status, engineer_enable, engineer_sessions, engineer_session, engineer_traces, engineer_evaluate, engineer_forget, engineer_forget_session, engineer_keep, engineer_profile, engineer_seen, engineer_digests, engineer_digests_sent, coach_focus_get, coach_focus_set, recorder_start, recorder_stop, radio_status, radio_set, radio_devices, radio_download, radio_test, radio_preview, radio_names, replay_list, replay_keep, replay_delete, replay_open_folder, game_check])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
