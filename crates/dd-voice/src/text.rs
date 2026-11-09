@@ -19,8 +19,9 @@ fn symbol(c: char) -> Option<char> {
     Some(match c {
         '\u{2013}' | '\u{2011}' | '\u{2014}' => '-',
         '\u{00af}' | '_' | '[' | ']' | '|' | '/' | '#' | '→' | '←' => ' ',
-        '\u{201c}' | '\u{201d}' => '"',
-        '\u{2018}' | '\u{2019}' | '\u{00b4}' | '`' => '\'',
+        // beyond the SDK's list: the German and French quotation marks, which the model has no index for either
+        '\u{201c}' | '\u{201d}' | '\u{201e}' | '\u{00ab}' | '\u{00bb}' => '"',
+        '\u{2018}' | '\u{2019}' | '\u{201a}' | '\u{2039}' | '\u{203a}' | '\u{00b4}' | '`' => '\'',
         '♥' | '☆' | '♡' | '©' | '\\' => return None,
         c => c,
     })
@@ -150,6 +151,9 @@ mod tests {
         assert_eq!(preprocess("Bremsen sehr heiß", "de"), "<de>Bremsen sehr heiß.</de>");
         assert_eq!(preprocess("Tyres — “hot” , aren’t they ?", "en"), "<en>Tyres - \"hot\", aren't they?</en>");
         assert_eq!(preprocess("a__b [x] 🚗 ©", "en"), "<en>a b x.</en>");
+        // not the SDK's: a German coach's answer quotes a corner's name
+        assert_eq!(preprocess("„Hatzenbach“: später bremsen", "de"), "<de>\"Hatzenbach\": spa\u{308}ter bremsen.</de>");
+        assert_eq!(preprocess("‚Brünnchen‘ und «Karussell»", "de"), "<de>'Bru\u{308}nnchen' und \"Karussell\"</de>");
         assert_eq!(preprocess("Say \"\"hi\"\"", "en"), "<en>Say \"hi\"</en>");
         assert_eq!(preprocess("mail@dd e.g., this", "en"), "<en>mail at dd for example, this.</en>");
     }

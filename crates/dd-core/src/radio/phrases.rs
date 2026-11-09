@@ -207,57 +207,84 @@ fn lap_time_words(lap_ms: i64, lang: &str) -> String {
 }
 
 /// A sentence of the coach's model with its numbers spelled out, so the voice says them as an engineer does: a lap
-/// time "1:12,4" becomes "eins zwölf vier", a decimal "26,4" "sechsundzwanzig Komma vier" ("point" in English),
-/// a whole number up to 999 its word. Larger numbers and everything else stay as written.
+/// time "1:12,4" becomes "eins zwölf vier", a decimal "26,4" "sechsundzwanzig Komma vier" ("point" in English, where
+/// the decimal sign is the point), a whole number up to 999 its word; "85%" gets "Prozent", "0,3 s" "Sekunden", a
+/// sign "minus" or "plus". What is not such a number (thousands "1.000", a date "12.11.", a version "0.9.1", three
+/// decimals, part of a word like "T13") stays whole as written.
 pub fn spoken(text: &str, lang: &str) -> String {
-    let number: fn(u64) -> String = if lang == "de" { de_number } else { en_number };
+    let german = lang == "de";
+    let number: fn(u64) -> String = if german { de_number } else { en_number };
+    let decimal_sign = if german { ',' } else { '.' };
     let chars: Vec<char> = text.chars().collect();
-    let digits_from = |at: usize| chars[at..].iter().take_while(|c| c.is_ascii_digit()).count();
-    let value = |at: usize, len: usize| chars[at..at + len].iter().collect::<String>().parse::<u64>().ok();
+    let digit = |at: usize| chars.get(at).is_some_and(char::is_ascii_digit);
+    let digits_from = |at: usize| chars[at.min(chars.len())..].iter().take_while(|c| c.is_ascii_digit()).count();
+    let value = |at: usize, len: usize| chars[at..at + len].iter().collect::<String>().parse::<u64>().unwrap_or(0);
     let mut out = String::with_capacity(text.len());
     let mut i = 0;
     while i < chars.len() {
-        let whole = digits_from(i);
-        // a number that continues a word ("T13") or is too long to say stays
-        let inside_word = i > 0 && chars[i - 1].is_alphanumeric();
-        let Some(n) = (whole > 0 && whole <= 3 && !inside_word).then(|| value(i, whole)).flatten() else {
-            let skip = whole.max(1);
-            out.extend(&chars[i..i + skip]);
-            i += skip;
-            continue;
-        };
-        let after = i + whole;
-        let seconds = if chars.get(after) == Some(&':') { digits_from(after + 1) } else { 0 };
-        if seconds == 2 {
-            // a lap time, with or without its tenths
-            let s = value(after + 1, 2).unwrap_or(0);
-            let end = after + 3;
-            let decimals = if matches!(chars.get(end), Some(',') | Some('.')) { digits_from(end + 1) } else { 0 };
-            if decimals > 0 {
-                let tenth = chars[end + 1].to_digit(10).unwrap_or(0) as i64;
-                out.push_str(&lap_time_words((n as i64 * 60 + s as i64) * 1000 + tenth * 100, lang));
-                i = end + 1 + decimals;
-            } else {
-                let zero = if lang == "de" { "null" } else { "oh" };
-                out.push_str(&match s {
-                    0 => format!("{} {zero} {zero}", number(n)),
-                    1..=9 => format!("{} {zero} {}", number(n), number(s)),
-                    _ => format!("{} {}", number(n), number(s)),
-                });
-                i = end;
-            }
+        let c = chars[i];
+        // a sign in front of a number, not a hyphen inside a word
+        if matches!(c, '-' | '+' | '\u{2212}') && digit(i + 1) && (i == 0 || chars[i - 1].is_whitespace() || chars[i - 1] == '(') {
+            out.push_str(if c == '+' { "plus " } else { "minus " });
+            i += 1;
             continue;
         }
-        let decimals = if matches!(chars.get(after), Some(',') | Some('.')) { digits_from(after + 1) } else { 0 };
-        out.push_str(&number(n));
-        i = after;
-        if decimals > 0 && decimals <= 2 {
-            out.push_str(if lang == "de" { " Komma" } else { " point" });
-            for digit in &chars[after + 1..after + 1 + decimals] {
-                out.push(' ');
-                out.push_str(&number(digit.to_digit(10).unwrap_or(0) as u64));
+        if !c.is_ascii_digit() {
+            out.push(c);
+            i += 1;
+            continue;
+        }
+        // the whole token: digits, and digits joined to them by a point, a comma or a colon
+        let whole = digits_from(i);
+        let mut groups: Vec<(char, usize, usize)> = Vec::new();
+        let mut end = i + whole;
+        while matches!(chars.get(end), Some('.' | ',' | ':')) && digit(end + 1) {
+            let len = digits_from(end + 1);
+            groups.push((chars[end], end + 1, len));
+            end += 1 + len;
+        }
+        let inside_word = i > 0 && chars[i - 1].is_alphanumeric();
+        let n = value(i, whole.min(18));
+        let words = match groups.as_slice() {
+            _ if inside_word || whole > 3 => None,
+            [] => Some(number(n)),
+            // a lap time, with or without its tenths
+            [(':', at, 2)] => {
+                let zero = if german { "null" } else { "oh" };
+                Some(match value(*at, 2) {
+                    0 => format!("{} {zero} {zero}", number(n)),
+                    s @ 1..=9 => format!("{} {zero} {}", number(n), number(s)),
+                    s => format!("{} {}", number(n), number(s)),
+                })
             }
-            i = after + 1 + decimals;
+            [(':', at, 2), ('.' | ',', tenths, 1..)] => {
+                let tenth = chars[*tenths].to_digit(10).unwrap_or(0) as i64;
+                Some(lap_time_words((n as i64 * 60 + value(*at, 2) as i64) * 1000 + tenth * 100, lang))
+            }
+            [(sign, at, len @ 1..=2)] if *sign == decimal_sign => {
+                let decimals: Vec<String> = chars[*at..*at + *len].iter().map(|d| number(d.to_digit(10).unwrap_or(0) as u64)).collect();
+                Some(format!("{} {} {}", number(n), if german { "Komma" } else { "point" }, decimals.join(" ")))
+            }
+            _ => None,
+        };
+        let Some(words) = words else {
+            out.extend(&chars[i..end]);
+            i = end;
+            continue;
+        };
+        out.push_str(&words);
+        i = end;
+        // what stands right behind the number
+        let boundary = |at: usize| chars.get(at).is_none_or(|c| !c.is_alphanumeric());
+        let space = usize::from(chars.get(i) == Some(&' '));
+        if chars.get(i) == Some(&'%') {
+            out.push_str(if german { " Prozent" } else { " percent" });
+            i += 1;
+        } else if chars.get(i + space) == Some(&'s') && boundary(i + space + 1) {
+            out.push_str(if german { " Sekunden" } else { " seconds" });
+            i += space + 1;
+        } else if chars.get(i).is_some_and(|c| c.is_alphabetic()) {
+            out.push(' ');
         }
     }
     out
@@ -287,6 +314,17 @@ mod tests {
         assert_eq!(spoken("Noch 12 Minuten, also 1:30 pro Runde.", "de"), "Noch zwölf Minuten, also eins dreißig pro Runde.");
         assert_eq!(spoken("Bremsen bei 640 Grad in Runde 3.", "de"), "Bremsen bei sechshundertvierzig Grad in Runde drei.");
         assert_eq!(spoken("In T13 und nach 1500 Metern.", "de"), "In T13 und nach 1500 Metern.", "part of a word, and too long to say, stay");
+        // units stuck to the number, signs, per cent
+        assert_eq!(spoken("Du verlierst 0,25s in Kurve 4.", "de"), "Du verlierst null Komma zwei fünf Sekunden in Kurve vier.");
+        assert_eq!(spoken("You lose 1.2s there, 0.3 s more than before.", "en"), "You lose one point two seconds there, zero point three seconds more than before.");
+        assert_eq!(spoken("Tank bei 85%.", "de"), "Tank bei fünfundachtzig Prozent.");
+        assert_eq!(spoken("Fuel at 85%.", "en"), "Fuel at eighty-five percent.");
+        assert_eq!(spoken("Das sind -0,3 s und +2 Runden.", "de"), "Das sind minus null Komma drei Sekunden und plus zwei Runden.");
+        assert_eq!(spoken("Top-Speed 8km/h höher.", "de"), "Top-Speed acht km/h höher.");
+        // what is not a plain number of the language stays as written, whole
+        assert_eq!(spoken("Nach 1.000 Metern, am 12.11., Version 0.9.1, 0,125 Sekunden.", "de"), "Nach 1.000 Metern, am 12.11., Version 0.9.1, 0,125 Sekunden.");
+        assert_eq!(spoken("After 1,000 metres.", "en"), "After 1,000 metres.");
+        assert_eq!(spoken("Reifen 27.5 psi.", "de"), "Reifen 27.5 psi.", "an English decimal in a German sentence is left to the voice");
         assert_eq!(spoken("Alles gut.", "de"), "Alles gut.");
         assert_eq!(spoken("", "en"), "");
     }
